@@ -1,0 +1,56 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="32" y1="24" x2="168" y2="176" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#10233A"/>
+      <stop offset="0.5" stop-color="#194B72"/>
+      <stop offset="1" stop-color="#0E1626"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="42" y1="36" x2="158" y2="164" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8ED8FF"/>
+      <stop offset="0.55" stop-color="#5FB5E6"/>
+      <stop offset="1" stop-color="#EAF7FF"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="66" y1="78" x2="136" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F6FBFF"/>
+      <stop offset="0.45" stop-color="#AFD3E9"/>
+      <stop offset="1" stop-color="#6F8FA9"/>
+    </linearGradient>
+    <linearGradient id="seam" x1="100" y1="70" x2="100" y2="130" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFF8C8"/>
+      <stop offset="0.5" stop-color="#FFD36B"/>
+      <stop offset="1" stop-color="#FF8A3D"/>
+    </linearGradient>
+    <filter id="glow" x="23" y="18" width="154" height="164" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <filter id="shadow" x="46" y="54" width="108" height="96" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="7" stdDeviation="6" flood-color="#08111D" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <path d="M100 18L167 57V143L100 182L33 143V57L100 18Z" fill="#6BD0FF" opacity="0.16" filter="url(#glow)"/>
+  <path d="M100 22L162 58V142L100 178L38 142V58L100 22Z" fill="url(#bg)"/>
+  <path d="M100 31L154 62V138L100 169L46 138V62L100 31Z" stroke="url(#rim)" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M100 44L143 69V131L100 156L57 131V69L100 44Z" fill="#0E1F31" opacity="0.72"/>
+
+  <g opacity="0.28">
+    <path d="M60 86H140" stroke="#9AD7F4" stroke-width="1.2"/>
+    <path d="M60 100H140" stroke="#9AD7F4" stroke-width="1.2"/>
+    <path d="M60 114H140" stroke="#9AD7F4" stroke-width="1.2"/>
+    <path d="M72 72L128 128" stroke="#9AD7F4" stroke-width="1"/>
+    <path d="M128 72L72 128" stroke="#9AD7F4" stroke-width="1"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <path d="M68 74C68 70.6863 70.6863 68 74 68H94V88H84C79.5817 88 76 91.5817 76 96V104C76 108.418 79.5817 112 84 112H94V132H74C70.6863 132 68 129.314 68 126V74Z" fill="url(#metal)"/>
+    <path d="M132 74C132 70.6863 129.314 68 126 68H106V88H116C120.418 88 124 91.5817 124 96V104C124 108.418 120.418 112 116 112H106V132H126C129.314 132 132 129.314 132 126V74Z" fill="url(#metal)"/>
+    <path d="M97 68H103V132H97V68Z" fill="url(#seam)"/>
+    <path d="M92 80L100 74L108 80L100 86L92 80Z" fill="#FFF2B2"/>
+    <path d="M92 100L100 94L108 100L100 106L92 100Z" fill="#FFD86D"/>
+    <path d="M92 120L100 114L108 120L100 126L92 120Z" fill="#FFB85F"/>
+  </g>
+
+  <path d="M90 58L94 66L86 64L90 58Z" fill="#FFE48A"/>
+  <path d="M111 52L115 61L106 59L111 52Z" fill="#FFD26A"/>
+  <path d="M122 64L126 72L117 70L122 64Z" fill="#FFE48A"/>
+</svg>
