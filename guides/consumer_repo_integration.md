@@ -1,25 +1,41 @@
 # Consumer Repo Integration
 
-The consumer repo should stay thin. `Weld` should own the projection logic.
+Consumer repos should keep repo-local policy in the manifest and keep release
+logic thin.
 
-## Recommended Integration Shape
+## Recommended Layout
 
 - add `{:weld, "~> 0.1.0", runtime: false}` to the root project
-- add one or more manifests under `packaging/hex_projections/`
-- invoke `mix weld.audit`, `mix weld.build`, and `mix weld.verify` from CI
-- keep repo-specific behavior in manifest data, not in shell scripts
+- store manifests under a stable repo-local path such as `packaging/weld/`
+- keep artifact-owned tests beside the manifest
+- call `weld` from CI or release automation rather than wrapping it in large
+  custom shell logic
 
-## Suggested CI Sequence
+## Suggested CI Shape
 
 ```bash
 mix deps.get
 mix test
-mix weld.audit packaging/hex_projections/jido_integration.exs
-mix weld.verify packaging/hex_projections/jido_integration.exs
+mix credo --strict
+mix dialyzer
+mix weld.inspect packaging/weld/my_bundle.exs
+mix weld.verify packaging/weld/my_bundle.exs
 ```
 
-## Design Rule
+## Suggested Release Shape
 
-If a consumer repo needs large custom projection logic, the `Weld` API surface
-is still wrong. The repo should contribute new general behavior back into
-`Weld` rather than forking the projection pipeline locally.
+```bash
+mix test
+mix credo --strict
+mix dialyzer
+mix weld.release.prepare packaging/weld/my_bundle.exs
+mix hex.publish --yes
+mix weld.release.archive packaging/weld/my_bundle.exs
+```
+
+## Integration Rule
+
+If a repo needs bespoke behavior that meaningfully changes how workspace
+discovery, selection, projection, or release bundling work, that behavior
+should usually be implemented in `weld` itself rather than in repo-local shell
+wrappers.

@@ -1,59 +1,105 @@
 # Manifest Reference
 
-Projection manifests are plain Elixir maps.
+Weld manifests are plain Elixir keyword lists.
 
-## Required Keys
+## Top-Level Keys
 
-- `package_name`
-  Public Hex package name for the generated projection.
+## `workspace`
+
+- `root`
+  Path from the manifest file to the repo root.
+- `project_globs`
+  Optional authoritative project globs. If omitted, `weld` will try
+  `blitz_workspace` and then filesystem fallback.
+
+## `classify`
+
+- `tooling`
+- `proofs`
+- `ignored`
+
+Each value is a list of project ids.
+
+## `publication`
+
+- `internal_only`
+- `separate`
+- `optional`
+
+`optional` is a keyword list mapping feature ids to project-id lists.
+
+## `artifacts`
+
+One manifest can define more than one publishable artifact. Each artifact entry
+contains:
+
+- `roots`
+- `include`
+- `optional_features`
+- `package`
+- `output`
+- `verify`
+
+## Package Keys
+
+- `name`
 - `otp_app`
-  OTP app name emitted by the generated `mix.exs`.
 - `version`
-  Version string written into the generated package.
-- `mode`
-  One of `:library_bundle`, `:strict_library_bundle`, or `:runtime_bundle`.
-- `source_projects`
-  Relative paths to selected child Mix projects.
+- `elixir`
+- `description`
+- `licenses`
+- `maintainers`
+- `links`
+- `docs_main`
 
-## Optional Keys
+## Output Keys
 
-- `public_entry_modules`
-  Declares the intended public API surface for human readers and future tooling.
-- `copy.docs`
-  Files copied into the generated package and exposed to ExDoc.
-- `copy.assets`
-  Additional asset paths copied verbatim.
-- `copy.priv`
-  Reserved for future finer-grained `priv/` control. `:auto` is the current default.
-- `docs.main`
-  ExDoc main page name, usually `"readme"`.
+- `dist_root`
+- `layout`
+- `docs`
+- `assets`
+
+The current stable layout is `:components`.
+
+## Verify Keys
+
+- `artifact_tests`
+- `smoke.enabled`
+- `smoke.entry_file`
 
 ## Example
 
 ```elixir
-%{
-  package_name: "my_bundle",
-  otp_app: :my_bundle,
-  version: "0.1.0",
-  mode: :strict_library_bundle,
-  source_projects: [
-    "core/contracts",
-    "runtime/local"
+[
+  workspace: [
+    root: "../..",
+    project_globs: ["apps/*", "core/*", "tooling/*"]
   ],
-  public_entry_modules: [
-    MyBundle
+  classify: [
+    tooling: [".", "tooling/test_support"],
+    proofs: ["apps/demo"]
   ],
-  copy: %{
-    docs: [
-      "README.md",
-      "CHANGELOG.md",
-      "guides/architecture.md"
-    ],
-    assets: ["guides/assets"],
-    priv: :auto
-  },
-  docs: %{
-    main: "readme"
-  }
-}
+  publication: [
+    internal_only: ["tooling/test_support"],
+    optional: [
+      demo: ["apps/demo"]
+    ]
+  ],
+  artifacts: [
+    web_bundle: [
+      roots: ["apps/web"],
+      package: [
+        name: "web_bundle",
+        otp_app: :web_bundle,
+        version: "0.1.0"
+      ],
+      output: [
+        docs: ["README.md", "guides/architecture.md"]
+      ],
+      verify: [
+        artifact_tests: ["packaging/weld/web_bundle/test"]
+      ]
+    ]
+  ]
+]
 ```

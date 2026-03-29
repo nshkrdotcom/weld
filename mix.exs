@@ -7,6 +7,8 @@ defmodule Weld.MixProject do
       version: "0.1.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
+      test_paths: test_paths(Mix.env()),
       preferred_cli_env: preferred_cli_env(),
       dialyzer: dialyzer(),
       deps: deps(),
@@ -22,11 +24,21 @@ defmodule Weld.MixProject do
     ]
   end
 
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
+
+  defp test_paths(:test), do: ["test/weld"]
+  defp test_paths(_env), do: ["test"]
+
   defp deps do
     [
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
-      {:ex_doc, "~> 0.40.1", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.40", only: :dev, runtime: false},
+      {:jason, "~> 1.4"},
+      {:libgraph, "~> 0.16.0"},
+      {:nimble_options, "~> 1.1"},
+      {:telemetry, "~> 1.3"}
     ]
   end
 
@@ -41,6 +53,7 @@ defmodule Weld.MixProject do
 
   defp docs do
     [
+      name: "Weld",
       main: "readme",
       logo: "assets/weld.svg",
       homepage_url: "https://github.com/nshkrdotcom/weld",
@@ -49,8 +62,12 @@ defmodule Weld.MixProject do
       extras: [
         "README.md": [title: "Overview"],
         "guides/getting_started.md": [title: "Getting Started"],
+        "guides/workflow.md": [title: "Workflow"],
+        "guides/cli_reference.md": [title: "CLI Reference"],
         "guides/architecture.md": [title: "Architecture"],
         "guides/manifest_reference.md": [title: "Manifest Reference"],
+        "guides/testing_strategy.md": [title: "Testing Strategy"],
+        "guides/release_process.md": [title: "Release Process"],
         "guides/consumer_repo_integration.md": [title: "Consumer Repo Integration"],
         "CHANGELOG.md": [title: "Changelog"],
         LICENSE: [title: "License"]
@@ -59,24 +76,45 @@ defmodule Weld.MixProject do
         "Public API": [
           Weld,
           Weld.Manifest,
-          Weld.ProjectGraph,
-          Weld.Audit,
-          Weld.Audit.Report
+          Weld.Plan,
+          Weld.Workspace,
+          Weld.Graph
         ],
-        "Build Pipeline": [
-          Weld.Builder,
-          Weld.ProjectGraph.Project,
+        "Projection And Release": [
+          Weld.Projector,
+          Weld.Verifier,
+          Weld.Release,
+          Weld.Lockfile,
+          Weld.SmokeApp,
+          Weld.Affected
+        ],
+        "Workspace And Graph": [
+          Weld.Workspace.Project,
+          Weld.Workspace.Discovery,
+          Weld.Graph.Edge,
+          Weld.Graph.View,
+          Weld.Violation,
+          Weld.Hash,
+          Weld.Git,
           Weld.Error
         ],
         "Mix Tasks": [
-          Mix.Tasks.Weld.Build,
-          Mix.Tasks.Weld.Audit,
-          Mix.Tasks.Weld.Verify
+          Mix.Tasks.Weld.Inspect,
+          Mix.Tasks.Weld.Graph,
+          Mix.Tasks.Weld.Query,
+          Mix.Tasks.Weld.Affected,
+          Mix.Tasks.Weld.Project,
+          Mix.Tasks.Weld.Verify,
+          Mix.Tasks.Weld.Release.Prepare,
+          Mix.Tasks.Weld.Release.Archive
         ]
       ],
       groups_for_extras: [
-        Guides: ~r/guides\//,
-        "Project Documents": ~r/README.md|CHANGELOG.md|LICENSE/
+        "Start Here": ~r/README.md|guides\/getting_started.md|guides\/workflow.md/,
+        Reference: ~r/guides\/cli_reference.md|guides\/manifest_reference.md/,
+        "Deep Dive":
+          ~r/guides\/architecture.md|guides\/testing_strategy.md|guides\/consumer_repo_integration.md/,
+        Release: ~r/guides\/release_process.md|CHANGELOG.md|LICENSE/
       ]
     ]
   end
@@ -84,7 +122,8 @@ defmodule Weld.MixProject do
   defp preferred_cli_env do
     [
       credo: :test,
-      dialyzer: :dev
+      dialyzer: :dev,
+      docs: :dev
     ]
   end
 

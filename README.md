@@ -10,27 +10,28 @@
   <a href="https://github.com/nshkrdotcom/weld"><img src="https://img.shields.io/badge/github-nshkrdotcom/weld-8da0cb?style=flat&logo=github" alt="GitHub" /></a>
 </p>
 
-Deterministic Hex package projection for Elixir monorepos.
+`Weld` is a graph-native publication system for Elixir monorepos.
 
-`Weld` lets a source monorepo keep multiple internal Mix projects while
-shipping one external Hex package. It audits the selected projects, assembles a
-generated standalone package under `dist/hex/<package_name>/`, and verifies the
-result with normal Mix tooling.
+It keeps the source repo as a normal multi-project workspace, builds a
+workspace graph, resolves one artifact boundary from a repo-local manifest,
+projects a standalone Mix package, verifies that generated package with normal
+Mix tooling, and prepares an archiveable release bundle for publication.
 
 ## What It Does
 
-- Loads a projection manifest from `packaging/hex_projections/*.exs`
-- Reads selected child Mix projects directly from the source monorepo
-- Internalizes selected sibling `path:` dependencies instead of publishing them
-- Rejects unsupported `git` and unresolved sibling dependencies
-- Copies source trees into a generated package projection
-- Renders a standalone `mix.exs` with compile paths over copied sources
-- Audits app-identity-sensitive code for strict bundle modes
-- Verifies generated packages with `mix compile`, `mix docs`, and `mix hex.build`
+- discovers workspace projects from manifest globs, `blitz_workspace`, or filesystem fallback
+- classifies projects as runtime, tooling, proof, or ignored
+- separates publication role from project classification
+- classifies internal edges by execution meaning
+- exposes inspect, graph, query, affected, project, verify, and release tasks
+- emits a deterministic `projection.lock.json`
+- generates a standalone Mix package under `dist/hex/<package>/`
+- prepares a deterministic release bundle under `dist/release_bundles/<package>/...`
+- archives released bundles without turning generated output into a long-lived source tree
 
 ## Installation
 
-Add `weld` to the root project that owns your monorepo packaging workflow.
+Add `weld` to the root project that owns the repo's packaging and release flow.
 
 ```elixir
 def deps do
@@ -40,113 +41,96 @@ def deps do
 end
 ```
 
-`runtime: false` is the intended default because `Weld` is a build and release
-tool, not a runtime dependency for the published package.
+## Release Lifecycle
 
-## Quick Start
+The intended lifecycle is:
 
-Create a projection manifest in your source repo:
+1. run the normal source-repo checks
+2. run `mix weld.release.prepare ...`
+3. run `mix hex.publish` from the prepared bundle
+4. run `mix weld.release.archive ...`
+
+`weld` owns create, welded-package verification, and archive preparation. Hex
+publish remains external.
+
+## Example Manifest
 
 ```elixir
-%{
-  package_name: "jido_integration",
-  otp_app: :jido_integration,
-  version: "0.1.0",
-  mode: :library_bundle,
-  source_projects: [
-    "core/contracts",
-    "core/platform",
-    "runtime/local"
+[
+  workspace: [
+    root: "../..",
+    project_globs: ["core/*", "runtime/*"]
   ],
-  public_entry_modules: [
-    Jido.Integration
-  ],
-  copy: %{
-    docs: [
-      "README.md",
-      "CHANGELOG.md",
-      "guides/architecture.md"
-    ],
-    assets: ["guides/assets"],
-    priv: :auto
-  },
-  docs: %{
-    main: "readme"
-  }
-}
+  artifacts: [
+    my_bundle: [
+      roots: ["runtime/local"],
+      package: [
+        name: "my_bundle",
+        otp_app: :my_bundle,
+        version: "0.1.0",
+        description: "My welded package"
+      ],
+      output: [
+        docs: ["README.md", "guides/architecture.md"]
+      ],
+      verify: [
+        artifact_tests: ["packaging/weld/my_bundle/test"],
+        smoke: [
+          enabled: true,
+          entry_file: "packaging/weld/my_bundle/smoke.ex"
+        ]
+      ]
+    ]
+  ]
+]
 ```
 
-Then run:
+## Core Commands
 
 ```bash
-mix weld.audit packaging/hex_projections/jido_integration.exs
-mix weld.build packaging/hex_projections/jido_integration.exs
-mix weld.verify packaging/hex_projections/jido_integration.exs
+mix weld.inspect packaging/weld/my_bundle.exs
+mix weld.graph packaging/weld/my_bundle.exs --format dot
+mix weld.query deps packaging/weld/my_bundle.exs runtime/local
+mix weld.project packaging/weld/my_bundle.exs
+mix weld.verify packaging/weld/my_bundle.exs
+mix weld.release.prepare packaging/weld/my_bundle.exs
+mix weld.release.archive packaging/weld/my_bundle.exs
+mix weld.affected packaging/weld/my_bundle.exs --task verify.all --base main --head HEAD
 ```
 
-Generated output lands in:
+## Generated Output
+
+`Weld` projects a standalone package under `dist/hex/<package>/` using a
+component-preserving layout:
 
 ```text
 dist/
   hex/
-    jido_integration/
+    my_bundle/
       mix.exs
-      README.md
-      CHANGELOG.md
-      vendor/
-        core_contracts/
-        core_platform/
-        runtime_local/
+      projection.lock.json
+      components/
+        core/contracts/
+        runtime/local/
+      test/
 ```
 
-## Public API
+The welded artifact is a normal Mix project. `weld.verify` runs:
 
-`Weld` exposes a small library surface:
-
-```elixir
-Weld.audit!("packaging/hex_projections/jido_integration.exs")
-Weld.build!("packaging/hex_projections/jido_integration.exs")
-Weld.verify!("packaging/hex_projections/jido_integration.exs")
-```
-
-Use the Mix tasks for normal CI and release automation. Use the library API when
-you want to compose projection behavior inside repo-local tooling.
-
-## Bundle Modes
-
-- `:library_bundle` assembles a generated package and reports audit findings
-  without blocking the build.
-- `:strict_library_bundle` blocks when app-identity-sensitive code is detected.
-- `:runtime_bundle` is reserved for future explicit runtime assembly support.
-
-## TDD / RGR
-
-This repo is built fixture-first:
-
-- manifest loading is covered by acceptance-style tests
-- project graph loading is covered against real fixture monorepos
-- generated projections are compiled in tests
-- strict audit behavior is tested with a failing fixture
-
-That keeps the implementation honest and gives consumer repos a stable contract
-to integrate against.
-
-## Initial Version Boundary
-
-`Weld` 0.1 intentionally stays narrow:
-
-- one monorepo
-- many internal Mix projects
-- one generated publishable package
-- deterministic docs and packaging
-- explicit failure on unsupported strict bundle shapes
-
-It does not try to solve release assembly, multiple packages per manifest, or
-automatic rewrites of incompatible OTP app identity assumptions.
+- `mix compile --warnings-as-errors`
+- `mix test`
+- `mix docs --warnings-as-errors`
+- `mix hex.build`
+- `mix hex.publish --dry-run --yes`
+- optional smoke-app compilation
 
 ## Guides
 
 - [Getting Started](guides/getting_started.md)
-- [Architecture](guides/architecture.md)
+- [Workflow](guides/workflow.md)
+- [CLI Reference](guides/cli_reference.md)
 - [Manifest Reference](guides/manifest_reference.md)
+- [Architecture](guides/architecture.md)
+- [Testing Strategy](guides/testing_strategy.md)
+- [Release Process](guides/release_process.md)
 - [Consumer Repo Integration](guides/consumer_repo_integration.md)

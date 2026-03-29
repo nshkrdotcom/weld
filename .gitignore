@@ -27,3 +27,7 @@ weld-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Generated output inside local fixture repos used by integration tests.
+/test/fixtures/**/dist/
+/test/fixtures/**/tmp/

@@ -7,7 +7,8 @@ defmodule Fixture.Runtime.MixProject do
       version: "0.1.0",
       elixir: "~> 1.18",
       deps: [
-        {:fixture_contracts, path: "../../core/contracts"}
+        {:fixture_contracts, path: "../../core/contracts"},
+        {:jason, "~> 1.4"}
       ]
     ]
   end

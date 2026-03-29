@@ -1,7 +1,7 @@
 # Getting Started
 
-`Weld` is intended to be installed in the root project that owns a multi-Mix
-monorepo.
+`Weld` belongs in the root project that owns packaging and release work for a
+multi-project Elixir repo.
 
 ## 1. Add The Dependency
 
@@ -13,72 +13,78 @@ def deps do
 end
 ```
 
-## 2. Create A Projection Manifest
+## 2. Add A Repo-Local Manifest
 
-Write a manifest under `packaging/hex_projections/`:
+Create a manifest such as `packaging/weld/my_bundle.exs`:
 
 ```elixir
-%{
-  package_name: "my_bundle",
-  otp_app: :my_bundle,
-  version: "0.1.0",
-  mode: :library_bundle,
-  source_projects: [
-    "core/contracts",
-    "runtime/local"
+[
+  workspace: [
+    root: "../..",
+    project_globs: ["core/*", "runtime/*"]
   ],
-  public_entry_modules: [
-    MyBundle
-  ],
-  copy: %{
-    docs: [
-      "README.md",
-      "CHANGELOG.md",
-      "guides/architecture.md"
-    ],
-    assets: [],
-    priv: :auto
-  },
-  docs: %{
-    main: "readme"
-  }
-}
+  artifacts: [
+    my_bundle: [
+      roots: ["runtime/local"],
+      package: [
+        name: "my_bundle",
+        otp_app: :my_bundle,
+        version: "0.1.0"
+      ],
+      output: [
+        docs: ["README.md", "guides/architecture.md"]
+      ],
+      verify: [
+        artifact_tests: ["packaging/weld/my_bundle/test"]
+      ]
+    ]
+  ]
+]
 ```
 
-## 3. Audit Before You Build
+`workspace.root` is resolved relative to the manifest file. In
+`packaging/weld/...`, `"../.."` points back to the repo root.
 
-Run:
+## 3. Inspect Before You Project
 
 ```bash
-mix weld.audit packaging/hex_projections/my_bundle.exs
+mix weld.inspect packaging/weld/my_bundle.exs
+mix weld.graph packaging/weld/my_bundle.exs --format dot
 ```
 
-Use `:strict_library_bundle` when the bundle should fail on app-identity
-assumptions such as `Application.app_dir/1`.
+Use these commands to confirm project discovery, classifications, and graph
+shape before generating output.
 
-## 4. Build The Projection
-
-Run:
+## 4. Generate The Welded Package
 
 ```bash
-mix weld.build packaging/hex_projections/my_bundle.exs
+mix weld.project packaging/weld/my_bundle.exs
 ```
 
-This generates a standalone package in `dist/hex/my_bundle/`.
+This creates a standalone Mix project under `dist/hex/<package>/`.
 
-## 5. Verify The Result
-
-Run:
+## 5. Verify The Welded Package
 
 ```bash
-mix weld.verify packaging/hex_projections/my_bundle.exs
+mix weld.verify packaging/weld/my_bundle.exs
 ```
 
-Verification runs:
+This runs package-level verification against the generated artifact:
 
-- `mix deps.get`
-- `mix compile`
-- `mix docs`
+- `mix compile --warnings-as-errors`
+- `mix test`
+- `mix docs --warnings-as-errors`
 - `mix hex.build`
+- `mix hex.publish --dry-run --yes`
+- optional smoke verification when configured
 
-inside the generated package directory.
+## 6. Prepare And Archive Releases
+
+```bash
+mix weld.release.prepare packaging/weld/my_bundle.exs
+mix hex.publish --yes
+mix weld.release.archive packaging/weld/my_bundle.exs
+```
+
+The prepared bundle contains the projected project tree, tarball, lockfile, and
+release metadata needed to preserve exactly what was published.

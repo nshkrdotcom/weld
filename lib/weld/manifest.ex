@@ -1,189 +1,352 @@
 defmodule Weld.Manifest do
   @moduledoc """
-  Loads and normalizes a projection manifest from `packaging/hex_projections`.
+  Loads and validates a repo-local weld manifest.
   """
 
-  @enforce_keys [
-    :manifest_path,
-    :repo_root,
-    :package_name,
-    :otp_app,
-    :version,
-    :mode,
-    :source_projects,
-    :public_entry_modules,
-    :description,
-    :licenses,
-    :maintainers,
-    :links,
-    :copy,
-    :docs
-  ]
+  alias Weld.Error
+
+  defmodule Artifact do
+    @moduledoc """
+    Normalized artifact configuration.
+    """
+
+    @enforce_keys [:id, :roots, :include, :optional_features, :package, :output, :verify]
+    defstruct @enforce_keys
+
+    @type t :: %__MODULE__{
+            id: String.t(),
+            roots: [String.t()],
+            include: [String.t()],
+            optional_features: [String.t()],
+            package: Weld.Manifest.Package.t(),
+            output: Weld.Manifest.Output.t(),
+            verify: Weld.Manifest.Verify.t()
+          }
+  end
+
+  defmodule Package do
+    @moduledoc """
+    Package metadata for a generated artifact.
+    """
+
+    @enforce_keys [
+      :name,
+      :otp_app,
+      :version,
+      :elixir,
+      :description,
+      :licenses,
+      :maintainers,
+      :links,
+      :docs_main
+    ]
+    defstruct @enforce_keys
+
+    @type t :: %__MODULE__{
+            name: String.t(),
+            otp_app: atom(),
+            version: String.t(),
+            elixir: String.t(),
+            description: String.t(),
+            licenses: [String.t()],
+            maintainers: [String.t()],
+            links: %{optional(String.t()) => String.t()},
+            docs_main: String.t()
+          }
+  end
+
+  defmodule Output do
+    @moduledoc """
+    Projection output configuration.
+    """
+
+    @enforce_keys [:dist_root, :layout, :docs, :assets]
+    defstruct @enforce_keys
+
+    @type t :: %__MODULE__{
+            dist_root: String.t(),
+            layout: :components,
+            docs: [String.t()],
+            assets: [String.t()]
+          }
+  end
+
+  defmodule Verify do
+    @moduledoc """
+    Verification configuration for a generated artifact.
+    """
+
+    @enforce_keys [:artifact_tests, :smoke]
+    defstruct @enforce_keys
+
+    @type smoke_config :: %{
+            enabled: boolean(),
+            entry_file: String.t() | nil
+          }
+
+    @type t :: %__MODULE__{
+            artifact_tests: [String.t()],
+            smoke: smoke_config()
+          }
+  end
+
+  @enforce_keys [:manifest_path, :repo_root, :workspace, :classify, :publication, :artifacts]
   defstruct @enforce_keys
 
-  @type copy_config :: %{
-          docs: [String.t()],
-          assets: [String.t()],
-          priv: :auto | [String.t()]
+  @type workspace_config :: %{
+          root: String.t(),
+          project_globs: [String.t()]
         }
 
-  @type docs_config :: %{
-          main: String.t()
+  @type classify_config :: %{
+          tooling: MapSet.t(String.t()),
+          proofs: MapSet.t(String.t()),
+          ignored: MapSet.t(String.t())
+        }
+
+  @type publication_config :: %{
+          internal_only: MapSet.t(String.t()),
+          separate: MapSet.t(String.t()),
+          optional: %{optional(String.t()) => MapSet.t(String.t())}
         }
 
   @type t :: %__MODULE__{
           manifest_path: Path.t(),
           repo_root: Path.t(),
-          package_name: String.t(),
-          otp_app: atom(),
-          version: String.t(),
-          mode: :library_bundle | :strict_library_bundle | :runtime_bundle,
-          source_projects: [String.t()],
-          public_entry_modules: [module()],
-          description: String.t(),
-          licenses: [String.t()],
-          maintainers: [String.t()],
-          links: %{optional(String.t()) => String.t()},
-          copy: copy_config(),
-          docs: docs_config()
+          workspace: workspace_config(),
+          classify: classify_config(),
+          publication: publication_config(),
+          artifacts: %{optional(String.t()) => Artifact.t()}
         }
 
-  @allowed_modes [:library_bundle, :strict_library_bundle, :runtime_bundle]
+  @root_schema [
+    workspace: [type: :keyword_list, required: true],
+    classify: [type: :keyword_list, default: []],
+    publication: [type: :keyword_list, default: []],
+    artifacts: [type: :keyword_list, required: true]
+  ]
+
+  @workspace_schema [
+    root: [type: :string, required: true],
+    project_globs: [type: {:list, :string}, default: []]
+  ]
+
+  @classify_schema [
+    tooling: [type: {:list, :string}, default: []],
+    proofs: [type: {:list, :string}, default: []],
+    ignored: [type: {:list, :string}, default: []]
+  ]
+
+  @publication_schema [
+    internal_only: [type: {:list, :string}, default: []],
+    separate: [type: {:list, :string}, default: []],
+    optional: [type: :keyword_list, default: []]
+  ]
+
+  @artifact_schema [
+    roots: [type: {:list, :string}, required: true],
+    include: [type: {:list, :string}, default: []],
+    optional_features: [type: {:list, :string}, default: []],
+    package: [type: :keyword_list, required: true],
+    output: [type: :keyword_list, required: true],
+    verify: [type: :keyword_list, default: []]
+  ]
+
+  @package_schema [
+    name: [type: :string, required: true],
+    otp_app: [type: :atom, required: true],
+    version: [type: :string, required: true],
+    elixir: [type: :string, default: "~> 1.18"],
+    description: [type: :string, default: "Generated by weld"],
+    licenses: [type: {:list, :string}, default: ["MIT"]],
+    maintainers: [type: {:list, :string}, default: []],
+    links: [type: :any, default: %{}],
+    docs_main: [type: :string, default: "readme"]
+  ]
+
+  @output_schema [
+    dist_root: [type: :string, default: "dist"],
+    layout: [type: {:in, [:components]}, default: :components],
+    docs: [type: {:list, :string}, default: []],
+    assets: [type: {:list, :string}, default: []]
+  ]
+
+  @verify_schema [
+    artifact_tests: [type: {:list, :string}, default: []],
+    smoke: [type: :keyword_list, default: []]
+  ]
+
+  @smoke_schema [
+    enabled: [type: :boolean, default: false],
+    entry_file: [type: :string]
+  ]
 
   @spec load!(Path.t()) :: t()
   def load!(manifest_path) do
     manifest_path = Path.expand(manifest_path)
 
     unless File.regular?(manifest_path) do
-      raise Weld.Error, "manifest not found: #{manifest_path}"
+      raise Error, "manifest not found: #{manifest_path}"
     end
 
     {raw, _binding} = Code.eval_file(manifest_path)
 
-    unless is_map(raw) do
-      raise Weld.Error, "manifest must evaluate to a map: #{manifest_path}"
+    unless Keyword.keyword?(raw) do
+      raise Error, "manifest must evaluate to a keyword list: #{manifest_path}"
     end
 
-    repo_root =
-      manifest_path
-      |> Path.dirname()
-      |> Path.join("../..")
-      |> Path.expand()
+    config = NimbleOptions.validate!(raw, @root_schema)
+    manifest_dir = Path.dirname(manifest_path)
+    workspace = normalize_workspace(config[:workspace], manifest_dir)
 
-    copy = normalize_copy(Map.get(raw, :copy, %{}))
-    docs = normalize_docs(Map.get(raw, :docs, %{}))
-
-    manifest = %__MODULE__{
+    %__MODULE__{
       manifest_path: manifest_path,
-      repo_root: repo_root,
-      package_name: fetch_string!(raw, :package_name),
-      otp_app: fetch_atom!(raw, :otp_app),
-      version: fetch_string!(raw, :version),
-      mode: fetch_mode!(raw),
-      source_projects: fetch_paths!(raw, :source_projects),
-      public_entry_modules: Map.get(raw, :public_entry_modules, []),
-      description: Map.get(raw, :description, "Generated package projection assembled by Weld"),
-      licenses: normalize_string_list(Map.get(raw, :licenses, ["MIT"])),
-      maintainers: normalize_string_list(Map.get(raw, :maintainers, [])),
-      links: normalize_links(Map.get(raw, :links, %{})),
-      copy: copy,
-      docs: docs
+      repo_root: Path.expand(workspace.root, manifest_dir),
+      workspace: workspace,
+      classify: normalize_classify(config[:classify]),
+      publication: normalize_publication(config[:publication]),
+      artifacts: normalize_artifacts(config[:artifacts])
     }
-
-    validate!(manifest)
+    |> validate!()
   end
 
-  defp validate!(manifest) do
-    if manifest.source_projects == [] do
-      raise Weld.Error, "manifest must include at least one source project"
+  @spec artifact!(t(), nil | String.t() | atom()) :: Artifact.t()
+  def artifact!(%__MODULE__{artifacts: artifacts}, nil) do
+    case Map.values(artifacts) do
+      [artifact] -> artifact
+      _many -> raise Error, "manifest defines multiple artifacts; pass --artifact"
+    end
+  end
+
+  def artifact!(%__MODULE__{artifacts: artifacts}, artifact_name) do
+    key = normalize_key(artifact_name)
+
+    case Map.fetch(artifacts, key) do
+      {:ok, artifact} -> artifact
+      :error -> raise Error, "unknown artifact #{key}"
+    end
+  end
+
+  defp validate!(%__MODULE__{} = manifest) do
+    if map_size(manifest.artifacts) == 0 do
+      raise Error, "manifest must define at least one artifact"
     end
 
     manifest
   end
 
-  defp normalize_copy(copy) when is_map(copy) do
+  defp normalize_workspace(workspace, manifest_dir) do
+    workspace = NimbleOptions.validate!(workspace, @workspace_schema)
+
     %{
-      docs: normalize_string_list(Map.get(copy, :docs, [])),
-      assets: normalize_string_list(Map.get(copy, :assets, [])),
-      priv: Map.get(copy, :priv, :auto)
+      root: Path.expand(workspace[:root], manifest_dir),
+      project_globs: Enum.sort(workspace[:project_globs])
     }
   end
 
-  defp normalize_copy(_copy) do
-    raise Weld.Error, "manifest copy config must be a map"
-  end
+  defp normalize_classify(classify) do
+    classify = NimbleOptions.validate!(classify, @classify_schema)
 
-  defp normalize_docs(docs) when is_map(docs) do
     %{
-      main: Map.get(docs, :main, "readme")
+      tooling: classify[:tooling] |> MapSet.new(),
+      proofs: classify[:proofs] |> MapSet.new(),
+      ignored: classify[:ignored] |> MapSet.new()
     }
   end
 
-  defp normalize_docs(_docs) do
-    raise Weld.Error, "manifest docs config must be a map"
+  defp normalize_publication(publication) do
+    publication = NimbleOptions.validate!(publication, @publication_schema)
+
+    %{
+      internal_only: publication[:internal_only] |> MapSet.new(),
+      separate: publication[:separate] |> MapSet.new(),
+      optional: normalize_optional_features(publication[:optional])
+    }
   end
 
-  defp fetch_mode!(raw) do
-    mode = Map.get(raw, :mode, :library_bundle)
-
-    if mode in @allowed_modes do
-      mode
-    else
-      raise Weld.Error, "unsupported bundle mode: #{inspect(mode)}"
-    end
-  end
-
-  defp fetch_string!(raw, key) do
-    value = Map.fetch!(raw, key)
-
-    if is_binary(value) and value != "" do
-      value
-    else
-      raise Weld.Error, "manifest #{key} must be a non-empty string"
-    end
-  end
-
-  defp fetch_atom!(raw, key) do
-    value = Map.fetch!(raw, key)
-
-    if is_atom(value) do
-      value
-    else
-      raise Weld.Error, "manifest #{key} must be an atom"
-    end
-  end
-
-  defp fetch_paths!(raw, key) do
-    raw
-    |> Map.fetch!(key)
-    |> normalize_string_list()
-  end
-
-  defp normalize_string_list(list) when is_list(list) do
-    Enum.map(list, fn item ->
-      if is_binary(item) and item != "" do
-        item
-      else
-        raise Weld.Error, "expected a non-empty string list entry, got: #{inspect(item)}"
-      end
-    end)
-  end
-
-  defp normalize_string_list(_value) do
-    raise Weld.Error, "expected a list of strings"
-  end
-
-  defp normalize_links(links) when is_map(links) do
-    Map.new(links, fn {key, value} ->
-      unless is_binary(key) and key != "" and is_binary(value) and value != "" do
-        raise Weld.Error, "manifest links must contain non-empty string keys and values"
+  defp normalize_optional_features(optional_features) do
+    optional_features
+    |> Enum.map(fn {feature, projects} ->
+      unless is_list(projects) and Enum.all?(projects, &is_binary/1) do
+        raise Error, "publication.optional entries must be lists of project ids"
       end
 
-      {key, value}
+      {normalize_key(feature), MapSet.new(projects)}
     end)
+    |> Map.new()
   end
 
-  defp normalize_links(_value) do
-    raise Weld.Error, "manifest links must be a map"
+  defp normalize_artifacts(artifacts) do
+    artifacts
+    |> Enum.map(fn {artifact_name, config} ->
+      normalized = NimbleOptions.validate!(config, @artifact_schema)
+      artifact_id = normalize_key(artifact_name)
+
+      artifact =
+        %Artifact{
+          id: artifact_id,
+          roots: Enum.sort(normalized[:roots]),
+          include: Enum.sort(normalized[:include]),
+          optional_features: Enum.sort(normalized[:optional_features]),
+          package: normalize_package(normalized[:package]),
+          output: normalize_output(normalized[:output]),
+          verify: normalize_verify(normalized[:verify])
+        }
+
+      {artifact_id, artifact}
+    end)
+    |> Map.new()
   end
+
+  defp normalize_package(package) do
+    package = NimbleOptions.validate!(package, @package_schema)
+
+    links =
+      Map.new(package[:links], fn {label, url} ->
+        unless is_binary(label) and label != "" and is_binary(url) and url != "" do
+          raise Error, "package links must contain non-empty string keys and values"
+        end
+
+        {label, url}
+      end)
+
+    %Package{
+      name: package[:name],
+      otp_app: package[:otp_app],
+      version: package[:version],
+      elixir: package[:elixir],
+      description: package[:description],
+      licenses: package[:licenses],
+      maintainers: package[:maintainers],
+      links: links,
+      docs_main: package[:docs_main]
+    }
+  end
+
+  defp normalize_output(output) do
+    output = NimbleOptions.validate!(output, @output_schema)
+
+    %Output{
+      dist_root: output[:dist_root],
+      layout: output[:layout],
+      docs: Enum.sort(output[:docs]),
+      assets: Enum.sort(output[:assets])
+    }
+  end
+
+  defp normalize_verify(verify) do
+    verify = NimbleOptions.validate!(verify, @verify_schema)
+    smoke = NimbleOptions.validate!(verify[:smoke], @smoke_schema)
+
+    %Verify{
+      artifact_tests: Enum.sort(verify[:artifact_tests]),
+      smoke: %{
+        enabled: smoke[:enabled],
+        entry_file: smoke[:entry_file]
+      }
+    }
+  end
+
+  defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp normalize_key(key) when is_binary(key), do: key
 end
