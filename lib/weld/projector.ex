@@ -30,13 +30,14 @@ defmodule Weld.Projector do
       )
 
     ensure_readme!(plan, build_path)
+    generated_files = render_generated_files!(plan, build_path)
     render_mixfile!(plan, build_path)
 
     projection =
       %{
         build_path: build_path,
         copied_files:
-          (copied_components ++ copied_docs ++ copied_assets ++ copied_tests)
+          (copied_components ++ copied_docs ++ copied_assets ++ copied_tests ++ generated_files)
           |> Enum.uniq()
           |> Enum.sort(),
         package_files: package_files(plan),
@@ -65,6 +66,7 @@ defmodule Weld.Projector do
       |> Enum.map(&Path.join("components", &1))
 
     ["mix.exs", "projection.lock.json"]
+    |> Kernel.++(generated_root_paths(plan))
     |> Kernel.++(component_roots)
     |> Kernel.++(plan.artifact.output.docs)
     |> Kernel.++(plan.artifact.output.assets)
@@ -144,6 +146,20 @@ defmodule Weld.Projector do
     File.write!(Path.join(build_path, "mix.exs"), mixfile_contents(plan))
   end
 
+  defp render_generated_files!(plan, build_path) do
+    case generated_application(plan) do
+      %{module: nil} ->
+        []
+
+      application ->
+        relative_path = generated_application_relative_path(plan)
+        target = Path.join(build_path, relative_path)
+        File.mkdir_p!(Path.dirname(target))
+        File.write!(target, application_module_contents(application))
+        [relative_path]
+    end
+  end
+
   defp ensure_readme!(plan, build_path) do
     readme = Path.join(build_path, "README.md")
 
@@ -155,12 +171,14 @@ defmodule Weld.Projector do
   defp mixfile_contents(plan) do
     package = plan.artifact.package
     module_name = "#{Macro.camelize(to_string(package.otp_app))}.MixProject"
-    elixirc_paths = component_paths(plan.selected_projects, & &1.elixirc_paths)
+    application = generated_application(plan)
+    elixirc_paths = component_paths(plan.selected_projects, & &1.elixirc_paths, plan)
     erlc_paths = component_paths(plan.selected_projects, & &1.erlc_paths)
     deps = render_deps(plan.external_deps)
     files = package_files(plan) |> Enum.map_join(",\n        ", &inspect/1)
     extras = plan.artifact.output.docs |> Enum.map_join(",\n        ", &inspect/1)
     links = package.links |> fallback_links(plan.manifest.repo_root) |> inspect(pretty: true)
+    application_config = application_config_literal(application)
 
     """
     defmodule #{module_name} do
@@ -182,9 +200,7 @@ defmodule Weld.Projector do
       end
 
       def application do
-        [
-          extra_applications: [:logger]
-        ]
+        #{application_config}
       end
 
       def elixirc_paths(:test) do
@@ -228,17 +244,24 @@ defmodule Weld.Projector do
     """
   end
 
-  defp component_paths(projects, path_fun) do
-    projects
-    |> Enum.flat_map(fn project ->
-      project
-      |> path_fun.()
-      |> Enum.map(fn relative ->
-        Path.join(["components", component_dir(project), relative])
-      end)
-    end)
-    |> Enum.uniq()
-    |> Enum.sort()
+  defp component_paths(projects, path_fun, plan \\ nil) do
+    root_paths =
+      case generated_root_paths(plan) do
+        [] -> []
+        root_paths -> root_paths
+      end
+
+    root_paths ++
+      (projects
+       |> Enum.flat_map(fn project ->
+         project
+         |> path_fun.()
+         |> Enum.map(fn relative ->
+           Path.join(["components", component_dir(project), relative])
+         end)
+       end)
+       |> Enum.uniq()
+       |> Enum.sort())
   end
 
   defp render_deps(external_deps) do
@@ -255,6 +278,102 @@ defmodule Weld.Projector do
       nil -> %{"Source" => "https://github.com/nshkrdotcom/weld"}
       remote -> %{"Source" => remote}
     end
+  end
+
+  defp generated_root_paths(nil), do: []
+
+  defp generated_root_paths(plan) do
+    case generated_application(plan) do
+      %{module: nil} -> []
+      _application -> ["lib"]
+    end
+  end
+
+  defp generated_application(%Plan{} = plan) do
+    children =
+      plan.selected_projects
+      |> Enum.map(& &1.application.mod)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    %{
+      module:
+        if(children == [],
+          do: nil,
+          else:
+            Module.concat([
+              Macro.camelize(to_string(plan.artifact.package.otp_app)),
+              "Application"
+            ])
+        ),
+      children: children,
+      extra_applications:
+        plan.selected_projects
+        |> Enum.flat_map(& &1.application.extra_applications)
+        |> Kernel.++([:logger])
+        |> Enum.uniq()
+        |> Enum.sort(),
+      included_applications:
+        plan.selected_projects
+        |> Enum.flat_map(& &1.application.included_applications)
+        |> Enum.uniq()
+        |> Enum.sort(),
+      registered:
+        plan.selected_projects
+        |> Enum.flat_map(& &1.application.registered)
+        |> Enum.uniq()
+        |> Enum.sort()
+    }
+  end
+
+  defp application_config_literal(application) do
+    [
+      extra_applications: application.extra_applications
+    ]
+    |> maybe_put_config(:included_applications, application.included_applications)
+    |> maybe_put_config(:registered, application.registered)
+    |> maybe_put_config(:mod, if(application.module, do: {application.module, []}))
+    |> inspect(pretty: true, limit: :infinity)
+  end
+
+  defp maybe_put_config(config, _key, nil), do: config
+  defp maybe_put_config(config, _key, []), do: config
+  defp maybe_put_config(config, key, value), do: Keyword.put(config, key, value)
+
+  defp generated_application_relative_path(plan) do
+    otp_app = to_string(plan.artifact.package.otp_app)
+    Path.join(["lib", otp_app, "application.ex"])
+  end
+
+  defp application_module_contents(%{module: module, children: children}) do
+    rendered_children =
+      children
+      |> Enum.map_join(",\n      ", fn {child_module, args} ->
+        """
+        %{
+          id: #{inspect(child_module)},
+          start: {#{inspect(child_module)}, :start, [:normal, #{inspect(args)}]},
+          type: :supervisor
+        }\
+        """
+      end)
+
+    """
+    defmodule #{inspect(module)} do
+      use Application
+
+      def start(_type, _args) do
+        children = [
+          #{rendered_children}
+        ]
+
+        Supervisor.start_link(children,
+          strategy: :one_for_one,
+          name: __MODULE__.Supervisor
+        )
+      end
+    end
+    """
   end
 
   defp component_dir(%{id: "."}), do: "root"

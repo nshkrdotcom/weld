@@ -78,12 +78,7 @@ defmodule Weld.Workspace do
       raise Error, "project #{project_id} is missing mix.exs"
     end
 
-    config =
-      without_module_conflicts(fn ->
-        Mix.Project.in_project(unique_probe(project_id), abs_path, [], fn _module ->
-          Mix.Project.config()
-        end)
-      end)
+    {config, application} = load_project_config(abs_path, project_id)
 
     %Project{
       id: project_id,
@@ -92,6 +87,7 @@ defmodule Weld.Workspace do
       version: Keyword.fetch!(config, :version),
       elixir: Keyword.get(config, :elixir, "~> 1.18"),
       deps: normalize_deps(Keyword.get(config, :deps, [])),
+      application: normalize_application(application),
       elixirc_paths: normalize_paths(Keyword.get(config, :elixirc_paths, ["lib"])),
       erlc_paths: normalize_paths(Keyword.get(config, :erlc_paths, ["src"])),
       copy_dirs: existing_copy_dirs(abs_path),
@@ -127,15 +123,21 @@ defmodule Weld.Workspace do
         path_dep(graph, manifest, project, dep, path_index)
 
       opts[:git] || opts[:github] ->
-        Graph.add_violation(
-          graph,
-          Violation.new(
-            :external_git_dependency,
-            "git dependencies are not supported in weld artifacts",
-            project: project.id,
-            dependency: dep.app
-          )
-        )
+        case canonical_external_dep(manifest, dep) do
+          {:ok, external_dep} ->
+            Graph.add_external_dep(graph, project.id, external_dep)
+
+          :error ->
+            Graph.add_violation(
+              graph,
+              Violation.new(
+                :external_git_dependency,
+                "git dependencies are not supported in weld artifacts without a canonical dependency declaration",
+                project: project.id,
+                dependency: dep.app
+              )
+            )
+        end
 
       Map.has_key?(app_index, dep.app) ->
         target = Map.fetch!(app_index, dep.app)
@@ -168,6 +170,7 @@ defmodule Weld.Workspace do
 
   defp path_dep(graph, manifest, project, dep, path_index) do
     dep_path = Path.expand(dep.opts[:path], project.abs_path)
+    within_repo? = String.starts_with?(dep_path, manifest.repo_root)
 
     cond do
       Map.has_key?(path_index, dep_path) ->
@@ -190,6 +193,24 @@ defmodule Weld.Workspace do
           }
         )
 
+      not within_repo? ->
+        case canonical_external_dep(manifest, dep) do
+          {:ok, external_dep} ->
+            Graph.add_external_dep(graph, project.id, external_dep)
+
+          :error ->
+            Graph.add_violation(
+              graph,
+              Violation.new(
+                :external_path_dependency,
+                "path dependency points outside the workspace without a canonical dependency declaration",
+                project: project.id,
+                dependency: dep.app,
+                details: %{path: dep_path}
+              )
+            )
+        end
+
       File.regular?(Path.join(dep_path, "mix.exs")) ->
         Graph.add_violation(
           graph,
@@ -202,7 +223,7 @@ defmodule Weld.Workspace do
           )
         )
 
-      String.starts_with?(dep_path, manifest.repo_root) ->
+      within_repo? ->
         Graph.add_violation(
           graph,
           Violation.new(
@@ -213,26 +234,43 @@ defmodule Weld.Workspace do
             details: %{path: Path.relative_to(dep_path, manifest.repo_root)}
           )
         )
+    end
+  end
 
-      true ->
-        Graph.add_violation(
-          graph,
-          Violation.new(
-            :external_path_dependency,
-            "path dependency points outside the workspace",
-            project: project.id,
-            dependency: dep.app,
-            details: %{path: dep_path}
-          )
-        )
+  defp canonical_external_dep(manifest, dep) do
+    manifest_decl = Map.get(manifest.dependencies, dep.app)
+    requirement = (manifest_decl && manifest_decl.requirement) || dep.requirement
+
+    if is_binary(requirement) and requirement != "" do
+      opts =
+        dep.opts
+        |> Keyword.drop([:path, :git, :github])
+        |> Keyword.merge((manifest_decl && manifest_decl.opts) || [])
+
+      original =
+        case opts do
+          [] -> {dep.app, requirement}
+          _ -> {dep.app, requirement, opts}
+        end
+
+      {:ok,
+       %{
+         app: dep.app,
+         requirement: requirement,
+         opts: opts,
+         original: original,
+         kind: infer_external_kind(opts)
+       }}
+    else
+      :error
     end
   end
 
   defp finalize(graph) do
-    if Graph.topo_sort(graph, :all) == [] and map_size(graph.projects) > 0 do
+    if Graph.topo_sort(graph, :package) == [] and map_size(graph.projects) > 0 do
       Graph.add_violation(
         graph,
-        Violation.new(:cycle_detected, "workspace graph contains a cycle")
+        Violation.new(:cycle_detected, "package graph contains a cycle")
       )
     else
       graph
@@ -319,6 +357,40 @@ defmodule Weld.Workspace do
   defp normalize_paths(path) when is_binary(path), do: [path]
   defp normalize_paths(paths) when is_list(paths), do: Enum.sort(paths)
 
+  defp normalize_application(application) when is_list(application) do
+    mod =
+      case Keyword.get(application, :mod) do
+        nil ->
+          nil
+
+        {module, args} when is_atom(module) ->
+          {module, args}
+
+        other ->
+          raise Error, "unsupported application mod shape: #{inspect(other)}"
+      end
+
+    %{
+      extra_applications: normalize_atoms(Keyword.get(application, :extra_applications, [])),
+      included_applications:
+        normalize_atoms(Keyword.get(application, :included_applications, [])),
+      registered: normalize_atoms(Keyword.get(application, :registered, [])),
+      mod: mod
+    }
+  end
+
+  defp normalize_atoms(values) when is_atom(values), do: [values]
+
+  defp normalize_atoms(values) when is_list(values) do
+    values
+    |> Enum.map(fn
+      value when is_atom(value) -> value
+      other -> raise Error, "expected atom in application config, got: #{inspect(other)}"
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
   defp existing_copy_dirs(abs_path) do
     ["lib", "src", "c_src", "include", "priv"]
     |> Enum.filter(&File.dir?(Path.join(abs_path, &1)))
@@ -342,6 +414,42 @@ defmodule Weld.Workspace do
       |> String.downcase()
 
     String.to_atom("weld_probe_#{suffix}_#{System.unique_integer([:positive])}")
+  end
+
+  defp load_project_config(abs_path, project_id) do
+    if current_project_root() == Path.expand(abs_path) and Mix.Project.get() do
+      project_module = Mix.Project.get()
+
+      {
+        Mix.Project.config(),
+        if(function_exported?(project_module, :application, 0),
+          do: project_module.application(),
+          else: []
+        )
+      }
+    else
+      without_module_conflicts(fn ->
+        Mix.Project.in_project(unique_probe(project_id), abs_path, [], fn _module ->
+          project_module = Mix.Project.get!()
+
+          {
+            Mix.Project.config(),
+            if(function_exported?(project_module, :application, 0),
+              do: project_module.application(),
+              else: []
+            )
+          }
+        end)
+      end)
+    end
+  end
+
+  defp current_project_root do
+    if Mix.Project.get() do
+      Mix.Project.project_file()
+      |> Path.dirname()
+      |> Path.expand()
+    end
   end
 
   defp without_module_conflicts(fun) do

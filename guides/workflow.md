@@ -32,6 +32,10 @@ verifies that exact package as a consumer would see it.
 6. Publish from the prepared release bundle.
 7. Run `mix weld.release.archive`.
 
+When the selected closure includes multiple OTP applications, the projected
+artifact includes a generated merged application module so package-level
+verification runs against the real boot surface users will get.
+
 ## Disposable Versus Durable Output
 
 Disposable output:

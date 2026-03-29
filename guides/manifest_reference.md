@@ -28,6 +28,22 @@ Each value is a list of project ids.
 
 `optional` is a keyword list mapping feature ids to project-id lists.
 
+## `dependencies`
+
+Manifest-owned canonical external dependency declarations.
+
+Use this when a selected project depends on an external package through local
+workspace transport such as `:path`, `:git`, or `:github`, but the welded
+artifact must publish a normal Hex-style dependency instead.
+
+Each key is the dependency app name. Each value contains:
+
+- `requirement`
+- `opts`
+
+`opts` must remain publish-safe. `weld` rejects `:path`, `:git`, and
+`:github` here.
+
 ## `artifacts`
 
 One manifest can define more than one publishable artifact. Each artifact entry
@@ -74,6 +90,12 @@ The current stable layout is `:components`.
   workspace: [
     root: "../..",
     project_globs: ["apps/*", "core/*", "tooling/*"]
+  ],
+  dependencies: [
+    external_lib: [
+      requirement: "~> 1.2",
+      opts: []
+    ]
   ],
   classify: [
     tooling: [".", "tooling/test_support"],

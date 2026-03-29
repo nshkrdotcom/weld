@@ -23,6 +23,12 @@ Create a manifest such as `packaging/weld/my_bundle.exs`:
     root: "../..",
     project_globs: ["core/*", "runtime/*"]
   ],
+  dependencies: [
+    external_lib: [
+      requirement: "~> 1.2",
+      opts: []
+    ]
+  ],
   artifacts: [
     my_bundle: [
       roots: ["runtime/local"],
@@ -45,6 +51,11 @@ Create a manifest such as `packaging/weld/my_bundle.exs`:
 `workspace.root` is resolved relative to the manifest file. In
 `packaging/weld/...`, `"../.."` points back to the repo root.
 
+Use `dependencies` when a selected workspace project depends on an external
+package through a local `:path`, `:git`, or `:github` declaration that cannot
+ship in the welded artifact as-is. `weld` will rewrite that dependency to the
+canonical requirement you declare here.
+
 ## 3. Inspect Before You Project
 
 ```bash
@@ -62,6 +73,10 @@ mix weld.project packaging/weld/my_bundle.exs
 ```
 
 This creates a standalone Mix project under `dist/hex/<package>/`.
+
+If selected projects publish OTP application modules, the generated package
+also gets a merged `lib/<otp_app>/application.ex` so the welded artifact boots
+like a normal package.
 
 ## 5. Verify The Welded Package
 

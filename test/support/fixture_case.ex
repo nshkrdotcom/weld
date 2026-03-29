@@ -9,6 +9,11 @@ defmodule Weld.FixtureCase do
     Path.join([fixture_path(fixture), "packaging", "weld", "#{name}.exs"])
   end
 
+  def copied_manifest_path(fixture, name) do
+    copied_root = copy_fixture(fixture)
+    Path.join([copied_root, "packaging", "weld", "#{name}.exs"])
+  end
+
   def unique_tmp_dir(prefix) do
     tmp_root = System.tmp_dir!()
     dir = Path.join(tmp_root, "#{prefix}_#{System.unique_integer([:positive])}")

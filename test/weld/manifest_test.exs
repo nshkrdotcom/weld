@@ -9,6 +9,7 @@ defmodule Weld.ManifestTest do
     artifact = Manifest.artifact!(manifest, nil)
 
     assert manifest.workspace.project_globs == ["core/*", "runtime/*"]
+    assert manifest.dependencies == %{}
     assert artifact.id == "fixture_bundle"
     assert artifact.roots == ["runtime/local"]
     assert artifact.verify.smoke.enabled

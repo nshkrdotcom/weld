@@ -90,7 +90,15 @@ defmodule Weld.Manifest do
           }
   end
 
-  @enforce_keys [:manifest_path, :repo_root, :workspace, :classify, :publication, :artifacts]
+  @enforce_keys [
+    :manifest_path,
+    :repo_root,
+    :workspace,
+    :classify,
+    :publication,
+    :dependencies,
+    :artifacts
+  ]
   defstruct @enforce_keys
 
   @type workspace_config :: %{
@@ -110,12 +118,20 @@ defmodule Weld.Manifest do
           optional: %{optional(String.t()) => MapSet.t(String.t())}
         }
 
+  @type dependency_config :: %{
+          optional(atom()) => %{
+            requirement: String.t(),
+            opts: keyword()
+          }
+        }
+
   @type t :: %__MODULE__{
           manifest_path: Path.t(),
           repo_root: Path.t(),
           workspace: workspace_config(),
           classify: classify_config(),
           publication: publication_config(),
+          dependencies: dependency_config(),
           artifacts: %{optional(String.t()) => Artifact.t()}
         }
 
@@ -123,6 +139,7 @@ defmodule Weld.Manifest do
     workspace: [type: :keyword_list, required: true],
     classify: [type: :keyword_list, default: []],
     publication: [type: :keyword_list, default: []],
+    dependencies: [type: :keyword_list, default: []],
     artifacts: [type: :keyword_list, required: true]
   ]
 
@@ -141,6 +158,11 @@ defmodule Weld.Manifest do
     internal_only: [type: {:list, :string}, default: []],
     separate: [type: {:list, :string}, default: []],
     optional: [type: :keyword_list, default: []]
+  ]
+
+  @dependency_schema [
+    requirement: [type: :string, required: true],
+    opts: [type: :keyword_list, default: []]
   ]
 
   @artifact_schema [
@@ -205,6 +227,7 @@ defmodule Weld.Manifest do
       workspace: workspace,
       classify: normalize_classify(config[:classify]),
       publication: normalize_publication(config[:publication]),
+      dependencies: normalize_dependencies(config[:dependencies]),
       artifacts: normalize_artifacts(config[:artifacts])
     }
     |> validate!()
@@ -262,6 +285,26 @@ defmodule Weld.Manifest do
       separate: publication[:separate] |> MapSet.new(),
       optional: normalize_optional_features(publication[:optional])
     }
+  end
+
+  defp normalize_dependencies(dependencies) do
+    dependencies
+    |> Enum.map(fn {app, config} ->
+      unless is_atom(app) do
+        raise Error, "manifest dependency keys must be atoms"
+      end
+
+      normalized = NimbleOptions.validate!(config, @dependency_schema)
+      opts = normalized[:opts]
+
+      if Keyword.has_key?(opts, :path) or Keyword.has_key?(opts, :git) or
+           Keyword.has_key?(opts, :github) do
+        raise Error, "manifest dependency opts must not contain :path, :git, or :github"
+      end
+
+      {app, %{requirement: normalized[:requirement], opts: opts}}
+    end)
+    |> Map.new()
   end
 
   defp normalize_optional_features(optional_features) do

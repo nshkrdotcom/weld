@@ -6,7 +6,7 @@ defmodule Weld.MixTasksTest do
   alias Weld.FixtureCase
 
   test "mix weld.inspect prints json output" do
-    manifest_path = FixtureCase.manifest_path("library_bundle", "fixture_bundle")
+    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
 
     output =
       capture_io(fn ->
@@ -18,7 +18,7 @@ defmodule Weld.MixTasksTest do
   end
 
   test "mix weld.project generates the welded artifact" do
-    manifest_path = FixtureCase.manifest_path("library_bundle", "fixture_bundle")
+    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
 
     output =
       capture_io(fn ->

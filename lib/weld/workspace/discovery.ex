@@ -55,11 +55,15 @@ defmodule Weld.Workspace.Discovery do
 
   defp blitz_workspace_globs(repo_root) do
     config =
-      without_module_conflicts(fn ->
-        Mix.Project.in_project(unique_probe(), repo_root, [], fn _module ->
-          Mix.Project.config()
+      if current_project_root() == Path.expand(repo_root) do
+        Mix.Project.config()
+      else
+        without_module_conflicts(fn ->
+          Mix.Project.in_project(unique_probe(), repo_root, [], fn _module ->
+            Mix.Project.config()
+          end)
         end)
-      end)
+      end
 
     workspace = Keyword.get(config, :blitz_workspace)
 
@@ -117,6 +121,14 @@ defmodule Weld.Workspace.Discovery do
 
   defp unique_probe do
     String.to_atom("weld_discovery_#{System.unique_integer([:positive])}")
+  end
+
+  defp current_project_root do
+    if Mix.Project.get() do
+      Mix.Project.project_file()
+      |> Path.dirname()
+      |> Path.expand()
+    end
   end
 
   defp without_module_conflicts(fun) do

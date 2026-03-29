@@ -87,6 +87,7 @@ defmodule Weld.Plan do
 
     violations =
       graph.violations
+      |> relevant_graph_violations(selected_ids)
       |> Kernel.++(selection_violations)
       |> Kernel.++(merge_result.violations)
       |> Kernel.++(selection_policy_violations(workspace.projects, selected_ids, graph))
@@ -235,4 +236,10 @@ defmodule Weld.Plan do
   end
 
   defp maybe_tooling_violation(_edge, _project), do: []
+
+  defp relevant_graph_violations(violations, selected_ids) do
+    Enum.filter(violations, fn violation ->
+      is_nil(violation.project) or violation.project in selected_ids
+    end)
+  end
 end

@@ -10,6 +10,7 @@ defmodule Weld.Workspace.Project do
     :version,
     :elixir,
     :deps,
+    :application,
     :elixirc_paths,
     :erlc_paths,
     :copy_dirs,
@@ -25,6 +26,13 @@ defmodule Weld.Workspace.Project do
           original: tuple()
         }
 
+  @type application_config :: %{
+          extra_applications: [atom()],
+          included_applications: [atom()],
+          registered: [atom()],
+          mod: nil | {module(), term()}
+        }
+
   @type classification :: :runtime | :tooling | :proof | :ignored
   @type publication_role :: :default | :internal_only | :separate | {:optional, String.t()}
 
@@ -35,6 +43,7 @@ defmodule Weld.Workspace.Project do
           version: String.t(),
           elixir: String.t(),
           deps: [dep()],
+          application: application_config(),
           elixirc_paths: [String.t()],
           erlc_paths: [String.t()],
           copy_dirs: [String.t()],

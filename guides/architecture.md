@@ -13,7 +13,8 @@ the primary internal model.
 4. `Weld.Graph` stores project nodes, classified edges, publication roles,
    external deps, and violations.
 5. `Weld.Plan` resolves one artifact boundary and computes the selected closure.
-6. `Weld.Projector` generates the standalone Mix project and lockfile.
+6. `Weld.Projector` generates the standalone Mix project, merged application
+   module when needed, and lockfile.
 7. `Weld.Verifier` validates the generated project.
 8. `Weld.Release` prepares and archives deterministic release bundles.
 
@@ -47,6 +48,11 @@ Internal edges are classified by execution meaning:
 Views such as `:package`, `:test`, and `:docs` are computed by filtering those
 edge kinds.
 
+External dependencies are also normalized. If a selected workspace project
+refers to an external package through `:path`, `:git`, or `:github`, the
+manifest must declare the canonical publishable dependency shape. The graph and
+plan operate on that normalized external edge, not the local transport detail.
+
 ## Projection Layout
 
 The generated artifact uses a component-preserving layout:
@@ -55,6 +61,7 @@ The generated artifact uses a component-preserving layout:
 dist/hex/<package>/
   mix.exs
   projection.lock.json
+  lib/<otp_app>/application.ex
   components/
     apps/core/
     apps/web/
@@ -70,5 +77,6 @@ turning the output into a second hand-maintained source tree.
 - project probing stays sequential because `Mix.Project.in_project/4` mutates
   global Mix state
 - file copying and verification are deterministic
-- `git` dependencies and unresolved path dependencies are treated as violations
+- publish-unsafe external transports must be rewritten through manifest
+  dependency declarations
 - the generated artifact is normal Mix, not a custom runtime

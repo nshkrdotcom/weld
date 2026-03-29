@@ -26,6 +26,8 @@ Mix tooling, and prepares an archiveable release bundle for publication.
 - exposes inspect, graph, query, affected, project, verify, and release tasks
 - emits a deterministic `projection.lock.json`
 - generates a standalone Mix package under `dist/hex/<package>/`
+- canonicalizes external workspace path or git deps into manifest-owned Hex deps
+- synthesizes a merged application module when selected projects publish OTP children
 - prepares a deterministic release bundle under `dist/release_bundles/<package>/...`
 - archives released bundles without turning generated output into a long-lived source tree
 
@@ -60,6 +62,12 @@ publish remains external.
   workspace: [
     root: "../..",
     project_globs: ["core/*", "runtime/*"]
+  ],
+  dependencies: [
+    external_lib: [
+      requirement: "~> 1.2",
+      opts: []
+    ]
   ],
   artifacts: [
     my_bundle: [
@@ -109,11 +117,18 @@ dist/
     my_bundle/
       mix.exs
       projection.lock.json
+      lib/
+        my_bundle/
+          application.ex
       components/
         core/contracts/
         runtime/local/
       test/
 ```
+
+When selected projects expose OTP applications, `weld` synthesizes a merged
+`lib/<otp_app>/application.ex` that starts those children inside the welded
+package.
 
 The welded artifact is a normal Mix project. `weld.verify` runs:
 

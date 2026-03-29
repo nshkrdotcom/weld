@@ -150,6 +150,13 @@ defmodule Weld do
     |> Release.prepare!()
   end
 
+  @spec release_bundle_path!(Path.t(), keyword()) :: Path.t()
+  def release_bundle_path!(manifest_path, opts \\ []) do
+    manifest_path
+    |> Plan.build!(opts)
+    |> Release.bundle_path()
+  end
+
   @spec release_archive!(Path.t(), keyword()) :: map()
   def release_archive!(manifest_path, opts \\ []) do
     manifest_path

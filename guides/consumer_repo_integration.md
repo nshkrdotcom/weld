@@ -8,6 +8,8 @@ logic thin.
 - add `{:weld, "~> 0.1.0", runtime: false}` to the root project
 - store manifests under a stable repo-local path such as `packaging/weld/`
 - keep artifact-owned tests beside the manifest
+- declare canonical external package requirements in the manifest when source
+  projects use non-publishable `:path` or SCM transports
 - call `weld` from CI or release automation rather than wrapping it in large
   custom shell logic
 
