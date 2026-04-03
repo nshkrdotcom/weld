@@ -418,29 +418,39 @@ defmodule Weld.Workspace do
 
   defp load_project_config(abs_path, project_id) do
     if current_project_root() == Path.expand(abs_path) and Mix.Project.get() do
-      project_module = Mix.Project.get()
-
-      {
-        Mix.Project.config(),
-        if(function_exported?(project_module, :application, 0),
-          do: project_module.application(),
-          else: []
-        )
-      }
+      project_config()
     else
       without_module_conflicts(fn ->
         Mix.Project.in_project(unique_probe(project_id), abs_path, [], fn _module ->
-          project_module = Mix.Project.get!()
-
-          {
-            Mix.Project.config(),
-            if(function_exported?(project_module, :application, 0),
-              do: project_module.application(),
-              else: []
-            )
-          }
+          project_config!()
         end)
       end)
+    end
+  end
+
+  defp project_config do
+    project_module = Mix.Project.get()
+
+    {
+      Mix.Project.config(),
+      project_application(project_module)
+    }
+  end
+
+  defp project_config! do
+    project_module = Mix.Project.get!()
+
+    {
+      Mix.Project.config(),
+      project_application(project_module)
+    }
+  end
+
+  defp project_application(project_module) do
+    if function_exported?(project_module, :application, 0) do
+      project_module.application()
+    else
+      []
     end
   end
 
