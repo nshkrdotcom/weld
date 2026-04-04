@@ -47,7 +47,7 @@ defmodule Weld.MixProject do
       licenses: ["MIT"],
       maintainers: ["nshkrdotcom"],
       links: %{"GitHub" => "https://github.com/nshkrdotcom/weld"},
-      files: ~w(lib mix.exs README.md LICENSE CHANGELOG.md .formatter.exs)
+      files: ~w(lib assets mix.exs README.md LICENSE CHANGELOG.md .formatter.exs)
     ]
   end
 
