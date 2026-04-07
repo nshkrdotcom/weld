@@ -241,28 +241,40 @@ defmodule Weld.Workspace do
     manifest_decl = Map.get(manifest.dependencies, dep.app)
     requirement = (manifest_decl && manifest_decl.requirement) || dep.requirement
 
-    if is_binary(requirement) and requirement != "" do
-      opts =
-        dep.opts
-        |> Keyword.drop([:path, :git, :github])
-        |> Keyword.merge((manifest_decl && manifest_decl.opts) || [])
+    opts =
+      dep.opts
+      |> Keyword.drop([:path, :git, :github, :override, :branch, :tag, :ref, :subdir])
+      |> Keyword.merge((manifest_decl && manifest_decl.opts) || [])
 
-      original =
-        case opts do
-          [] -> {dep.app, requirement}
-          _ -> {dep.app, requirement, opts}
-        end
+    cond do
+      is_binary(requirement) and requirement != "" ->
+        original =
+          case opts do
+            [] -> {dep.app, requirement}
+            _ -> {dep.app, requirement, opts}
+          end
 
-      {:ok,
-       %{
-         app: dep.app,
-         requirement: requirement,
-         opts: opts,
-         original: original,
-         kind: infer_external_kind(opts)
-       }}
-    else
-      :error
+        {:ok,
+         %{
+           app: dep.app,
+           requirement: requirement,
+           opts: opts,
+           original: original,
+           kind: infer_external_kind(opts)
+         }}
+
+      opts[:git] || opts[:github] ->
+        {:ok,
+         %{
+           app: dep.app,
+           requirement: nil,
+           opts: opts,
+           original: {dep.app, opts},
+           kind: infer_external_kind(opts)
+         }}
+
+      true ->
+        :error
     end
   end
 

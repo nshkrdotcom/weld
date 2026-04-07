@@ -8,6 +8,7 @@ defmodule Weld.Projector do
   alias Weld.Hash
   alias Weld.Lockfile
   alias Weld.Plan
+  alias Weld.Projector.Monolith
 
   @spec project!(Plan.t()) :: map()
   def project!(%Plan{} = plan) do
@@ -17,33 +18,12 @@ defmodule Weld.Projector do
     File.rm_rf!(build_path)
     File.mkdir_p!(build_path)
 
-    copied_components = Enum.flat_map(plan.selected_projects, &copy_project!(build_path, &1))
-    copied_docs = Enum.flat_map(plan.artifact.output.docs, &copy_relative!(plan, build_path, &1))
-
-    copied_assets =
-      Enum.flat_map(plan.artifact.output.assets, &copy_relative!(plan, build_path, &1))
-
-    copied_tests =
-      Enum.flat_map(
-        plan.artifact.verify.artifact_tests,
-        &copy_artifact_tests!(plan, build_path, &1)
-      )
-
-    ensure_readme!(plan, build_path)
-    generated_files = render_generated_files!(plan, build_path)
-    render_mixfile!(plan, build_path)
-
     projection =
-      %{
-        build_path: build_path,
-        copied_files:
-          (copied_components ++ copied_docs ++ copied_assets ++ copied_tests ++ generated_files)
-          |> Enum.uniq()
-          |> Enum.sort(),
-        package_files: package_files(plan),
-        git_revision: Git.revision(plan.manifest.repo_root),
-        tree_digest: Hash.sha256_tree(build_path)
-      }
+      plan
+      |> project_by_mode!(build_path)
+      |> Map.put(:build_path, build_path)
+      |> Map.put(:git_revision, Git.revision(plan.manifest.repo_root))
+      |> Map.put(:tree_digest, Hash.sha256_tree(build_path))
 
     lockfile = Lockfile.build(plan, projection, [])
     lockfile_path = Path.join(build_path, "projection.lock.json")
@@ -55,7 +35,11 @@ defmodule Weld.Projector do
   @spec build_path(Plan.t()) :: Path.t()
   def build_path(%Plan{} = plan) do
     dist_root = Path.expand(plan.artifact.output.dist_root, plan.manifest.repo_root)
-    Path.join([dist_root, "hex", plan.artifact.package.name])
+
+    case plan.artifact.mode do
+      :monolith -> Path.join([dist_root, "monolith", plan.artifact.package.name])
+      _ -> Path.join([dist_root, "hex", plan.artifact.package.name])
+    end
   end
 
   @spec package_files(Plan.t()) :: [String.t()]
@@ -140,6 +124,36 @@ defmodule Weld.Projector do
       |> list_copied_paths()
       |> Enum.map(&Path.relative_to(&1, build_path))
     end)
+  end
+
+  defp project_by_mode!(%Plan{artifact: %{mode: :monolith}} = plan, build_path) do
+    Monolith.project!(plan, build_path)
+  end
+
+  defp project_by_mode!(%Plan{} = plan, build_path) do
+    copied_components = Enum.flat_map(plan.selected_projects, &copy_project!(build_path, &1))
+    copied_docs = Enum.flat_map(plan.artifact.output.docs, &copy_relative!(plan, build_path, &1))
+
+    copied_assets =
+      Enum.flat_map(plan.artifact.output.assets, &copy_relative!(plan, build_path, &1))
+
+    copied_tests =
+      Enum.flat_map(
+        plan.artifact.verify.artifact_tests,
+        &copy_artifact_tests!(plan, build_path, &1)
+      )
+
+    ensure_readme!(plan, build_path)
+    generated_files = render_generated_files!(plan, build_path)
+    render_mixfile!(plan, build_path)
+
+    %{
+      copied_files:
+        (copied_components ++ copied_docs ++ copied_assets ++ copied_tests ++ generated_files)
+        |> Enum.uniq()
+        |> Enum.sort(),
+      package_files: package_files(plan)
+    }
   end
 
   defp render_mixfile!(plan, build_path) do

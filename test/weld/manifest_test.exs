@@ -24,4 +24,15 @@ defmodule Weld.ManifestTest do
 
     assert Manifest.artifact!(manifest, "web_bundle").id == "web_bundle"
   end
+
+  test "loads monolith mode artifacts and canonical git dependency opts" do
+    manifest = Manifest.load!(FixtureCase.manifest_path("monolith_bundle", "monolith_bundle"))
+    artifact = Manifest.artifact!(manifest, nil)
+
+    assert artifact.mode == :monolith
+    assert artifact.monolith_opts == []
+    assert manifest.dependencies[:git_dep].requirement == nil
+    assert manifest.dependencies[:git_dep].opts[:git] == "https://example.test/git_dep.git"
+    assert manifest.dependencies[:git_dep].opts[:branch] == "main"
+  end
 end

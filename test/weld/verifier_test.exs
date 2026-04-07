@@ -9,7 +9,10 @@ defmodule Weld.VerifierTest do
     assert File.regular?(result.lockfile_path)
     assert File.regular?(result.tarball_path)
 
-    assert Enum.any?(result.verification_results, &(&1.task == "compile --warnings-as-errors"))
+    assert Enum.any?(
+             result.verification_results,
+             &(&1.task == "compile --warnings-as-errors --no-compile-deps")
+           )
     assert Enum.any?(result.verification_results, &(&1.task == "hex.publish --dry-run --yes"))
     assert Enum.any?(result.verification_results, &(&1.task == "smoke"))
   end

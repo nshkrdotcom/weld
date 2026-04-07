@@ -83,7 +83,7 @@ defmodule Weld.Plan do
       |> Enum.reject(&(&1 in selected_ids))
       |> Enum.sort()
 
-    merge_result = merge_external_deps(graph, selected_ids)
+    merge_result = merge_external_deps(graph, selected_ids, :docs)
 
     violations =
       graph.violations
@@ -110,6 +110,32 @@ defmodule Weld.Plan do
 
   @spec selected?(t(), String.t()) :: boolean()
   def selected?(%__MODULE__{} = plan, project_id), do: project_id in plan.selected_ids
+
+  @spec projects_for_view(t(), View.t()) :: [Project.t()]
+  def projects_for_view(%__MODULE__{} = plan, view) do
+    project_ids =
+      plan.graph
+      |> Graph.reachable_from(plan.selected_ids, view)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    plan.graph
+    |> topologically_selected(project_ids)
+    |> Enum.map(&Map.fetch!(plan.workspace.projects, &1))
+  end
+
+  @spec external_deps_for_view(t(), View.t()) :: [external_dep()]
+  def external_deps_for_view(%__MODULE__{} = plan, view) do
+    project_ids =
+      plan.graph
+      |> Graph.reachable_from(plan.selected_ids, view)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    plan.graph
+    |> merge_external_deps(project_ids, view)
+    |> Map.fetch!(:external_deps)
+  end
 
   @spec ensure_valid!(t()) :: t()
   def ensure_valid!(%__MODULE__{violations: []} = plan), do: plan
@@ -147,10 +173,10 @@ defmodule Weld.Plan do
     end
   end
 
-  defp merge_external_deps(graph, selected_ids) do
+  defp merge_external_deps(graph, selected_ids, view) do
     Enum.reduce(selected_ids, %{external_deps: %{}, violations: []}, fn project_id, acc ->
       Graph.external_deps(graph, project_id)
-      |> Enum.filter(&View.allowed?(&1.kind, :docs))
+      |> Enum.filter(&View.allowed?(&1.kind, view))
       |> Enum.reduce(acc, &merge_external_dep/2)
     end)
     |> Map.update!(:external_deps, fn deps ->
@@ -184,7 +210,7 @@ defmodule Weld.Plan do
   end
 
   defp comparable_dep(dep) do
-    {dep.requirement, Keyword.drop(dep.opts, [:path, :git, :github])}
+    {dep.requirement, dep.opts}
   end
 
   defp selection_policy_violations(projects, selected_ids, graph) do

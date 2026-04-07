@@ -10,11 +10,23 @@ defmodule Weld.Manifest do
     Normalized artifact configuration.
     """
 
-    @enforce_keys [:id, :roots, :include, :optional_features, :package, :output, :verify]
+    @enforce_keys [
+      :id,
+      :mode,
+      :monolith_opts,
+      :roots,
+      :include,
+      :optional_features,
+      :package,
+      :output,
+      :verify
+    ]
     defstruct @enforce_keys
 
     @type t :: %__MODULE__{
             id: String.t(),
+            mode: :package_projection | :monolith,
+            monolith_opts: keyword(),
             roots: [String.t()],
             include: [String.t()],
             optional_features: [String.t()],
@@ -120,7 +132,7 @@ defmodule Weld.Manifest do
 
   @type dependency_config :: %{
           optional(atom()) => %{
-            requirement: String.t(),
+            requirement: String.t() | nil,
             opts: keyword()
           }
         }
@@ -161,11 +173,13 @@ defmodule Weld.Manifest do
   ]
 
   @dependency_schema [
-    requirement: [type: :string, required: true],
+    requirement: [type: :string],
     opts: [type: :keyword_list, default: []]
   ]
 
   @artifact_schema [
+    mode: [type: {:in, [:package_projection, :components, :monolith]}, default: :package_projection],
+    monolith_opts: [type: :keyword_list, default: []],
     roots: [type: {:list, :string}, required: true],
     include: [type: {:list, :string}, default: []],
     optional_features: [type: {:list, :string}, default: []],
@@ -297,12 +311,18 @@ defmodule Weld.Manifest do
       normalized = NimbleOptions.validate!(config, @dependency_schema)
       opts = normalized[:opts]
 
-      if Keyword.has_key?(opts, :path) or Keyword.has_key?(opts, :git) or
-           Keyword.has_key?(opts, :github) do
-        raise Error, "manifest dependency opts must not contain :path, :git, or :github"
+      if Keyword.has_key?(opts, :path) do
+        raise Error, "manifest dependency opts must not contain :path"
       end
 
-      {app, %{requirement: normalized[:requirement], opts: opts}}
+      requirement = normalized[:requirement]
+
+      if is_nil(requirement) and is_nil(opts[:git]) and is_nil(opts[:github]) do
+        raise Error,
+              "manifest dependency #{inspect(app)} must declare a requirement unless opts include :git or :github"
+      end
+
+      {app, %{requirement: requirement, opts: opts}}
     end)
     |> Map.new()
   end
@@ -328,6 +348,8 @@ defmodule Weld.Manifest do
       artifact =
         %Artifact{
           id: artifact_id,
+          mode: normalize_mode(normalized[:mode]),
+          monolith_opts: normalized[:monolith_opts],
           roots: Enum.sort(normalized[:roots]),
           include: Enum.sort(normalized[:include]),
           optional_features: Enum.sort(normalized[:optional_features]),
@@ -389,6 +411,9 @@ defmodule Weld.Manifest do
       }
     }
   end
+
+  defp normalize_mode(:components), do: :package_projection
+  defp normalize_mode(mode), do: mode
 
   defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)
   defp normalize_key(key) when is_binary(key), do: key

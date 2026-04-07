@@ -16,7 +16,8 @@ defmodule Weld.Verifier do
 
     results = [
       run_mix!(build_path, :dev, ["deps.get"]),
-      run_mix!(build_path, :dev, ["compile", "--warnings-as-errors"]),
+      run_mix!(build_path, :dev, ["deps.compile"]),
+      run_mix!(build_path, :dev, ["compile", "--warnings-as-errors", "--no-compile-deps"]),
       run_mix!(build_path, :test, ["test"]),
       run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"]),
       run_mix!(build_path, :dev, ["hex.build"]),

@@ -36,7 +36,7 @@ defmodule Weld.MixProject do
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:jason, "~> 1.4"},
-      {:libgraph, "~> 0.16.1-mg.1", hex: :multigraph},
+      {:libgraph, "~> 0.16.1-mg.1", hex: :multigraph, app: false},
       {:nimble_options, "~> 1.1"},
       {:telemetry, "~> 1.3"}
     ]
