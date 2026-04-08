@@ -6,7 +6,7 @@ defmodule Weld.Projector.Monolith.MixFile do
 
   @spec render!(Plan.t(), Path.t(), keyword()) :: [String.t()]
   def render!(%Plan{} = plan, build_path, opts) do
-    application = generated_application(plan)
+    application = generated_application(plan, opts)
     mixfile_path = Path.join(build_path, "mix.exs")
     File.write!(mixfile_path, mixfile_contents(plan, build_path, application, opts))
 
@@ -45,7 +45,13 @@ defmodule Weld.Projector.Monolith.MixFile do
       )
 
     files = package_files(build_path) |> Enum.map_join(",\n        ", &inspect/1)
-    extras = plan.artifact.output.docs |> Enum.uniq() |> Enum.sort() |> Enum.map_join(",\n        ", &inspect/1)
+
+    extras =
+      plan.artifact.output.docs
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.map_join(",\n        ", &inspect/1)
+
     links = package.links |> fallback_links(plan.manifest.repo_root) |> inspect(pretty: true)
     application_config = application_config_literal(application)
 
@@ -111,16 +117,27 @@ defmodule Weld.Projector.Monolith.MixFile do
     """
   end
 
-  defp generated_application(%Plan{} = plan) do
+  defp generated_application(%Plan{} = plan, opts) do
     children =
       plan.selected_projects
       |> Enum.map(fn project -> {project.id, project.application.mod} end)
       |> Enum.reject(fn {_id, mod} -> is_nil(mod) end)
       |> Enum.uniq()
 
+    bootstrapped_apps =
+      opts
+      |> Keyword.get(:bootstrapped_apps, [])
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    bootstrapped_sources =
+      opts
+      |> Keyword.get(:bootstrapped_config_sources, [])
+      |> Enum.uniq()
+
     %{
       module:
-        if(children == [],
+        if(children == [] and bootstrapped_sources == [],
           do: nil,
           else:
             Module.concat([
@@ -128,6 +145,8 @@ defmodule Weld.Projector.Monolith.MixFile do
               "Application"
             ])
         ),
+      bootstrapped_apps: bootstrapped_apps,
+      bootstrapped_sources: bootstrapped_sources,
       children: children,
       extra_applications:
         plan.selected_projects
@@ -162,7 +181,15 @@ defmodule Weld.Projector.Monolith.MixFile do
   defp maybe_put_config(config, _key, []), do: config
   defp maybe_put_config(config, key, value), do: Keyword.put(config, key, value)
 
-  defp application_module_contents(%{module: module, children: children}, _artifact_otp_app) do
+  defp application_module_contents(
+         %{
+           module: module,
+           bootstrapped_apps: bootstrapped_apps,
+           bootstrapped_sources: bootstrapped_sources,
+           children: children
+         },
+         _artifact_otp_app
+       ) do
     rendered_children =
       children
       |> Enum.map_join(",\n      ", fn {project_id, {child_module, args}} ->
@@ -175,11 +202,67 @@ defmodule Weld.Projector.Monolith.MixFile do
         """
       end)
 
+    bootstrap_helpers =
+      if bootstrapped_sources == [] do
+        ""
+      else
+        """
+
+          @boot_env Mix.env()
+          @bootstrapped_apps #{inspect(bootstrapped_apps)}
+          @bootstrapped_sources #{inspect(bootstrapped_sources, pretty: true, limit: :infinity)}
+
+          defp bootstrap_workspace_app_env! do
+            Enum.each(@bootstrapped_sources, fn source ->
+              source
+              |> bootstrap_source_paths()
+              |> Enum.each(&apply_bootstrap_source!/1)
+            end)
+          end
+
+          defp bootstrap_source_paths(%{
+                 config_path: config_path,
+                 env_path_fallbacks: env_path_fallbacks,
+                 runtime_path: runtime_path
+               }) do
+            []
+            |> maybe_add_bootstrap_path(config_path || Map.get(env_path_fallbacks, @boot_env))
+            |> maybe_add_bootstrap_path(runtime_path)
+          end
+
+          defp maybe_add_bootstrap_path(paths, nil), do: paths
+          defp maybe_add_bootstrap_path(paths, path), do: paths ++ [path]
+
+          defp apply_bootstrap_source!(relative_path) do
+            absolute_path = artifact_path(relative_path)
+
+            unless File.regular?(absolute_path) do
+              raise "missing projected workspace config source: \#{absolute_path}"
+            end
+
+            {config, _imports} = Config.Reader.read_imports!(absolute_path, env: @boot_env)
+
+            config
+            |> Enum.filter(fn {app, _value} -> app in @bootstrapped_apps end)
+            |> case do
+              [] -> :ok
+              workspace_config -> Application.put_all_env(workspace_config, persistent: true)
+            end
+          end
+
+          defp artifact_path(relative_path) do
+            Path.expand(Path.join(["..", "..", relative_path]), __DIR__)
+          end
+        """
+      end
+
     """
     defmodule #{inspect(module)} do
       use Application
 
       def start(_type, _args) do
+        #{if(bootstrapped_sources == [], do: ":ok", else: "bootstrap_workspace_app_env!()")}
+
         children = [
           #{rendered_children}
         ]
@@ -189,6 +272,7 @@ defmodule Weld.Projector.Monolith.MixFile do
           name: __MODULE__.Supervisor
         )
       end
+    #{bootstrap_helpers}
     end
     """
   end
@@ -264,7 +348,13 @@ defmodule Weld.Projector.Monolith.MixFile do
     {app, Keyword.put_new(normalize_dep_opts(opts), :only, :test)}
   end
 
-  defp normalize_dep_opts(opts), do: opts
+  defp normalize_dep_opts(opts) do
+    if Keyword.has_key?(opts, :git) or Keyword.has_key?(opts, :github) do
+      opts
+    else
+      Keyword.delete(opts, :override)
+    end
+  end
 
   defp build_erlc_paths(build_path, test_support_projects) do
     runtime_paths = if File.dir?(Path.join(build_path, "src")), do: ["src"], else: []
@@ -274,7 +364,7 @@ defmodule Weld.Projector.Monolith.MixFile do
       |> Enum.map(fn project ->
         Path.join(["test", "support", "weld_projects", project_slug(project.id), "src"])
       end)
-      |> Enum.filter(&(File.dir?(Path.join(build_path, &1))))
+      |> Enum.filter(&File.dir?(Path.join(build_path, &1)))
 
     runtime_paths ++ test_paths
   end
@@ -307,7 +397,7 @@ defmodule Weld.Projector.Monolith.MixFile do
 
   defp root_docs_dirs(build_path) do
     ["guides", "docs", "examples"]
-    |> Enum.filter(&(File.exists?(Path.join(build_path, &1))))
+    |> Enum.filter(&File.exists?(Path.join(build_path, &1)))
   end
 
   defp project_slug(project_id) do

@@ -21,7 +21,9 @@ defmodule Weld.Projector.Monolith do
     all_projects = plan.selected_projects ++ test_support_projects
 
     copied_docs = Enum.flat_map(plan.artifact.output.docs, &copy_relative!(plan, build_path, &1))
-    copied_assets = Enum.flat_map(plan.artifact.output.assets, &copy_relative!(plan, build_path, &1))
+
+    copied_assets =
+      Enum.flat_map(plan.artifact.output.assets, &copy_relative!(plan, build_path, &1))
 
     source_merge =
       Enum.reduce(plan.selected_projects, %{copied_files: [], remaps: []}, fn project, acc ->
@@ -55,6 +57,7 @@ defmodule Weld.Projector.Monolith do
     helper_merge = TestHelper.generate!(plan.selected_projects, build_path)
 
     repo_infos = detect_repo_infos(all_projects)
+
     config_merge =
       Generator.generate!(
         all_projects,
@@ -63,11 +66,16 @@ defmodule Weld.Projector.Monolith do
         migration_merge.layout,
         shared_test_configs: plan.artifact.monolith_opts[:shared_test_configs] || []
       )
-    forced_test_external_deps = forced_external_deps(plan.manifest, plan.artifact.monolith_opts[:extra_test_deps] || [])
+
+    forced_test_external_deps =
+      forced_external_deps(plan.manifest, plan.artifact.monolith_opts[:extra_test_deps] || [])
 
     ensure_readme!(plan, build_path)
+
     generated_files =
       MixFile.render!(plan, build_path,
+        bootstrapped_apps: config_merge.bootstrapped_apps,
+        bootstrapped_config_sources: config_merge.bootstrapped_sources,
         runtime_external_deps: plan.external_deps,
         test_external_deps: Plan.external_deps_for_view(plan, :test),
         forced_test_external_deps: forced_test_external_deps,
@@ -143,7 +151,13 @@ defmodule Weld.Projector.Monolith do
 
           target =
             if String.starts_with?(relative, "support/") do
-              Path.join([build_path, "test", "support", slug, String.replace_prefix(relative, "support/", "")])
+              Path.join([
+                build_path,
+                "test",
+                "support",
+                slug,
+                String.replace_prefix(relative, "support/", "")
+              ])
             else
               Path.join([build_path, "test", slug, relative])
             end
@@ -160,7 +174,8 @@ defmodule Weld.Projector.Monolith do
   end
 
   defp copy_test_support_project!(project, build_path) do
-    project_root = Path.join([build_path, "test", "support", "weld_projects", project_slug(project.id)])
+    project_root =
+      Path.join([build_path, "test", "support", "weld_projects", project_slug(project.id)])
 
     (@source_dirs ++ ["priv"])
     |> Enum.flat_map(fn dir ->
@@ -217,7 +232,9 @@ defmodule Weld.Projector.Monolith do
       |> Enum.flat_map(fn project ->
         project
         |> source_files_for_scan()
-        |> Enum.flat_map(&scan_file_for_selected_app_assumptions(&1, project, plan, selected_apps))
+        |> Enum.flat_map(
+          &scan_file_for_selected_app_assumptions(&1, project, plan, selected_apps)
+        )
       end)
 
     if issues != [] do
@@ -247,7 +264,8 @@ defmodule Weld.Projector.Monolith do
     relative = Path.relative_to(path, plan.manifest.repo_root)
 
     [
-      {"Application.ensure_all_started", ~r/Application\.ensure_all_started\(\s*:(?<app>[a-zA-Z0-9_]+)/},
+      {"Application.ensure_all_started",
+       ~r/Application\.ensure_all_started\(\s*:(?<app>[a-zA-Z0-9_]+)/},
       {"Application.app_dir", ~r/Application\.app_dir\(\s*:(?<app>[a-zA-Z0-9_]+)/}
     ]
     |> Enum.flat_map(fn {label, regex} ->

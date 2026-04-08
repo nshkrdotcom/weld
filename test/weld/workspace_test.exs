@@ -33,6 +33,7 @@ defmodule Weld.WorkspaceTest do
   test "reuses the already loaded root project when the manifest repo is the current project" do
     repo_root = FixtureCase.copy_fixture("root_workspace")
     manifest_path = Path.join([repo_root, "packaging", "weld", "artifacts.exs"])
+    purge_module(RootWorkspace.MixProject)
 
     Mix.Project.in_project(:weld_workspace_current_root, repo_root, [], fn _module ->
       manifest = Manifest.load!(manifest_path)
@@ -41,5 +42,10 @@ defmodule Weld.WorkspaceTest do
       assert workspace.discovery.source == :blitz_workspace
       assert Map.has_key?(workspace.projects, ".")
     end)
+  end
+
+  defp purge_module(module) do
+    :code.purge(module)
+    :code.delete(module)
   end
 end

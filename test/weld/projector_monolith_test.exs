@@ -19,6 +19,7 @@ defmodule Weld.ProjectorMonolithTest do
     assert File.regular?(Path.join(result.build_path, "test/core_store/fixture/store_test.exs"))
     assert File.regular?(Path.join(result.build_path, "test/runtime_api/fixture/api_test.exs"))
     assert File.regular?(Path.join(result.build_path, "test/support/core_store/store_case.exs"))
+
     assert File.regular?(
              Path.join(result.build_path, "test/support/weld_helpers/core_store_test_helper.exs")
            )
@@ -36,9 +37,14 @@ defmodule Weld.ProjectorMonolithTest do
     result = Weld.project!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
 
     {output, status} =
-      System.cmd("mix", ["test"], cd: result.build_path, stderr_to_stdout: true, env: [{"MIX_ENV", "test"}])
+      System.cmd("mix", ["test"],
+        cd: result.build_path,
+        stderr_to_stdout: true,
+        env: [{"MIX_ENV", "test"}]
+      )
 
     assert status == 0, output
+    refute output =~ "configured but not available", output
     assert output =~ "2 tests, 0 failures"
   end
 end

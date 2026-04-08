@@ -4,6 +4,8 @@ defmodule Weld.Config.Generator do
   alias Weld.Error
 
   @spec generate!([Weld.Workspace.Project.t()], Path.t(), [map()], map(), keyword()) :: %{
+          bootstrapped_apps: [atom()],
+          bootstrapped_sources: [map()],
           copied_files: [String.t()],
           warnings: [map()],
           staged: [map()]
@@ -11,28 +13,56 @@ defmodule Weld.Config.Generator do
   def generate!(projects, build_path, repo_infos, migration_layout, opts \\ []) do
     config_root = Path.join(build_path, "config")
     File.mkdir_p!(config_root)
+    workspace_apps = projects |> Enum.map(& &1.app) |> Enum.uniq() |> Enum.sort() |> MapSet.new()
 
-    shared_test_configs = build_shared_test_config_set(Keyword.get(opts, :shared_test_configs, []))
+    shared_test_configs =
+      build_shared_test_config_set(Keyword.get(opts, :shared_test_configs, []))
 
     staged =
       projects
       |> Enum.sort_by(& &1.id)
-      |> Enum.map(&stage_project_config!(&1, config_root, build_path))
+      |> Enum.map(&stage_project_config!(&1, config_root, build_path, workspace_apps))
 
     warnings = skipped_test_config_warnings(staged, shared_test_configs)
 
     root_files =
       [
         write_root_config!(config_root, staged),
-        write_env_file!(config_root, "dev.exs", staged, shared_test_configs, repo_infos, migration_layout),
-        write_env_file!(config_root, "test.exs", staged, shared_test_configs, repo_infos, migration_layout),
-        write_env_file!(config_root, "prod.exs", staged, shared_test_configs, repo_infos, migration_layout)
+        write_env_file!(
+          config_root,
+          "dev.exs",
+          staged,
+          shared_test_configs,
+          repo_infos,
+          migration_layout
+        ),
+        write_env_file!(
+          config_root,
+          "test.exs",
+          staged,
+          shared_test_configs,
+          repo_infos,
+          migration_layout
+        ),
+        write_env_file!(
+          config_root,
+          "prod.exs",
+          staged,
+          shared_test_configs,
+          repo_infos,
+          migration_layout
+        )
       ]
       |> Enum.filter(& &1)
 
     runtime_file = write_runtime_file!(config_root, staged)
 
     %{
+      bootstrapped_apps: workspace_apps |> MapSet.to_list() |> Enum.sort(),
+      bootstrapped_sources:
+        staged
+        |> Enum.map(& &1.bootstrap)
+        |> Enum.reject(&is_nil/1),
       copied_files:
         (Enum.flat_map(staged, & &1.copied_files) ++ root_files ++ List.wrap(runtime_file))
         |> Enum.uniq()
@@ -42,69 +72,132 @@ defmodule Weld.Config.Generator do
     }
   end
 
-  defp stage_project_config!(project, config_root, build_path) do
+  defp stage_project_config!(project, config_root, build_path, workspace_apps) do
     slug = project_slug(project.id)
     source_root = Path.join(project.abs_path, "config")
 
     if File.dir?(source_root) do
-      target_root = Path.join([config_root, "sources", slug])
       files = source_root |> File.ls!() |> Enum.sort()
+      static_root = Path.join([config_root, "sources", slug])
+      runtime_root = Path.join([config_root, "runtime_sources", slug])
 
       copied_files =
-        files
+        source_root
+        |> Weld.Hash.list_files()
+        |> Enum.sort()
         |> Enum.flat_map(fn child ->
-          source = Path.join(source_root, child)
-          target = Path.join(target_root, child)
-          File.mkdir_p!(Path.dirname(target))
+          source = child
+          relative = Path.relative_to(source, source_root)
+          static_target = Path.join(static_root, relative)
+          runtime_target = Path.join(runtime_root, relative)
 
-          cond do
-            File.dir?(source) ->
-              File.cp_r!(source, target)
+          File.mkdir_p!(Path.dirname(static_target))
+          File.mkdir_p!(Path.dirname(runtime_target))
 
-            child == "config.exs" ->
-              source
-              |> File.read!()
-              |> sanitize_root_config_source!(source)
-              |> then(&File.write!(target, &1))
-
-            true ->
-              File.cp!(source, target)
-          end
-
-          if File.dir?(target) do
-            Weld.Hash.list_files(target)
-            |> Enum.map(&Path.relative_to(&1, build_path))
+          if Path.extname(source) == ".exs" do
+            source
+            |> File.read!()
+            |> sanitize_config_source!(source, workspace_apps,
+              strip_imports?: relative == "config.exs"
+            )
+            |> then(&File.write!(static_target, &1))
           else
-            [Path.relative_to(target, build_path)]
+            File.cp!(source, static_target)
           end
+
+          File.cp!(source, runtime_target)
+
+          [
+            Path.relative_to(static_target, build_path),
+            Path.relative_to(runtime_target, build_path)
+          ]
         end)
 
       %{
+        app: project.app,
+        bootstrap: bootstrap_source(slug, files),
         project_id: project.id,
         slug: slug,
         files: files,
         copied_files: copied_files
       }
     else
-      %{project_id: project.id, slug: slug, files: [], copied_files: []}
+      %{
+        app: project.app,
+        bootstrap: nil,
+        project_id: project.id,
+        slug: slug,
+        files: [],
+        copied_files: []
+      }
     end
   end
 
-  defp sanitize_root_config_source!(contents, source_path) do
+  defp sanitize_config_source!(contents, source_path, workspace_apps, opts) do
+    strip_imports? = Keyword.get(opts, :strip_imports?, false)
+
     case Code.string_to_quoted(contents, file: source_path) do
       {:ok, ast} ->
-        ast
-        |> Macro.prewalk(fn
-          {:import_config, _meta, _args} -> :ok
-          other -> other
-        end)
-        |> Macro.to_string()
-        |> Code.format_string!()
-        |> IO.iodata_to_binary()
-        |> Kernel.<>("\n")
+        sanitized_ast =
+          Macro.prewalk(ast, fn
+            {:import_config, _meta, _args} when strip_imports? ->
+              :ok
+
+            {:config, _meta, [app | _rest]} = config_call when is_atom(app) ->
+              if MapSet.member?(workspace_apps, app), do: :ok, else: config_call
+
+            other ->
+              other
+          end)
+
+        if config_directives?(sanitized_ast) do
+          sanitized_ast
+          |> Macro.to_string()
+          |> Code.format_string!()
+          |> IO.iodata_to_binary()
+          |> Kernel.<>("\n")
+        else
+          "import Config\n"
+        end
 
       {:error, error} ->
         raise Error, "unable to parse #{source_path}: #{Exception.message(error)}"
+    end
+  end
+
+  defp config_directives?(ast) do
+    {_ast, found?} =
+      Macro.prewalk(ast, false, fn
+        {:config, _meta, _args} = node, _found? -> {node, true}
+        {:import_config, _meta, _args} = node, _found? -> {node, true}
+        node, found? -> {node, found?}
+      end)
+
+    found?
+  end
+
+  defp bootstrap_source(slug, files) do
+    config_path = bootstrap_path(slug, "config.exs", files)
+    runtime_path = bootstrap_path(slug, "runtime.exs", files)
+
+    env_path_fallbacks = %{
+      dev: bootstrap_path(slug, "dev.exs", files),
+      test: bootstrap_path(slug, "test.exs", files),
+      prod: bootstrap_path(slug, "prod.exs", files)
+    }
+
+    if Enum.any?([config_path, runtime_path] ++ Map.values(env_path_fallbacks), & &1) do
+      %{
+        config_path: config_path,
+        env_path_fallbacks: env_path_fallbacks,
+        runtime_path: runtime_path
+      }
+    end
+  end
+
+  defp bootstrap_path(slug, file_name, files) do
+    if file_name in files do
+      Path.join(["config", "runtime_sources", slug, file_name])
     end
   end
 
@@ -122,7 +215,14 @@ defmodule Weld.Config.Generator do
     Path.relative_to(path, Path.dirname(config_root))
   end
 
-  defp write_env_file!(config_root, env_file, staged, shared_test_configs, repo_infos, migration_layout) do
+  defp write_env_file!(
+         config_root,
+         env_file,
+         staged,
+         shared_test_configs,
+         repo_infos,
+         migration_layout
+       ) do
     path = Path.join(config_root, env_file)
     env_name = Path.rootname(env_file)
 
@@ -177,6 +277,9 @@ defmodule Weld.Config.Generator do
     |> Enum.flat_map(fn repo ->
       case Map.get(migration_layout.repo_paths || %{}, repo.project_id) do
         nil ->
+          []
+
+        "priv/repo" ->
           []
 
         repo_priv ->
