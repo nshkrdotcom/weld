@@ -173,12 +173,15 @@ defmodule Weld.Manifest do
   ]
 
   @dependency_schema [
-    requirement: [type: :string],
+    requirement: [type: :any, default: nil],
     opts: [type: :keyword_list, default: []]
   ]
 
   @artifact_schema [
-    mode: [type: {:in, [:package_projection, :components, :monolith]}, default: :package_projection],
+    mode: [
+      type: {:in, [:package_projection, :components, :monolith]},
+      default: :package_projection
+    ],
     monolith_opts: [type: :keyword_list, default: []],
     roots: [type: {:list, :string}, required: true],
     include: [type: {:list, :string}, default: []],
@@ -316,6 +319,11 @@ defmodule Weld.Manifest do
       end
 
       requirement = normalized[:requirement]
+
+      unless is_nil(requirement) or is_binary(requirement) do
+        raise Error,
+              "manifest dependency #{inspect(app)} requirement must be a string when present"
+      end
 
       if is_nil(requirement) and is_nil(opts[:git]) and is_nil(opts[:github]) do
         raise Error,

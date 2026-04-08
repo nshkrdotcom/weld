@@ -11,14 +11,23 @@ defmodule Weld.Projector.Monolith.Migrations do
   def merge!(projects, build_path) do
     migrating_projects =
       projects
-      |> Enum.filter(&(File.dir?(Path.join(&1.abs_path, "priv/repo/migrations"))))
+      |> Enum.filter(&File.dir?(Path.join(&1.abs_path, "priv/repo/migrations")))
       |> Enum.sort_by(& &1.id)
 
     layout =
       case length(migrating_projects) do
-        0 -> %{case: :none, repo_count: 0, repo_paths: %{}}
-        1 -> %{case: :single, repo_count: 1, repo_paths: %{hd(migrating_projects).id => "priv/repo"}}
-        _ -> %{case: :multi, repo_count: length(migrating_projects), repo_paths: multi_repo_paths(migrating_projects)}
+        0 ->
+          %{case: :none, repo_count: 0, repo_paths: %{}}
+
+        1 ->
+          %{case: :single, repo_count: 1, repo_paths: %{hd(migrating_projects).id => "priv/repo"}}
+
+        _ ->
+          %{
+            case: :multi,
+            repo_count: length(migrating_projects),
+            repo_paths: multi_repo_paths(migrating_projects)
+          }
       end
 
     files =
@@ -56,7 +65,12 @@ defmodule Weld.Projector.Monolith.Migrations do
 
   defp multi_repo_paths(projects) do
     Map.new(projects, fn project ->
-      slug = project.id |> String.replace(~r/[^a-zA-Z0-9]+/, "_") |> String.trim("_") |> String.downcase()
+      slug =
+        project.id
+        |> String.replace(~r/[^a-zA-Z0-9]+/, "_")
+        |> String.trim("_")
+        |> String.downcase()
+
       {project.id, Path.join("priv/weld_repos", slug)}
     end)
   end

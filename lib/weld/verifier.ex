@@ -14,24 +14,7 @@ defmodule Weld.Verifier do
     projection = Projector.project!(plan)
     build_path = projection.build_path
 
-    results = [
-      run_mix!(build_path, :dev, ["deps.get"]),
-      run_mix!(build_path, :dev, ["deps.compile"]),
-      run_mix!(build_path, :dev, ["compile", "--warnings-as-errors", "--no-compile-deps"]),
-      run_mix!(build_path, :test, ["test"]),
-      run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"]),
-      run_mix!(build_path, :dev, ["hex.build"]),
-      run_mix!(build_path, :dev, ["hex.publish", "--dry-run", "--yes"])
-    ]
-
-    smoke_results =
-      if plan.artifact.verify.smoke.enabled do
-        [SmokeApp.verify!(plan, build_path)]
-      else
-        []
-      end
-
-    verification_results = results ++ smoke_results
+    verification_results = verify_by_mode!(plan, build_path)
 
     lockfile =
       Lockfile.build(
@@ -60,6 +43,49 @@ defmodule Weld.Verifier do
     }
   end
 
+  defp verify_by_mode!(%Plan{artifact: %{mode: :monolith}} = plan, build_path) do
+    baseline = run_selected_project_tests!(plan)
+
+    results = [
+      baseline,
+      run_mix!(build_path, :dev, ["deps.get"]),
+      run_mix!(build_path, :dev, ["compile", "--warnings-as-errors"]),
+      run_mix!(build_path, :test, ["test"]),
+      run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"]),
+      run_mix!(build_path, :dev, ["hex.build"])
+    ]
+
+    monolith_test_result = Enum.find(results, &(&1.task == "test"))
+
+    if monolith_test_result.test_count < baseline.test_count do
+      raise Error,
+            "monolith test surface regressed: monolith ran #{monolith_test_result.test_count} tests but selected-package baseline ran #{baseline.test_count}"
+    end
+
+    results
+  end
+
+  defp verify_by_mode!(%Plan{} = plan, build_path) do
+    results = [
+      run_mix!(build_path, :dev, ["deps.get"]),
+      run_mix!(build_path, :dev, ["deps.compile"]),
+      run_mix!(build_path, :dev, ["compile", "--warnings-as-errors", "--no-compile-deps"]),
+      run_mix!(build_path, :test, ["test"]),
+      run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"]),
+      run_mix!(build_path, :dev, ["hex.build"]),
+      run_mix!(build_path, :dev, ["hex.publish", "--dry-run", "--yes"])
+    ]
+
+    smoke_results =
+      if plan.artifact.verify.smoke.enabled do
+        [SmokeApp.verify!(plan, build_path)]
+      else
+        []
+      end
+
+    results ++ smoke_results
+  end
+
   defp run_mix!(build_path, env, args) do
     env_vars = [{"MIX_ENV", Atom.to_string(env)}]
 
@@ -72,5 +98,76 @@ defmodule Weld.Verifier do
     end
 
     %{task: Enum.join(args, " "), env: env, status: :ok}
+    |> maybe_put_test_summary(output)
+  end
+
+  defp run_selected_project_tests!(%Plan{} = plan) do
+    per_project =
+      Enum.map(plan.selected_projects, fn project ->
+        {output, status} =
+          System.cmd("mix", ["test"],
+            cd: project.abs_path,
+            env: [{"MIX_ENV", "test"}],
+            stderr_to_stdout: true
+          )
+
+        if status != 0 do
+          raise Error,
+                "selected project test baseline failed for #{project.id}: MIX_ENV=test mix test\n\n#{output}"
+        end
+
+        %{test_count: test_count} = parse_test_summary!(output, "selected project #{project.id}")
+
+        %{
+          project_id: project.id,
+          app: project.app,
+          test_count: test_count
+        }
+      end)
+
+    %{
+      task: "selected_tests_baseline",
+      env: :test,
+      status: :ok,
+      test_count: Enum.sum(Enum.map(per_project, & &1.test_count)),
+      project_test_counts: per_project
+    }
+  end
+
+  defp maybe_put_test_summary(result, output) do
+    case parse_test_summary(output) do
+      {:ok, summary} -> Map.merge(result, summary)
+      :error -> result
+    end
+  end
+
+  defp parse_test_summary(output) do
+    cond do
+      Regex.match?(~r/There are no tests to run/, output) ->
+        {:ok, %{test_count: 0, failure_count: 0}}
+
+      captures =
+          Regex.run(~r/(\d+)\s+tests?,\s+(\d+)\s+failures?/, output, capture: :all_but_first) ->
+        [test_count, failure_count] = captures
+
+        {:ok,
+         %{
+           test_count: String.to_integer(test_count),
+           failure_count: String.to_integer(failure_count)
+         }}
+
+      true ->
+        :error
+    end
+  end
+
+  defp parse_test_summary!(output, label) do
+    case parse_test_summary(output) do
+      {:ok, summary} ->
+        summary
+
+      :error ->
+        raise Error, "unable to parse ExUnit summary for #{label}"
+    end
   end
 end

@@ -11,7 +11,8 @@ defmodule Weld.Projector.Monolith.TestHelper do
     result =
       projects
       |> Enum.sort_by(& &1.id)
-      |> Enum.reduce(%{files: [], fragments: [], options: [], transformations: []}, fn project, acc ->
+      |> Enum.reduce(%{files: [], fragments: [], options: [], transformations: []}, fn project,
+                                                                                       acc ->
         helper_path = Path.join(project.abs_path, "test/test_helper.exs")
 
         if File.regular?(helper_path) do
@@ -20,7 +21,9 @@ defmodule Weld.Projector.Monolith.TestHelper do
           forms = quoted_forms!(contents, helper_path)
           {options, fragment_forms} = extract_forms(forms, slug, helper_path)
 
-          fragment_relative = Path.join(["test", "support", "weld_helpers", "#{slug}_test_helper.exs"])
+          fragment_relative =
+            Path.join(["test", "support", "weld_helpers", "#{slug}_test_helper.exs"])
+
           fragment_path = Path.join(build_path, fragment_relative)
           fragment_source = render_fragment(fragment_forms)
 
@@ -49,19 +52,28 @@ defmodule Weld.Projector.Monolith.TestHelper do
     root_helper_relative = Path.join(["test", "test_helper.exs"])
     root_helper_path = Path.join(build_path, root_helper_relative)
     File.mkdir_p!(Path.dirname(root_helper_path))
-    File.write!(root_helper_path, root_helper_source(result.options, Enum.reverse(result.fragments)))
+
+    File.write!(
+      root_helper_path,
+      root_helper_source(result.options, Enum.reverse(result.fragments))
+    )
 
     %{
-      copied_files: ([root_helper_relative | result.files] |> Enum.uniq() |> Enum.sort()),
+      copied_files: [root_helper_relative | result.files] |> Enum.uniq() |> Enum.sort(),
       transformations: Enum.reverse(result.transformations)
     }
   end
 
   defp quoted_forms!(contents, helper_path) do
     case Code.string_to_quoted(contents, file: helper_path) do
-      {:ok, {:__block__, _, forms}} -> forms
-      {:ok, form} -> [form]
-      {:error, error} -> raise Error, "unable to parse #{helper_path}: #{Exception.message(error)}"
+      {:ok, {:__block__, _, forms}} ->
+        forms
+
+      {:ok, form} ->
+        [form]
+
+      {:error, error} ->
+        raise Error, "unable to parse #{helper_path}: #{Exception.message(error)}"
     end
   end
 
@@ -96,8 +108,14 @@ defmodule Weld.Projector.Monolith.TestHelper do
 
   defp exunit_options(_other), do: []
 
-  defp unsupported_helper_side_effect?({{:., _, [_module_ast, :setup_database!]}, _, _args}), do: true
-  defp unsupported_helper_side_effect?({{:., _, [_module_ast, :mode]}, _, [_repo_ast, _mode_ast]}), do: true
+  defp unsupported_helper_side_effect?({{:., _, [_module_ast, :setup_database!]}, _, _args}),
+    do: true
+
+  defp unsupported_helper_side_effect?(
+         {{:., _, [_module_ast, :mode]}, _, [_repo_ast, _mode_ast]}
+       ),
+       do: true
+
   defp unsupported_helper_side_effect?(_other), do: false
 
   defp normalized_alias?({:alias, _, alias_args}) do
