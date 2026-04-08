@@ -4,12 +4,12 @@ defmodule Weld.Projector.Monolith do
   alias Weld.Config.Generator
   alias Weld.Error
   alias Weld.Hash
+  alias Weld.Manifest
   alias Weld.Plan
   alias Weld.Projector.Monolith.FilePlan
   alias Weld.Projector.Monolith.Migrations
   alias Weld.Projector.Monolith.MixFile
   alias Weld.Projector.Monolith.TestHelper
-  alias Weld.Manifest
 
   @source_dirs ~w(lib src c_src include)
 
@@ -148,19 +148,7 @@ defmodule Weld.Projector.Monolith do
         |> Enum.reject(&(Path.basename(&1) == "test_helper.exs"))
         |> Enum.flat_map(fn source ->
           relative = Path.relative_to(source, test_root)
-
-          target =
-            if String.starts_with?(relative, "support/") do
-              Path.join([
-                build_path,
-                "test",
-                "support",
-                slug,
-                String.replace_prefix(relative, "support/", "")
-              ])
-            else
-              Path.join([build_path, "test", slug, relative])
-            end
+          target = projected_test_target(build_path, slug, relative)
 
           File.mkdir_p!(Path.dirname(target))
           File.cp!(source, target)
@@ -170,6 +158,22 @@ defmodule Weld.Projector.Monolith do
       %{copied_files: copied_files}
     else
       %{copied_files: []}
+    end
+  end
+
+  defp projected_test_target(build_path, slug, relative) do
+    case String.starts_with?(relative, "support/") do
+      true ->
+        Path.join([
+          build_path,
+          "test",
+          "support",
+          slug,
+          String.replace_prefix(relative, "support/", "")
+        ])
+
+      false ->
+        Path.join([build_path, "test", slug, relative])
     end
   end
 

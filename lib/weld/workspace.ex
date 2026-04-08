@@ -239,43 +239,10 @@ defmodule Weld.Workspace do
 
   defp canonical_external_dep(manifest, dep) do
     manifest_decl = Map.get(manifest.dependencies, dep.app)
-    requirement = (manifest_decl && manifest_decl.requirement) || dep.requirement
+    requirement = canonical_external_requirement(manifest_decl, dep)
+    opts = canonical_external_opts(manifest_decl, dep)
 
-    opts =
-      dep.opts
-      |> Keyword.drop([:path, :git, :github, :override, :branch, :tag, :ref, :subdir])
-      |> Keyword.merge((manifest_decl && manifest_decl.opts) || [])
-
-    cond do
-      is_binary(requirement) and requirement != "" ->
-        original =
-          case opts do
-            [] -> {dep.app, requirement}
-            _ -> {dep.app, requirement, opts}
-          end
-
-        {:ok,
-         %{
-           app: dep.app,
-           requirement: requirement,
-           opts: opts,
-           original: original,
-           kind: infer_external_kind(opts)
-         }}
-
-      opts[:git] || opts[:github] ->
-        {:ok,
-         %{
-           app: dep.app,
-           requirement: nil,
-           opts: opts,
-           original: {dep.app, opts},
-           kind: infer_external_kind(opts)
-         }}
-
-      true ->
-        :error
-    end
+    build_canonical_external_dep(dep.app, requirement, opts)
   end
 
   defp finalize(graph) do
@@ -321,6 +288,49 @@ defmodule Weld.Workspace do
   end
 
   defp infer_external_kind(opts), do: infer_kind(opts, :runtime, :runtime)
+
+  defp canonical_external_requirement(nil, dep), do: dep.requirement
+  defp canonical_external_requirement(manifest_decl, _dep), do: manifest_decl.requirement
+
+  defp canonical_external_opts(manifest_decl, dep) do
+    dep.opts
+    |> Keyword.drop([:path, :git, :github, :override, :branch, :tag, :ref, :subdir])
+    |> Keyword.merge((manifest_decl && manifest_decl.opts) || [])
+  end
+
+  defp build_canonical_external_dep(app, requirement, opts)
+       when is_binary(requirement) and requirement != "" do
+    {:ok,
+     %{
+       app: app,
+       requirement: requirement,
+       opts: opts,
+       original: canonical_dep_original(app, requirement, opts),
+       kind: infer_external_kind(opts)
+     }}
+  end
+
+  defp build_canonical_external_dep(app, nil, opts) do
+    case opts[:git] || opts[:github] do
+      value when not is_nil(value) ->
+        {:ok,
+         %{
+           app: app,
+           requirement: nil,
+           opts: opts,
+           original: {app, opts},
+           kind: infer_external_kind(opts)
+         }}
+
+      nil ->
+        :error
+    end
+  end
+
+  defp build_canonical_external_dep(_app, _requirement, _opts), do: :error
+
+  defp canonical_dep_original(app, requirement, []), do: {app, requirement}
+  defp canonical_dep_original(app, requirement, opts), do: {app, requirement, opts}
 
   defp infer_kind(opts, _caller_classification, target_classification) do
     only = normalize_only(opts[:only])

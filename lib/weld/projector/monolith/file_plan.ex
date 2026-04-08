@@ -13,35 +13,39 @@ defmodule Weld.Projector.Monolith.FilePlan do
       |> Hash.list_files()
       |> Enum.sort()
       |> Enum.reduce(%{copied_files: [], remaps: []}, fn source, acc ->
-        relative = Path.relative_to(source, source_root)
-        target = unique_target(source, Path.join(target_root, relative), project_slug)
-
-        File.mkdir_p!(Path.dirname(target))
-        File.cp!(source, target)
-
-        remaps =
-          if Path.join(target_root, relative) == target do
-            acc.remaps
-          else
-            [
-              %{
-                source: source,
-                original_relative: Path.relative_to(Path.join(target_root, relative), build_path),
-                remapped_relative: Path.relative_to(target, build_path)
-              }
-              | acc.remaps
-            ]
-          end
-
-        %{
-          copied_files: [Path.relative_to(target, build_path) | acc.copied_files],
-          remaps: remaps
-        }
+        merge_file!(acc, source, source_root, target_root, project_slug, build_path)
       end)
       |> finalize()
     else
       %{copied_files: [], remaps: []}
     end
+  end
+
+  defp merge_file!(acc, source, source_root, target_root, project_slug, build_path) do
+    relative = Path.relative_to(source, source_root)
+    original_target = Path.join(target_root, relative)
+    target = unique_target(source, original_target, project_slug)
+
+    File.mkdir_p!(Path.dirname(target))
+    File.cp!(source, target)
+
+    %{
+      copied_files: [Path.relative_to(target, build_path) | acc.copied_files],
+      remaps: remap_entries(acc.remaps, source, original_target, target, build_path)
+    }
+  end
+
+  defp remap_entries(remaps, _source, original_target, original_target, _build_path), do: remaps
+
+  defp remap_entries(remaps, source, original_target, target, build_path) do
+    [
+      %{
+        source: source,
+        original_relative: Path.relative_to(original_target, build_path),
+        remapped_relative: Path.relative_to(target, build_path)
+      }
+      | remaps
+    ]
   end
 
   defp finalize(result) do

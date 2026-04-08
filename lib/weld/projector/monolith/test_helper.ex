@@ -73,7 +73,7 @@ defmodule Weld.Projector.Monolith.TestHelper do
         [form]
 
       {:error, error} ->
-        raise Error, "unable to parse #{helper_path}: #{Exception.message(error)}"
+        raise Error, "unable to parse #{helper_path}: #{format_parse_error(error)}"
     end
   end
 
@@ -143,6 +143,35 @@ defmodule Weld.Projector.Monolith.TestHelper do
   end
 
   defp rewrite_require_file(form, _slug), do: form
+
+  defp format_parse_error({metadata, message, token}) when is_list(metadata) do
+    location =
+      metadata
+      |> parse_error_location()
+      |> case do
+        "" -> ""
+        value -> value <> ": "
+      end
+
+    detail =
+      case token do
+        "" -> message
+        _other -> "#{message} #{inspect(token)}"
+      end
+
+    location <> detail
+  end
+
+  defp parse_error_location(metadata) do
+    line = metadata[:line]
+    column = metadata[:column]
+
+    cond do
+      is_integer(line) and is_integer(column) -> "line #{line}, column #{column}"
+      is_integer(line) -> "line #{line}"
+      true -> ""
+    end
+  end
 
   defp render_fragment([]), do: ""
 
