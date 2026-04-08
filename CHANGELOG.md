@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-04-07
+
+### Added
+
+- **Monolith artifact mode** (`mode: :monolith`): projects selected packages and
+  their test-view closure into a single flat Mix project under
+  `dist/monolith/<package>/` instead of `dist/hex/<package>/`. Merges `lib/`,
+  `test/`, `priv/`, config, and migrations from all selected projects with
+  automatic file-conflict resolution and deterministic migration re-stamping.
+- `monolith_opts` artifact key: supports `shared_test_configs` (list of project
+  ids whose `test.exs` are included in the monolith root config) and
+  `extra_test_deps` (atoms referencing manifest-declared dependencies to force
+  into test-only deps in the generated mix file).
+- Weld.Config.Generator: generates a merged config tree for monolith artifacts,
+  sanitizing workspace-app config calls from static copies while preserving full
+  originals under `config/runtime_sources/` for bootstrap use.
+- Weld.Projector.Monolith, Weld.Projector.Monolith.FilePlan,
+  Weld.Projector.Monolith.Migrations, Weld.Projector.Monolith.MixFile,
+  Weld.Projector.Monolith.TestHelper: internal modules implementing monolith
+  projection, file merging, migration merging, mix file generation, and test
+  helper synthesis.
+- `Plan.projects_for_view/2` and `Plan.external_deps_for_view/2`: view-scoped
+  project and dependency queries used by monolith projection.
+- Git/GitHub-only manifest dependencies: `requirement` is now optional when
+  `opts` include `:git` or `:github`, enabling manifest-declared git deps without
+  a version constraint.
+- Monolith verifier gate: runs per-selected-project test baseline before
+  verifying the merged artifact, then asserts the monolith test count is not
+  lower than the baseline sum.
+- `mode: :components` is accepted as an alias for `:package_projection` for
+  compatibility with earlier internal configurations.
+
+### Changed
+
+- Package-projection verifier now runs `deps.compile` then
+  `compile --warnings-as-errors --no-compile-deps` instead of a single
+  `compile --warnings-as-errors` step.
+- Manifest dependency validation: `:path` is still rejected; `:git` and
+  `:github` are now permitted in dependency opts.
+- Canonical external dep normalization strips `:override`, `:branch`, `:tag`,
+  `:ref`, and `:subdir` from workspace dep opts before merging manifest opts.
+- Monolith artifacts are excluded from `hex.publish --dry-run --yes` during
+  verification (not a publishable Hex package in the traditional sense).
+
 ## [0.1.0] - 2026-04-02
 
 Initial release.

@@ -25,9 +25,10 @@ Mix tooling, and prepares an archiveable release bundle for publication.
 - classifies internal edges by execution meaning
 - exposes inspect, graph, query, affected, project, verify, and release tasks
 - emits a deterministic `projection.lock.json`
-- generates a standalone Mix package under `dist/hex/<package>/`
+- generates a standalone Mix package under `dist/hex/<package>/` (package-projection mode) or `dist/monolith/<package>/` (monolith mode)
 - canonicalizes external workspace path or git deps into manifest-owned Hex deps
 - synthesizes a merged application module when selected projects publish OTP children
+- merges sources, tests, config, migrations, and priv from all selected projects in monolith mode
 - prepares a deterministic release bundle under `dist/release_bundles/<package>/...`
 - archives released bundles without turning generated output into a long-lived source tree
 
@@ -38,7 +39,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.1.0", runtime: false}
+    {:weld, "~> 0.2.0", runtime: false}
   ]
 end
 ```
@@ -56,6 +57,8 @@ The intended lifecycle is:
 publish remains external.
 
 ## Example Manifest
+
+Package-projection mode (default):
 
 ```elixir
 [
@@ -93,6 +96,35 @@ publish remains external.
 ]
 ```
 
+Monolith mode:
+
+```elixir
+[
+  workspace: [
+    root: "../..",
+    project_globs: ["core/*", "runtime/*"]
+  ],
+  artifacts: [
+    my_monolith: [
+      mode: :monolith,
+      roots: ["runtime/api"],
+      monolith_opts: [
+        shared_test_configs: ["core/contracts"]
+      ],
+      package: [
+        name: "my_monolith",
+        otp_app: :my_monolith,
+        version: "0.1.0",
+        description: "My welded monolith"
+      ],
+      output: [
+        docs: ["README.md"]
+      ]
+    ]
+  ]
+]
+```
+
 ## Core Commands
 
 ```bash
@@ -108,8 +140,8 @@ mix weld.affected packaging/weld/my_bundle.exs --task verify.all --base main --h
 
 ## Generated Output
 
-`Weld` projects a standalone package under `dist/hex/<package>/` using a
-component-preserving layout:
+**Package-projection mode** (default) projects under `dist/hex/<package>/` using
+a component-preserving layout:
 
 ```text
 dist/
@@ -126,18 +158,58 @@ dist/
       test/
 ```
 
+**Monolith mode** merges all selected packages into a single flat project under
+`dist/monolith/<package>/`:
+
+```text
+dist/
+  monolith/
+    my_monolith/
+      mix.exs
+      projection.lock.json
+      lib/
+        my_monolith/
+          application.ex
+        fixture/
+          store.ex
+          api.ex
+      test/
+        core_store/
+        runtime_api/
+        support/
+      config/
+        config.exs
+        sources/
+        runtime_sources/
+      priv/
+        repo/migrations/
+```
+
 When selected projects expose OTP applications, `weld` synthesizes a merged
 `lib/<otp_app>/application.ex` that starts those children inside the welded
-package.
+package. In monolith mode this module also bootstraps per-package config at
+startup via `Config.Reader`.
 
 The welded artifact is a normal Mix project. `weld.verify` runs:
 
-- `mix compile --warnings-as-errors`
+**Package-projection mode:**
+
+- `mix deps.compile`
+- `mix compile --warnings-as-errors --no-compile-deps`
 - `mix test`
 - `mix docs --warnings-as-errors`
 - `mix hex.build`
 - `mix hex.publish --dry-run --yes`
 - optional smoke-app compilation
+
+**Monolith mode:**
+
+- per-package test baseline (asserts selected packages pass their own tests)
+- `mix deps.get`
+- `mix compile --warnings-as-errors`
+- `mix test` (asserts test count ≥ baseline sum)
+- `mix docs --warnings-as-errors`
+- `mix hex.build`
 
 ## Guides
 

@@ -40,7 +40,8 @@ verification runs against the real boot surface users will get.
 
 Disposable output:
 
-- `dist/hex/<package>/`
+- `dist/hex/<package>/` (package-projection mode)
+- `dist/monolith/<package>/` (monolith mode)
 - smoke-app temp output
 - local cache
 

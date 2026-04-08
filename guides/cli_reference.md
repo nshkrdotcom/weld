@@ -42,7 +42,8 @@ dependency traversal.
 mix weld.project <manifest_path> [--artifact name]
 ```
 
-Generates the welded artifact under `dist/hex/<package>/`.
+Generates the welded artifact. Package-projection mode writes to
+`dist/hex/<package>/`; monolith mode writes to `dist/monolith/<package>/`.
 
 ## Verify
 

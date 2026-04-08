@@ -19,13 +19,15 @@ These tests cover:
 
 These tests cover:
 
-- projecting a standalone Mix artifact
+- projecting a standalone Mix artifact (package-projection and monolith modes)
 - compiling the artifact
 - running welded artifact tests
 - building docs
 - building the Hex tarball
-- running `mix hex.publish --dry-run --yes`
-- compiling the smoke app when configured
+- running `mix hex.publish --dry-run --yes` (package-projection mode)
+- compiling the smoke app when configured (package-projection mode)
+- monolith test baseline gate: asserting the merged artifact runs at least as
+  many tests as the sum of selected-package baselines
 
 ## Fixture Strategy
 

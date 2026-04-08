@@ -8,7 +8,7 @@ multi-project Elixir repo.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.1.0", runtime: false}
+    {:weld, "~> 0.2.0", runtime: false}
   ]
 end
 ```
@@ -72,11 +72,17 @@ shape before generating output.
 mix weld.project packaging/weld/my_bundle.exs
 ```
 
-This creates a standalone Mix project under `dist/hex/<package>/`.
+Package-projection mode (the default, `mode: :package_projection`) creates a
+standalone Mix project under `dist/hex/<package>/` with a component-preserving
+layout.
 
-If selected projects publish OTP application modules, the generated package
-also gets a merged `lib/<otp_app>/application.ex` so the welded artifact boots
-like a normal package.
+Monolith mode (`mode: :monolith`) creates a merged flat project under
+`dist/monolith/<package>/`, combining sources, tests, config, migrations, and
+priv from all selected packages into a single project tree.
+
+If selected projects publish OTP application modules, the generated package also
+gets a merged `lib/<otp_app>/application.ex`. In monolith mode this module also
+bootstraps per-package config at startup via `Config.Reader`.
 
 ## 5. Verify The Welded Package
 
@@ -84,14 +90,24 @@ like a normal package.
 mix weld.verify packaging/weld/my_bundle.exs
 ```
 
-This runs package-level verification against the generated artifact:
+**Package-projection mode** runs:
 
-- `mix compile --warnings-as-errors`
+- `mix deps.compile`
+- `mix compile --warnings-as-errors --no-compile-deps`
 - `mix test`
 - `mix docs --warnings-as-errors`
 - `mix hex.build`
 - `mix hex.publish --dry-run --yes`
 - optional smoke verification when configured
+
+**Monolith mode** runs:
+
+- per-package test baseline (each selected package's own test suite)
+- `mix deps.get`
+- `mix compile --warnings-as-errors`
+- `mix test` (asserts test count is not lower than the baseline sum)
+- `mix docs --warnings-as-errors`
+- `mix hex.build`
 
 ## 6. Prepare And Archive Releases
 

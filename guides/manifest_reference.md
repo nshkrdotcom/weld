@@ -34,27 +34,41 @@ Manifest-owned canonical external dependency declarations.
 
 Use this when a selected project depends on an external package through local
 workspace transport such as `:path`, `:git`, or `:github`, but the welded
-artifact must publish a normal Hex-style dependency instead.
+artifact must publish a canonical dependency instead.
 
 Each key is the dependency app name. Each value contains:
 
-- `requirement`
-- `opts`
+- `requirement` — version requirement string. Optional when `opts` includes
+  `:git` or `:github`.
+- `opts` — additional Mix dependency opts. `:path` is rejected. `:git` and
+  `:github` are permitted.
 
-`opts` must remain publish-safe. `weld` rejects `:path`, `:git`, and
-`:github` here.
+`weld` raises if neither a `requirement` nor a git/github opt is present.
 
 ## `artifacts`
 
 One manifest can define more than one publishable artifact. Each artifact entry
 contains:
 
+- `mode` — `:package_projection` (default) or `:monolith`. The alias
+  `:components` is accepted as a synonym for `:package_projection`.
+- `monolith_opts` — keyword list of monolith-specific options (see below).
+  Ignored in package-projection mode.
 - `roots`
 - `include`
 - `optional_features`
 - `package`
 - `output`
 - `verify`
+
+## Monolith Options (`monolith_opts`)
+
+- `shared_test_configs` — list of project ids (atoms or strings) whose
+  `config/test.exs` files are imported into the generated root `config/test.exs`.
+  Other packages' test configs are omitted and a warning is emitted for each.
+- `extra_test_deps` — list of app name atoms referencing manifest-declared
+  dependencies that should be forced into test-only deps in the generated
+  `mix.exs`, even if they would not otherwise appear in the test closure.
 
 ## Package Keys
 
@@ -71,11 +85,8 @@ contains:
 ## Output Keys
 
 - `dist_root`
-- `layout`
 - `docs`
 - `assets`
-
-The current stable layout is `:components`.
 
 ## Verify Keys
 
@@ -83,7 +94,9 @@ The current stable layout is `:components`.
 - `smoke.enabled`
 - `smoke.entry_file`
 
-## Example
+Smoke verification is not run in monolith mode.
+
+## Example — Package Projection
 
 ```elixir
 [
@@ -95,6 +108,9 @@ The current stable layout is `:components`.
     external_lib: [
       requirement: "~> 1.2",
       opts: []
+    ],
+    private_tool: [
+      opts: [git: "https://example.com/private_tool.git", branch: "main"]
     ]
   ],
   classify: [
@@ -120,6 +136,36 @@ The current stable layout is `:components`.
       ],
       verify: [
         artifact_tests: ["packaging/weld/web_bundle/test"]
+      ]
+    ]
+  ]
+]
+```
+
+## Example — Monolith
+
+```elixir
+[
+  workspace: [
+    root: "../..",
+    project_globs: ["core/*", "runtime/*"]
+  ],
+  artifacts: [
+    my_monolith: [
+      mode: :monolith,
+      roots: ["runtime/api"],
+      monolith_opts: [
+        shared_test_configs: ["core/contracts"],
+        extra_test_deps: [:bypass]
+      ],
+      package: [
+        name: "my_monolith",
+        otp_app: :my_monolith,
+        version: "0.1.0",
+        description: "My welded monolith"
+      ],
+      output: [
+        docs: ["README.md"]
       ]
     ]
   ]
