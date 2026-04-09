@@ -16,6 +16,7 @@ defmodule Weld.ProjectorPackageModeTest do
 
     assert application =~ "bootstrap_workspace_app_env!()"
     assert application =~ "@bootstrapped_apps [:fixture_bootstrap]"
+    assert application =~ "@moduledoc false"
   end
 
   test "package mode projects root ecto repo discovery and repo priv overlays" do

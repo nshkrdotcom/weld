@@ -517,6 +517,8 @@ defmodule Weld.Projector do
 
     """
     defmodule #{inspect(module)} do
+      @moduledoc false
+
       use Application
 
       def start(_type, _args) do

@@ -48,5 +48,6 @@ defmodule Weld.ProjectorTest do
     assert mixfile =~ "mod: {CompositeBundle.Application, []}"
     assert mixfile =~ "lib"
     assert File.read!(application_file) =~ "Fixture.State.Application"
+    assert File.read!(application_file) =~ "@moduledoc false"
   end
 end
