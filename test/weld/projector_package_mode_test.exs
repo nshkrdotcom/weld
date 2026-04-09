@@ -35,11 +35,14 @@ defmodule Weld.ProjectorPackageModeTest do
     assert config =~ "ecto_repos: [Fixture.Store.Repo]"
     assert store_config =~ "database: \"fixture_store_test\""
     assert store_config =~ "username: \"postgres\""
+    assert File.regular?(Path.join(result.build_path, ".formatter.exs"))
+    assert ".formatter.exs" in result.package_files
 
     assert dev_config =~
              "config :fixture_store, Fixture.Store.Repo,\n  priv: Path.expand(\"../components/core/store/priv/repo\", __DIR__)"
 
     assert mixfile =~ "\"config\""
+    assert mixfile =~ "\".formatter.exs\""
     assert mixfile =~ "build_path: \"_build\""
   end
 

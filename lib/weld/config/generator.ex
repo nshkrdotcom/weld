@@ -2,6 +2,7 @@ defmodule Weld.Config.Generator do
   @moduledoc false
 
   alias Weld.Error
+  alias Weld.SourceFormatter
 
   @spec generate!([Weld.Workspace.Project.t()], Path.t(), [map()], map(), keyword()) :: %{
           bootstrapped_apps: [atom()],
@@ -191,7 +192,7 @@ defmodule Weld.Config.Generator do
       ]
       |> IO.iodata_to_binary()
 
-    File.write!(path, source)
+    File.write!(path, SourceFormatter.format!(source))
     Path.relative_to(path, Path.dirname(config_root))
   end
 
@@ -223,14 +224,19 @@ defmodule Weld.Config.Generator do
       ]
       |> IO.iodata_to_binary()
 
-    File.write!(path, source)
+    File.write!(path, SourceFormatter.format!(source))
     Path.relative_to(path, Path.dirname(config_root))
   end
 
   defp write_runtime_file!(config_root, staged) do
     if Enum.any?(staged, &("runtime.exs" in &1.files)) do
       path = Path.join(config_root, "runtime.exs")
-      File.write!(path, "import Config\n\n" <> render_imports(staged, "runtime.exs"))
+
+      File.write!(
+        path,
+        SourceFormatter.format!("import Config\n\n" <> render_imports(staged, "runtime.exs"))
+      )
+
       Path.relative_to(path, Path.dirname(config_root))
     end
   end
@@ -353,9 +359,7 @@ defmodule Weld.Config.Generator do
     if config_directives?(ast) do
       ast
       |> Macro.to_string()
-      |> Code.format_string!()
-      |> IO.iodata_to_binary()
-      |> Kernel.<>("\n")
+      |> SourceFormatter.format!()
     else
       "import Config\n"
     end

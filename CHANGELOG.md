@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-04-08
+
+### Added
+
+- a shared source formatter helper for generated Elixir sources so projected
+  Mix files, generated applications, and synthesized config roots are emitted
+  formatter-clean by construction.
+
+### Changed
+
+- projected package and monolith artifacts now preserve repo-root Mix tooling
+  files such as `.formatter.exs`, with support ready for other root quality
+  config files when present.
+
+### Fixed
+
+- prepared release bundles and projected monoliths can now run `mix format`
+  from the artifact root without ad hoc arguments or missing-config failures.
+- generated `mix.exs`, application modules, and root config files are now
+  emitted in formatter-clean form, so dist artifacts satisfy the normal
+  formatter gate instead of only compiling and testing cleanly.
+
 ## [0.3.1] - 2026-04-08
 
 ### Added

@@ -15,6 +15,7 @@ defmodule Weld.ProjectorMonolithTest do
     assert File.regular?(Path.join(result.build_path, "config/test.exs"))
     assert File.regular?(Path.join(result.build_path, "config/sources/core_store/config.exs"))
     assert File.regular?(Path.join(result.build_path, "config/sources/runtime_api/config.exs"))
+    assert File.regular?(Path.join(result.build_path, ".formatter.exs"))
     assert File.regular?(Path.join(result.build_path, "test/test_helper.exs"))
     assert File.regular?(Path.join(result.build_path, "test/core_store/fixture/store_test.exs"))
     assert File.regular?(Path.join(result.build_path, "test/runtime_api/fixture/api_test.exs"))
@@ -29,6 +30,8 @@ defmodule Weld.ProjectorMonolithTest do
            )
 
     mixfile = File.read!(Path.join(result.build_path, "mix.exs"))
+    assert ".formatter.exs" in result.package_files
+    assert mixfile =~ "\".formatter.exs\""
     assert mixfile =~ "build_path: \"_build\""
     refute mixfile =~ "components/"
     refute mixfile =~ ", path:"
@@ -47,6 +50,14 @@ defmodule Weld.ProjectorMonolithTest do
     assert status == 0, output
     refute output =~ "configured but not available", output
     assert output =~ "2 tests, 0 failures"
+
+    {format_output, format_status} =
+      System.cmd("mix", ["format", "--check-formatted"],
+        cd: result.build_path,
+        stderr_to_stdout: true
+      )
+
+    assert format_status == 0, format_output
   end
 
   test "allows explicit non-selected monolith test support projects" do

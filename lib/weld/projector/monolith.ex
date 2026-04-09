@@ -25,6 +25,9 @@ defmodule Weld.Projector.Monolith do
     copied_assets =
       Enum.flat_map(plan.artifact.output.assets, &copy_relative!(plan, build_path, &1))
 
+    copied_tooling_files =
+      Enum.flat_map(Projector.root_tooling_files(plan), &copy_relative!(plan, build_path, &1))
+
     source_merge =
       Enum.reduce(plan.selected_projects, %{copied_files: [], remaps: []}, fn project, acc ->
         Enum.reduce(@source_dirs, acc, fn dir, inner ->
@@ -88,6 +91,7 @@ defmodule Weld.Projector.Monolith do
       [
         copied_docs,
         copied_assets,
+        copied_tooling_files,
         source_merge.copied_files,
         test_merge.copied_files,
         test_support_merge.copied_files,

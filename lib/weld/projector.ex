@@ -3,6 +3,8 @@ defmodule Weld.Projector do
   Generates the welded Mix project and its initial lockfile.
   """
 
+  @root_tooling_files [".formatter.exs", ".credo.exs", ".dialyzer_ignore.exs"]
+
   alias Weld.Config.Generator
   alias Weld.Error
   alias Weld.Git
@@ -10,6 +12,7 @@ defmodule Weld.Projector do
   alias Weld.Lockfile
   alias Weld.Plan
   alias Weld.Projector.Monolith
+  alias Weld.SourceFormatter
 
   @spec project!(Plan.t()) :: map()
   def project!(%Plan{} = plan) do
@@ -54,10 +57,20 @@ defmodule Weld.Projector do
     ["mix.exs", "projection.lock.json"]
     |> Kernel.++(generated_root_paths(plan, opts))
     |> Kernel.++(component_roots)
+    |> Kernel.++(root_tooling_files(plan))
     |> Kernel.++(plan.artifact.output.docs)
     |> Kernel.++(plan.artifact.output.assets)
     |> Enum.uniq()
     |> Enum.sort()
+  end
+
+  @spec root_tooling_candidates() :: [String.t()]
+  def root_tooling_candidates, do: @root_tooling_files
+
+  @spec root_tooling_files(Plan.t()) :: [String.t()]
+  def root_tooling_files(%Plan{} = plan) do
+    @root_tooling_files
+    |> Enum.filter(&File.regular?(Path.join(plan.manifest.repo_root, &1)))
   end
 
   defp copy_project!(build_path, project) do
@@ -152,6 +165,9 @@ defmodule Weld.Projector do
     copied_assets =
       Enum.flat_map(plan.artifact.output.assets, &copy_relative!(plan, build_path, &1))
 
+    copied_tooling_files =
+      Enum.flat_map(root_tooling_files(plan), &copy_relative!(plan, build_path, &1))
+
     copied_tests =
       Enum.flat_map(
         plan.artifact.verify.artifact_tests,
@@ -178,6 +194,7 @@ defmodule Weld.Projector do
         (copied_components ++
            copied_docs ++
            copied_assets ++
+           copied_tooling_files ++
            copied_tests ++
            config_merge.copied_files ++ generated_files)
         |> Enum.uniq()
@@ -192,7 +209,10 @@ defmodule Weld.Projector do
   end
 
   defp render_mixfile!(plan, build_path, opts) do
-    File.write!(Path.join(build_path, "mix.exs"), mixfile_contents(plan, opts))
+    File.write!(
+      Path.join(build_path, "mix.exs"),
+      mixfile_contents(plan, opts) |> SourceFormatter.format!()
+    )
   end
 
   defp render_generated_files!(plan, build_path, opts) do
@@ -208,6 +228,7 @@ defmodule Weld.Projector do
         File.write!(
           target,
           application_module_contents(application, plan.artifact.package.otp_app)
+          |> SourceFormatter.format!()
         )
 
         [relative_path]

@@ -3,12 +3,18 @@ defmodule Weld.Projector.Monolith.MixFile do
 
   alias Weld.Git
   alias Weld.Plan
+  alias Weld.Projector
+  alias Weld.SourceFormatter
 
   @spec render!(Plan.t(), Path.t(), keyword()) :: [String.t()]
   def render!(%Plan{} = plan, build_path, opts) do
     application = generated_application(plan, opts)
     mixfile_path = Path.join(build_path, "mix.exs")
-    File.write!(mixfile_path, mixfile_contents(plan, build_path, application, opts))
+
+    File.write!(
+      mixfile_path,
+      mixfile_contents(plan, build_path, application, opts) |> SourceFormatter.format!()
+    )
 
     generated = ["mix.exs"]
     write_application_module!(generated, application, plan, build_path)
@@ -28,7 +34,13 @@ defmodule Weld.Projector.Monolith.MixFile do
     relative = Path.join(["lib", to_string(plan.artifact.package.otp_app), "application.ex"])
     target = Path.join(build_path, relative)
     File.mkdir_p!(Path.dirname(target))
-    File.write!(target, application_module_contents(application, plan.artifact.package.otp_app))
+
+    File.write!(
+      target,
+      application_module_contents(application, plan.artifact.package.otp_app)
+      |> SourceFormatter.format!()
+    )
+
     [relative | generated]
   end
 
@@ -384,6 +396,7 @@ defmodule Weld.Projector.Monolith.MixFile do
       ["README.md", "LICENSE", "lib", "config", "priv", "src", "c_src", "include"]
       |> maybe_add_tests(include_tests?)
       |> Kernel.++(root_docs_dirs(build_path))
+      |> Kernel.++(root_tooling_files(build_path))
 
     candidates
     |> Enum.filter(fn relative ->
@@ -399,6 +412,11 @@ defmodule Weld.Projector.Monolith.MixFile do
   defp root_docs_dirs(build_path) do
     ["guides", "docs", "examples"]
     |> Enum.filter(&File.exists?(Path.join(build_path, &1)))
+  end
+
+  defp root_tooling_files(build_path) do
+    Projector.root_tooling_candidates()
+    |> Enum.filter(&File.regular?(Path.join(build_path, &1)))
   end
 
   defp project_slug(project_id) do
