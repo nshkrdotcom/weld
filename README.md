@@ -229,3 +229,7 @@ The welded artifact is a normal Mix project. `weld.verify` runs:
 - [Testing Strategy](guides/testing_strategy.md)
 - [Release Process](guides/release_process.md)
 - [Consumer Repo Integration](guides/consumer_repo_integration.md)
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
