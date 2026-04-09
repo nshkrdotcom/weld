@@ -63,6 +63,7 @@ defmodule Weld.Projector.Monolith.MixFile do
         [
           app: #{inspect(package.otp_app)},
           version: #{inspect(package.version)},
+          build_path: "_build",
           elixir: #{inspect(package.elixir)},
           start_permanent: Mix.env() == :prod,
           elixirc_paths: elixirc_paths(Mix.env()),

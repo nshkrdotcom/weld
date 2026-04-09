@@ -3,6 +3,7 @@ defmodule Weld.Projector do
   Generates the welded Mix project and its initial lockfile.
   """
 
+  alias Weld.Config.Generator
   alias Weld.Error
   alias Weld.Git
   alias Weld.Hash
@@ -15,6 +16,7 @@ defmodule Weld.Projector do
     plan = Plan.ensure_valid!(plan)
     build_path = build_path(plan)
 
+    clear_stale_build_paths!(plan)
     File.rm_rf!(build_path)
     File.mkdir_p!(build_path)
 
@@ -42,15 +44,15 @@ defmodule Weld.Projector do
     end
   end
 
-  @spec package_files(Plan.t()) :: [String.t()]
-  def package_files(%Plan{} = plan) do
+  @spec package_files(Plan.t(), keyword()) :: [String.t()]
+  def package_files(%Plan{} = plan, opts \\ []) do
     component_roots =
       plan.selected_projects
       |> Enum.map(&component_dir/1)
       |> Enum.map(&Path.join("components", &1))
 
     ["mix.exs", "projection.lock.json"]
-    |> Kernel.++(generated_root_paths(plan))
+    |> Kernel.++(generated_root_paths(plan, opts))
     |> Kernel.++(component_roots)
     |> Kernel.++(plan.artifact.output.docs)
     |> Kernel.++(plan.artifact.output.assets)
@@ -131,6 +133,19 @@ defmodule Weld.Projector do
   end
 
   defp project_by_mode!(%Plan{} = plan, build_path) do
+    repo_infos = detect_repo_infos(plan.selected_projects)
+
+    config_merge =
+      Generator.generate!(
+        plan.selected_projects,
+        build_path,
+        repo_infos,
+        package_repo_layout(plan.selected_projects),
+        shared_test_configs: Enum.map(plan.selected_projects, & &1.id),
+        root_config_overlays:
+          List.wrap(root_ecto_repos_overlay(repo_infos, plan.artifact.package.otp_app))
+      )
+
     copied_components = Enum.flat_map(plan.selected_projects, &copy_project!(build_path, &1))
     copied_docs = Enum.flat_map(plan.artifact.output.docs, &copy_relative!(plan, build_path, &1))
 
@@ -144,24 +159,44 @@ defmodule Weld.Projector do
       )
 
     ensure_readme!(plan, build_path)
-    generated_files = render_generated_files!(plan, build_path)
-    render_mixfile!(plan, build_path)
+
+    generated_files =
+      render_generated_files!(plan, build_path,
+        bootstrapped_apps: config_merge.bootstrapped_apps,
+        bootstrapped_config_sources: config_merge.bootstrapped_sources,
+        generate_config?: true
+      )
+
+    render_mixfile!(plan, build_path,
+      bootstrapped_apps: config_merge.bootstrapped_apps,
+      bootstrapped_config_sources: config_merge.bootstrapped_sources,
+      generate_config?: true
+    )
 
     %{
       copied_files:
-        (copied_components ++ copied_docs ++ copied_assets ++ copied_tests ++ generated_files)
+        (copied_components ++
+           copied_docs ++
+           copied_assets ++
+           copied_tests ++
+           config_merge.copied_files ++ generated_files)
         |> Enum.uniq()
         |> Enum.sort(),
-      package_files: package_files(plan)
+      package_files:
+        package_files(plan,
+          bootstrapped_apps: config_merge.bootstrapped_apps,
+          bootstrapped_config_sources: config_merge.bootstrapped_sources,
+          generate_config?: true
+        )
     }
   end
 
-  defp render_mixfile!(plan, build_path) do
-    File.write!(Path.join(build_path, "mix.exs"), mixfile_contents(plan))
+  defp render_mixfile!(plan, build_path, opts) do
+    File.write!(Path.join(build_path, "mix.exs"), mixfile_contents(plan, opts))
   end
 
-  defp render_generated_files!(plan, build_path) do
-    case generated_application(plan) do
+  defp render_generated_files!(plan, build_path, opts) do
+    case generated_application(plan, opts) do
       %{module: nil} ->
         []
 
@@ -169,7 +204,12 @@ defmodule Weld.Projector do
         relative_path = generated_application_relative_path(plan)
         target = Path.join(build_path, relative_path)
         File.mkdir_p!(Path.dirname(target))
-        File.write!(target, application_module_contents(application))
+
+        File.write!(
+          target,
+          application_module_contents(application, plan.artifact.package.otp_app)
+        )
+
         [relative_path]
     end
   end
@@ -182,14 +222,14 @@ defmodule Weld.Projector do
     end
   end
 
-  defp mixfile_contents(plan) do
+  defp mixfile_contents(plan, opts) do
     package = plan.artifact.package
     module_name = "#{Macro.camelize(to_string(package.otp_app))}.MixProject"
-    application = generated_application(plan)
-    elixirc_paths = component_paths(plan.selected_projects, & &1.elixirc_paths, plan)
+    application = generated_application(plan, opts)
+    elixirc_paths = component_paths(plan.selected_projects, & &1.elixirc_paths, plan, opts)
     erlc_paths = component_paths(plan.selected_projects, & &1.erlc_paths)
     deps = render_deps(plan.external_deps)
-    files = package_files(plan) |> Enum.map_join(",\n        ", &inspect/1)
+    files = package_files(plan, opts) |> Enum.map_join(",\n        ", &inspect/1)
     extras = plan.artifact.output.docs |> Enum.map_join(",\n        ", &inspect/1)
     links = package.links |> fallback_links(plan.manifest.repo_root) |> inspect(pretty: true)
     application_config = application_config_literal(application)
@@ -202,6 +242,7 @@ defmodule Weld.Projector do
         [
           app: #{inspect(package.otp_app)},
           version: #{inspect(package.version)},
+          build_path: "_build",
           elixir: #{inspect(package.elixir)},
           start_permanent: Mix.env() == :prod,
           elixirc_paths: elixirc_paths(Mix.env()),
@@ -258,9 +299,9 @@ defmodule Weld.Projector do
     """
   end
 
-  defp component_paths(projects, path_fun, plan \\ nil) do
+  defp component_paths(projects, path_fun, plan \\ nil, opts \\ []) do
     root_paths =
-      case generated_root_paths(plan) do
+      case generated_root_paths(plan, opts) do
         [] -> []
         root_paths -> root_paths
       end
@@ -294,25 +335,42 @@ defmodule Weld.Projector do
     end
   end
 
-  defp generated_root_paths(nil), do: []
+  defp generated_root_paths(nil, _opts), do: []
 
-  defp generated_root_paths(plan) do
-    case generated_application(plan) do
-      %{module: nil} -> []
-      _application -> ["lib"]
-    end
+  defp generated_root_paths(plan, opts) do
+    []
+    |> maybe_add_generated_root_path(
+      case generated_application(plan, opts) do
+        %{module: nil} -> nil
+        _application -> "lib"
+      end
+    )
+    |> maybe_add_generated_root_path(
+      if(Keyword.get(opts, :generate_config?, false), do: "config")
+    )
   end
 
-  defp generated_application(%Plan{} = plan) do
+  defp generated_application(%Plan{} = plan, opts) do
     children =
       plan.selected_projects
       |> Enum.map(& &1.application.mod)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
+    bootstrapped_apps =
+      opts
+      |> Keyword.get(:bootstrapped_apps, [])
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    bootstrapped_sources =
+      opts
+      |> Keyword.get(:bootstrapped_config_sources, [])
+      |> Enum.uniq()
+
     %{
       module:
-        if(children == [],
+        if(children == [] and bootstrapped_sources == [],
           do: nil,
           else:
             Module.concat([
@@ -320,6 +378,8 @@ defmodule Weld.Projector do
               "Application"
             ])
         ),
+      bootstrapped_apps: bootstrapped_apps,
+      bootstrapped_sources: bootstrapped_sources,
       children: children,
       extra_applications:
         plan.selected_projects
@@ -359,7 +419,15 @@ defmodule Weld.Projector do
     Path.join(["lib", otp_app, "application.ex"])
   end
 
-  defp application_module_contents(%{module: module, children: children}) do
+  defp application_module_contents(
+         %{
+           module: module,
+           bootstrapped_apps: bootstrapped_apps,
+           bootstrapped_sources: bootstrapped_sources,
+           children: children
+         },
+         _artifact_otp_app
+       ) do
     rendered_children =
       children
       |> Enum.map_join(",\n      ", fn {child_module, args} ->
@@ -372,11 +440,67 @@ defmodule Weld.Projector do
         """
       end)
 
+    bootstrap_helpers =
+      if bootstrapped_sources == [] do
+        ""
+      else
+        """
+
+          @boot_env Mix.env()
+          @bootstrapped_apps #{inspect(bootstrapped_apps)}
+          @bootstrapped_sources #{inspect(bootstrapped_sources, pretty: true, limit: :infinity)}
+
+          defp bootstrap_workspace_app_env! do
+            Enum.each(@bootstrapped_sources, fn source ->
+              source
+              |> bootstrap_source_paths()
+              |> Enum.each(&apply_bootstrap_source!/1)
+            end)
+          end
+
+          defp bootstrap_source_paths(%{
+                 config_path: config_path,
+                 env_path_fallbacks: env_path_fallbacks,
+                 runtime_path: runtime_path
+               }) do
+            []
+            |> maybe_add_bootstrap_path(config_path || Map.get(env_path_fallbacks, @boot_env))
+            |> maybe_add_bootstrap_path(runtime_path)
+          end
+
+          defp maybe_add_bootstrap_path(paths, nil), do: paths
+          defp maybe_add_bootstrap_path(paths, path), do: paths ++ [path]
+
+          defp apply_bootstrap_source!(relative_path) do
+            absolute_path = artifact_path(relative_path)
+
+            unless File.regular?(absolute_path) do
+              raise "missing projected workspace config source: \#{absolute_path}"
+            end
+
+            {config, _imports} = Config.Reader.read_imports!(absolute_path, env: @boot_env)
+
+            config
+            |> Enum.filter(fn {app, _value} -> app in @bootstrapped_apps end)
+            |> case do
+              [] -> :ok
+              workspace_config -> Application.put_all_env(workspace_config, persistent: true)
+            end
+          end
+
+          defp artifact_path(relative_path) do
+            Path.expand(Path.join(["..", "..", relative_path]), __DIR__)
+          end
+        """
+      end
+
     """
     defmodule #{inspect(module)} do
       use Application
 
       def start(_type, _args) do
+        #{if(bootstrapped_sources == [], do: ":ok", else: "bootstrap_workspace_app_env!()")}
+
         children = [
           #{rendered_children}
         ]
@@ -386,8 +510,88 @@ defmodule Weld.Projector do
           name: __MODULE__.Supervisor
         )
       end
+    #{bootstrap_helpers}
     end
     """
+  end
+
+  def detect_repo_infos(projects) do
+    projects
+    |> Enum.flat_map(fn project ->
+      lib_root = Path.join(project.abs_path, "lib")
+
+      if File.dir?(lib_root) do
+        lib_root
+        |> Hash.list_files()
+        |> Enum.filter(&(Path.extname(&1) == ".ex"))
+        |> Enum.flat_map(&repo_info_from_file(&1, project))
+      else
+        []
+      end
+    end)
+  end
+
+  defp root_ecto_repos_overlay([], _artifact_otp_app), do: nil
+
+  defp root_ecto_repos_overlay(repo_infos, artifact_otp_app) do
+    """
+    config #{inspect(artifact_otp_app)},
+      ecto_repos: #{inspect(Enum.map(repo_infos, & &1.module))}
+    """
+  end
+
+  defp package_repo_layout(projects) do
+    repo_paths =
+      projects
+      |> Enum.filter(&File.dir?(Path.join(&1.abs_path, "priv/repo")))
+      |> Map.new(fn project ->
+        {project.id, Path.join(["components", component_dir(project), "priv/repo"])}
+      end)
+
+    %{repo_paths: repo_paths}
+  end
+
+  defp maybe_add_generated_root_path(paths, nil), do: paths
+  defp maybe_add_generated_root_path(paths, path), do: paths ++ [path]
+
+  defp clear_stale_build_paths!(%Plan{} = plan) do
+    dist_root = Path.expand(plan.artifact.output.dist_root, plan.manifest.repo_root)
+
+    stale_paths =
+      case plan.artifact.mode do
+        :monolith -> [Path.join([dist_root, "hex", plan.artifact.package.name])]
+        _other -> [Path.join([dist_root, "monolith", plan.artifact.package.name])]
+      end
+
+    Enum.each(stale_paths, &File.rm_rf!/1)
+  end
+
+  defp repo_info_from_file(path, project) do
+    contents = File.read!(path)
+
+    if String.contains?(contents, "use Ecto.Repo") do
+      module =
+        case Regex.run(~r/defmodule\s+([A-Za-z0-9_.]+)\s+do/, contents, capture: :all_but_first) do
+          [module] -> Module.concat([module])
+          _ -> raise Error, "unable to parse Ecto repo module from #{path}"
+        end
+
+      otp_app =
+        case Regex.run(~r/otp_app:\s*:(\w+)/, contents, capture: :all_but_first) do
+          [otp_app] -> String.to_atom(otp_app)
+          _ -> raise Error, "unable to parse Ecto repo otp_app from #{path}"
+        end
+
+      [
+        %{
+          project_id: project.id,
+          module: module,
+          otp_app: otp_app
+        }
+      ]
+    else
+      []
+    end
   end
 
   defp component_dir(%{id: "."}), do: "root"

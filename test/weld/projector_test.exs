@@ -21,7 +21,7 @@ defmodule Weld.ProjectorTest do
            )
 
     mixfile = File.read!(Path.join(result.build_path, "mix.exs"))
-    refute mixfile =~ "path:"
+    refute mixfile =~ ", path:"
     assert mixfile =~ "components/core/contracts/lib"
     assert mixfile =~ "components/runtime/local/lib"
   end
@@ -31,7 +31,7 @@ defmodule Weld.ProjectorTest do
     result = Weld.project!(manifest_path)
     mixfile = File.read!(Path.join(result.build_path, "mix.exs"))
 
-    refute mixfile =~ "path:"
+    refute mixfile =~ ", path:"
     refute mixfile =~ "github:"
     assert mixfile =~ "{:external_lib, \"~> 1.2.0\"}"
     assert mixfile =~ "{:git_only, \"~> 0.5.0\"}"

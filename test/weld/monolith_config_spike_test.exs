@@ -30,9 +30,10 @@ defmodule Weld.MonolithConfigSpikeTest do
            )
 
     assert File.regular?(Path.join(result.build_path, "config/sources/runtime_api/test.exs"))
-    refute staged_core_store_config =~ "config :fixture_store"
+    assert staged_core_store_config =~ "config :fixture_store, :source, :store"
+    assert staged_core_store_config =~ "config :fixture_store, :mode, :test"
     refute staged_runtime_api_config =~ "import_config"
-    refute staged_runtime_api_config =~ "config :fixture_api"
+    assert staged_runtime_api_config =~ "config :fixture_api, :source, :api"
     assert runtime_core_store_config =~ "config :fixture_store"
     refute test_config =~ "sources/runtime_api/test.exs"
     refute File.exists?(Path.join(result.build_path, "lib/monolith_bundle/config_bootstrap.ex"))

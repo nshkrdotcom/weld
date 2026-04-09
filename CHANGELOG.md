@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-04-08
+
+### Added
+
+- package-mode regression fixtures and projector tests covering projected
+  package config bootstrap, root `ecto_repos` overlays, and repo-priv layout.
+
+### Changed
+
+- projected package and monolith `mix.exs` files now declare an explicit
+  `build_path`, which keeps Mix from misclassifying generated multi-app config
+  as invalid during local dist verification commands.
+- staged static config sources now preserve selected project app config instead
+  of blanking it out and relying solely on generated application bootstrap.
+
+### Fixed
+
+- prepared bundles and projected monoliths now keep repo config available for
+  direct dist commands such as `mix ecto.create`, `mix ecto.migrate`, and
+  other Mix tasks that need config before the generated application starts.
+- regenerated artifacts no longer emit false-positive "configured application
+  ... is not available" warnings during normal Mix task execution.
+
 ## [0.3.0] - 2026-04-08
 
 ### Added

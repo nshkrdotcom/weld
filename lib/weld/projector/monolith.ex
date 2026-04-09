@@ -6,6 +6,7 @@ defmodule Weld.Projector.Monolith do
   alias Weld.Hash
   alias Weld.Manifest
   alias Weld.Plan
+  alias Weld.Projector
   alias Weld.Projector.Monolith.FilePlan
   alias Weld.Projector.Monolith.Migrations
   alias Weld.Projector.Monolith.MixFile
@@ -55,7 +56,7 @@ defmodule Weld.Projector.Monolith do
     copied_priv = Enum.flat_map(plan.selected_projects, &copy_non_migration_priv!(&1, build_path))
     helper_merge = TestHelper.generate!(plan.selected_projects, build_path)
 
-    repo_infos = detect_repo_infos(all_projects)
+    repo_infos = Projector.detect_repo_infos(all_projects)
 
     config_merge =
       Generator.generate!(
@@ -63,7 +64,9 @@ defmodule Weld.Projector.Monolith do
         build_path,
         repo_infos,
         migration_merge.layout,
-        shared_test_configs: plan.artifact.monolith_opts[:shared_test_configs] || []
+        shared_test_configs: plan.artifact.monolith_opts[:shared_test_configs] || [],
+        root_config_overlays:
+          List.wrap(root_ecto_repos_overlay(repo_infos, plan.artifact.package.otp_app))
       )
 
     forced_test_external_deps =
@@ -315,48 +318,13 @@ defmodule Weld.Projector.Monolith do
     end)
   end
 
-  defp detect_repo_infos(projects) do
-    projects
-    |> Enum.flat_map(fn project ->
-      lib_root = Path.join(project.abs_path, "lib")
+  defp root_ecto_repos_overlay([], _artifact_otp_app), do: nil
 
-      if File.dir?(lib_root) do
-        lib_root
-        |> Hash.list_files()
-        |> Enum.filter(&(Path.extname(&1) == ".ex"))
-        |> Enum.flat_map(&repo_info_from_file(&1, project))
-      else
-        []
-      end
-    end)
-  end
-
-  defp repo_info_from_file(path, project) do
-    contents = File.read!(path)
-
-    if String.contains?(contents, "use Ecto.Repo") do
-      module =
-        case Regex.run(~r/defmodule\s+([A-Za-z0-9_.]+)\s+do/, contents, capture: :all_but_first) do
-          [module] -> Module.concat([module])
-          _ -> raise Error, "unable to parse Ecto repo module from #{path}"
-        end
-
-      otp_app =
-        case Regex.run(~r/otp_app:\s*:(\w+)/, contents, capture: :all_but_first) do
-          [otp_app] -> String.to_atom(otp_app)
-          _ -> raise Error, "unable to parse Ecto repo otp_app from #{path}"
-        end
-
-      [
-        %{
-          project_id: project.id,
-          module: module,
-          otp_app: otp_app
-        }
-      ]
-    else
-      []
-    end
+  defp root_ecto_repos_overlay(repo_infos, artifact_otp_app) do
+    """
+    config #{inspect(artifact_otp_app)},
+      ecto_repos: #{inspect(Enum.map(repo_infos, & &1.module))}
+    """
   end
 
   defp project_slug(project_id) do

@@ -5,7 +5,7 @@ logic thin.
 
 ## Recommended Layout
 
-- add `{:weld, "~> 0.3.0", runtime: false}` to the root project
+- add `{:weld, "~> 0.3.1", runtime: false}` to the root project
 - store manifests under a stable repo-local path such as `packaging/weld/`
 - keep artifact-owned tests beside the manifest
 - declare canonical external package requirements in the manifest when source

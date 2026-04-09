@@ -13,21 +13,25 @@ defmodule Weld.Config.Generator do
   def generate!(projects, build_path, repo_infos, migration_layout, opts \\ []) do
     config_root = Path.join(build_path, "config")
     File.mkdir_p!(config_root)
-    workspace_apps = projects |> Enum.map(& &1.app) |> Enum.uniq() |> Enum.sort() |> MapSet.new()
 
     shared_test_configs =
       build_shared_test_config_set(Keyword.get(opts, :shared_test_configs, []))
 
+    root_config_overlays =
+      opts
+      |> Keyword.get(:root_config_overlays, [])
+      |> Enum.reject(&(&1 in [nil, ""]))
+
     staged =
       projects
       |> Enum.sort_by(& &1.id)
-      |> Enum.map(&stage_project_config!(&1, config_root, build_path, workspace_apps))
+      |> Enum.map(&stage_project_config!(&1, config_root, build_path))
 
     warnings = skipped_test_config_warnings(staged, shared_test_configs)
 
     root_files =
       [
-        write_root_config!(config_root, staged),
+        write_root_config!(config_root, staged, root_config_overlays),
         write_env_file!(
           config_root,
           "dev.exs",
@@ -79,7 +83,7 @@ defmodule Weld.Config.Generator do
     }
   end
 
-  defp stage_project_config!(project, config_root, build_path, workspace_apps) do
+  defp stage_project_config!(project, config_root, build_path) do
     slug = project_slug(project.id)
     source_root = Path.join(project.abs_path, "config")
 
@@ -98,8 +102,7 @@ defmodule Weld.Config.Generator do
             source_root,
             static_root,
             runtime_root,
-            build_path,
-            workspace_apps
+            build_path
           )
         end)
 
@@ -123,13 +126,13 @@ defmodule Weld.Config.Generator do
     end
   end
 
-  defp sanitize_config_source!(contents, source_path, workspace_apps, opts) do
+  defp sanitize_config_source!(contents, source_path, opts) do
     strip_imports? = Keyword.get(opts, :strip_imports?, false)
 
     case Code.string_to_quoted(contents, file: source_path) do
       {:ok, ast} ->
         ast
-        |> sanitize_config_ast(workspace_apps, strip_imports?)
+        |> sanitize_config_ast(strip_imports?)
         |> sanitized_config_source()
 
       {:error, error} ->
@@ -173,13 +176,18 @@ defmodule Weld.Config.Generator do
     end
   end
 
-  defp write_root_config!(config_root, staged) do
+  defp write_root_config!(config_root, staged, root_config_overlays) do
     path = Path.join(config_root, "config.exs")
+
+    imports = render_imports(staged, "config.exs")
+    overlays = Enum.join(root_config_overlays, "\n\n")
 
     source =
       [
         "import Config\n\n",
-        render_imports(staged, "config.exs")
+        imports,
+        if(imports != "" and overlays != "", do: "\n\n", else: ""),
+        overlays
       ]
       |> IO.iodata_to_binary()
 
@@ -300,8 +308,7 @@ defmodule Weld.Config.Generator do
          source_root,
          static_root,
          runtime_root,
-         build_path,
-         workspace_apps
+         build_path
        ) do
     relative = Path.relative_to(source, source_root)
     static_target = Path.join(static_root, relative)
@@ -310,7 +317,7 @@ defmodule Weld.Config.Generator do
     File.mkdir_p!(Path.dirname(static_target))
     File.mkdir_p!(Path.dirname(runtime_target))
 
-    copy_static_config!(source, static_target, relative, workspace_apps)
+    copy_static_config!(source, static_target, relative)
     File.cp!(source, runtime_target)
 
     [
@@ -319,14 +326,12 @@ defmodule Weld.Config.Generator do
     ]
   end
 
-  defp copy_static_config!(source, static_target, relative, workspace_apps) do
+  defp copy_static_config!(source, static_target, relative) do
     case Path.extname(source) do
       ".exs" ->
         source
         |> File.read!()
-        |> sanitize_config_source!(source, workspace_apps,
-          strip_imports?: relative == "config.exs"
-        )
+        |> sanitize_config_source!(source, strip_imports?: relative == "config.exs")
         |> then(&File.write!(static_target, &1))
 
       _other ->
@@ -334,21 +339,14 @@ defmodule Weld.Config.Generator do
     end
   end
 
-  defp sanitize_config_ast(ast, workspace_apps, strip_imports?) do
+  defp sanitize_config_ast(ast, strip_imports?) do
     Macro.prewalk(ast, fn
       {:import_config, _meta, _args} when strip_imports? ->
         :ok
 
-      {:config, _meta, [app | _rest]} = config_call when is_atom(app) ->
-        maybe_keep_config_call(config_call, app, workspace_apps)
-
       other ->
         other
     end)
-  end
-
-  defp maybe_keep_config_call(config_call, app, workspace_apps) do
-    if MapSet.member?(workspace_apps, app), do: :ok, else: config_call
   end
 
   defp sanitized_config_source(ast) do

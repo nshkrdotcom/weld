@@ -29,8 +29,9 @@ defmodule Weld.ProjectorMonolithTest do
            )
 
     mixfile = File.read!(Path.join(result.build_path, "mix.exs"))
+    assert mixfile =~ "build_path: \"_build\""
     refute mixfile =~ "components/"
-    refute mixfile =~ "path:"
+    refute mixfile =~ ", path:"
   end
 
   test "the generated monolith compiles and runs real package tests" do

@@ -85,6 +85,47 @@ defmodule Weld.ConfigGeneratorTest do
     assert result.bootstrapped_apps == [:demo_project]
   end
 
+  test "staged static config retains selected project app config" do
+    build_path =
+      Path.join(
+        System.tmp_dir!(),
+        "weld_config_generator_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    project_root =
+      Path.join(
+        System.tmp_dir!(),
+        "weld_config_project_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.rm_rf!(build_path)
+    File.rm_rf!(project_root)
+    File.mkdir_p!(Path.join(project_root, "config"))
+
+    File.write!(
+      Path.join(project_root, "config/config.exs"),
+      """
+      import Config
+
+      config :demo_project, Demo.Repo, database: "demo_test"
+      """
+    )
+
+    migration_layout = %{case: :single, repo_count: 0, repo_paths: %{}}
+
+    Generator.generate!(
+      [project("apps/demo_project", project_root, :demo_project)],
+      build_path,
+      [],
+      migration_layout
+    )
+
+    staged_config =
+      File.read!(Path.join(build_path, "config/sources/apps_demo_project/config.exs"))
+
+    assert staged_config =~ "config :demo_project, Demo.Repo, database: \"demo_test\""
+  end
+
   defp project(id, abs_path, app) do
     %Project{
       id: id,

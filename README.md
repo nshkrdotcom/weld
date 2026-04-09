@@ -40,7 +40,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.3.0", runtime: false}
+    {:weld, "~> 0.3.1", runtime: false}
   ]
 end
 ```
