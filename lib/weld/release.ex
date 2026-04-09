@@ -14,6 +14,8 @@ defmodule Weld.Release do
     plan = Plan.ensure_valid!(plan)
     verification = Verifier.verify!(plan)
     bundle_path = bundle_path(plan)
+    relative_manifest_path = manifest_path(plan)
+    manifest_digest = Hash.sha256_file(plan.manifest.manifest_path)
 
     File.rm_rf!(bundle_path)
     File.mkdir_p!(bundle_path)
@@ -34,9 +36,9 @@ defmodule Weld.Release do
           otp_app: plan.artifact.package.otp_app
         },
         source_revision: Git.revision(plan.manifest.repo_root),
-        manifest_path: plan.manifest.manifest_path,
-        manifest_digest: Hash.sha256_file(plan.manifest.manifest_path),
-        weld_version: Mix.Project.config()[:version],
+        manifest_path: relative_manifest_path,
+        manifest_digest: manifest_digest,
+        weld_version: Weld.version(),
         elixir_version: System.version(),
         otp_release: List.to_string(:erlang.system_info(:otp_release)),
         prepared_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
@@ -90,12 +92,19 @@ defmodule Weld.Release do
   end
 
   defp bundle_slug(plan) do
+    manifest_path = manifest_path(plan)
+    manifest_digest = Hash.sha256_file(plan.manifest.manifest_path)
+
     digest =
       Hash.sha256_binary(
-        "#{plan.artifact.package.name}:#{plan.artifact.package.version}:#{plan.manifest.manifest_path}"
+        "#{plan.artifact.package.name}:#{plan.artifact.package.version}:#{plan.artifact.id}:#{manifest_path}:#{manifest_digest}"
       )
       |> binary_part(0, 12)
 
     "#{plan.artifact.package.version}-#{digest}"
+  end
+
+  defp manifest_path(plan) do
+    Path.relative_to(plan.manifest.manifest_path, plan.manifest.repo_root)
   end
 end

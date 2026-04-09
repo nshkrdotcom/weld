@@ -3,12 +3,17 @@ defmodule Weld do
   Graph-native package publication tooling for Elixir monorepos.
   """
 
+  @version Mix.Project.config()[:version]
+
   alias Weld.Affected
   alias Weld.Graph
   alias Weld.Plan
   alias Weld.Projector
   alias Weld.Release
   alias Weld.Verifier
+
+  @spec version() :: String.t()
+  def version, do: @version
 
   @spec inspect!(Path.t(), keyword()) :: map()
   def inspect!(manifest_path, opts \\ []) do

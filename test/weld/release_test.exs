@@ -33,4 +33,32 @@ defmodule Weld.ReleaseTest do
 
     assert status == 0, output
   end
+
+  test "release metadata records a repo-relative manifest path and the Weld version" do
+    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    prepared = Weld.release_prepare!(manifest_path)
+
+    metadata =
+      prepared.release_metadata_path
+      |> File.read!()
+      |> Jason.decode!()
+
+    assert metadata["manifest_path"] == "packaging/weld/fixture_bundle.exs"
+    refute Path.type(metadata["manifest_path"]) == :absolute
+    assert metadata["weld_version"] == Weld.version()
+  end
+
+  test "release bundle slugs are stable across checkout locations" do
+    prepared_a =
+      "library_bundle"
+      |> FixtureCase.copied_manifest_path("fixture_bundle")
+      |> Weld.release_prepare!()
+
+    prepared_b =
+      "library_bundle"
+      |> FixtureCase.copied_manifest_path("fixture_bundle")
+      |> Weld.release_prepare!()
+
+    assert Path.basename(prepared_a.bundle_path) == Path.basename(prepared_b.bundle_path)
+  end
 end

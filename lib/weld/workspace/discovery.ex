@@ -94,7 +94,7 @@ defmodule Weld.Workspace.Discovery do
       |> Enum.uniq()
       |> Enum.sort()
 
-    if root_project?, do: ["." | discovered], else: discovered
+    if root_project?, do: ["." | discovered] |> Enum.uniq(), else: discovered
   end
 
   defp scan_filesystem(repo_root, root_project?) do
@@ -109,7 +109,7 @@ defmodule Weld.Workspace.Discovery do
       |> Enum.uniq()
       |> Enum.sort()
 
-    if root_project?, do: ["." | discovered], else: discovered
+    if root_project?, do: ["." | discovered] |> Enum.uniq(), else: discovered
   end
 
   defp ignored_file?(path, repo_root) do

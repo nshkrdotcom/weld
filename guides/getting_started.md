@@ -8,7 +8,7 @@ multi-project Elixir repo.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.3.3", runtime: false}
+    {:weld, "~> 0.4.0", runtime: false}
   ]
 end
 ```
@@ -122,4 +122,6 @@ mix weld.release.archive packaging/weld/my_bundle.exs
 ```
 
 The prepared bundle contains the projected project tree, tarball, lockfile, and
-release metadata needed to preserve exactly what was published.
+release metadata needed to preserve exactly what was published. That metadata
+records the manifest path relative to the repo root so prepared bundles stay
+portable across different checkout locations.

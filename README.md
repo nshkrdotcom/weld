@@ -40,7 +40,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.3.3", runtime: false}
+    {:weld, "~> 0.4.0", runtime: false}
   ]
 end
 ```
@@ -218,6 +218,10 @@ The welded artifact is a normal Mix project. `weld.verify` runs:
 - `mix test` (asserts test count ≥ baseline sum)
 - `mix docs --warnings-as-errors`
 - `mix hex.build`
+
+Prepared release bundles include `release.json` metadata with a repo-relative
+manifest path and the Weld version used to create the bundle, so bundle
+metadata remains portable across checkout locations.
 
 ## Guides
 

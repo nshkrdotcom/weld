@@ -41,6 +41,10 @@ The prepared bundle contains:
 - built tarball
 - `release.json` metadata
 
+`release.json` records the manifest path relative to the repo root and the
+Weld version used to prepare the bundle, which keeps release metadata portable
+across checkout locations.
+
 ## Archive Policy
 
 The archive output is meant to preserve exactly what was released.

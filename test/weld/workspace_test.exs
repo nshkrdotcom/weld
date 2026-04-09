@@ -44,6 +44,35 @@ defmodule Weld.WorkspaceTest do
     end)
   end
 
+  test "does not duplicate the root project when blitz_workspace already includes dot" do
+    repo_root = FixtureCase.copy_fixture("root_workspace")
+    manifest_path = Path.join([repo_root, "packaging", "weld", "artifacts.exs"])
+    mix_path = Path.join(repo_root, "mix.exs")
+
+    mix_path
+    |> File.read!()
+    |> String.replace(
+      ~s(projects: ["apps/*", "proofs/*", "tooling/*"]),
+      ~s(projects: [".", "apps/*", "proofs/*", "tooling/*"])
+    )
+    |> then(&File.write!(mix_path, &1))
+
+    purge_module(RootWorkspace.MixProject)
+
+    Mix.Project.in_project(:weld_workspace_with_dot_root, repo_root, [], fn _module ->
+      manifest = Manifest.load!(manifest_path)
+      workspace = Workspace.load!(manifest)
+
+      assert workspace.discovery.project_ids == [
+               ".",
+               "apps/core",
+               "apps/web",
+               "proofs/demo",
+               "tooling/test_support"
+             ]
+    end)
+  end
+
   defp purge_module(module) do
     :code.purge(module)
     :code.delete(module)

@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-09
+
+### Added
+
+- `Weld.version/0`, a stable public version API for bundle metadata and
+  downstream tooling that needs the packaged Weld version instead of the caller
+  project's version.
+
+### Changed
+
+- prepared release bundle metadata now records the manifest path relative to
+  the repo root instead of an absolute filesystem path.
+- release bundle slug derivation is now stable across checkout locations while
+  still reflecting the selected artifact and manifest contents.
+- release docs and installation examples now target the `0.4.0` line.
+
+### Fixed
+
+- `release.json` now records the actual Weld version instead of the consumer
+  repo version when Weld runs as a dependency.
+- workspace discovery no longer duplicates `"."` when the root project is
+  already declared in `blitz_workspace.projects`.
+
 ## [0.3.3] - 2026-04-08
 
 ### Fixed
