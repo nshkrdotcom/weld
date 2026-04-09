@@ -123,9 +123,14 @@ Key behaviors in monolith mode:
 - **Test helper synthesis**: each selected package's `test_helper.exs` is parsed,
   `ExUnit.start` calls are extracted and merged, and a root `test/test_helper.exs`
   is generated that dispatches to per-package helper fragments.
+- **Explicit source-only test support**: when monolith tests depend on
+  non-selected workspace projects, `monolith_opts[:test_support_projects]`
+  turns that source-only support set into an explicit manifest contract and the
+  copied support code is staged under `test/support/weld_projects/`.
 - **Monolith application module**: the generated `Application` module bootstraps
   per-package config at startup using `Config.Reader.read_imports!` before
-  starting any OTP application children.
+  starting any OTP application children, and the bootstrap app allowlist is
+  derived only from staged bootstrap sources.
 - **Test baseline gate**: verification runs each selected package's own test suite
   first, then asserts the monolith test count is at least the baseline sum.
 

@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-08
+
+### Added
+
+- `monolith_opts[:test_support_projects]`, an explicit manifest-owned contract
+  for non-selected workspace projects that still participate in the monolith
+  `:test` view as source-only support.
+
+### Changed
+
+- Monolith projection now fails closed when
+  `monolith_opts[:test_support_projects]` is declared but the discovered
+  non-selected test support set does not match the manifest.
+- Monolith config bootstrap app ownership is now derived from staged bootstrap
+  sources rather than from every staged project app, which keeps generated
+  application bootstrap allowlists aligned with the actual runtime config
+  surface.
+- Consumer integration docs, monolith docs, and examples now describe the
+  explicit source-only test support policy.
+
+### Fixed
+
+- `guides/consumer_repo_integration.md` now references the current Weld
+  dependency line instead of an outdated `0.1.0` example.
+
 ## [0.2.0] - 2026-04-07
 
 ### Added

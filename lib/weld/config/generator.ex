@@ -57,8 +57,15 @@ defmodule Weld.Config.Generator do
 
     runtime_file = write_runtime_file!(config_root, staged)
 
+    bootstrapped_apps =
+      staged
+      |> Enum.filter(&(not is_nil(&1.bootstrap)))
+      |> Enum.map(& &1.app)
+      |> Enum.uniq()
+      |> Enum.sort()
+
     %{
-      bootstrapped_apps: workspace_apps |> MapSet.to_list() |> Enum.sort(),
+      bootstrapped_apps: bootstrapped_apps,
       bootstrapped_sources:
         staged
         |> Enum.map(& &1.bootstrap)

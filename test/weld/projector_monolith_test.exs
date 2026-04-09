@@ -47,4 +47,69 @@ defmodule Weld.ProjectorMonolithTest do
     refute output =~ "configured but not available", output
     assert output =~ "2 tests, 0 failures"
   end
+
+  test "allows explicit non-selected monolith test support projects" do
+    manifest_path = explicit_test_support_manifest_path!(["tooling/test_support"])
+    result = Weld.project!(manifest_path)
+
+    assert result.test_support_projects == ["tooling/test_support"]
+
+    assert File.regular?(
+             Path.join(
+               result.build_path,
+               "test/support/weld_projects/tooling_test_support/lib/root_workspace/test_support.ex"
+             )
+           )
+  end
+
+  test "fails closed when discovered monolith test support projects are not declared" do
+    manifest_path = explicit_test_support_manifest_path!(["apps/core"])
+
+    assert_raise Weld.Error, ~r/test_support_projects/, fn ->
+      Weld.project!(manifest_path)
+    end
+  end
+
+  defp explicit_test_support_manifest_path!(test_support_projects) do
+    repo_root = FixtureCase.copy_fixture("root_workspace")
+    manifest_path = Path.join([repo_root, "packaging", "weld", "web_monolith.exs"])
+
+    File.write!(
+      manifest_path,
+      """
+      [
+        workspace: [
+          root: "../.."
+        ],
+        classify: [
+          tooling: [".", "tooling/test_support"],
+          proofs: ["proofs/demo"]
+        ],
+        publication: [
+          internal_only: ["tooling/test_support"]
+        ],
+        artifacts: [
+          web_monolith: [
+            mode: :monolith,
+            monolith_opts: [
+              test_support_projects: #{inspect(test_support_projects)}
+            ],
+            roots: ["apps/web"],
+            package: [
+              name: "root_web_monolith",
+              otp_app: :root_web_monolith,
+              version: "0.1.0",
+              description: "Root web monolith"
+            ],
+            output: [
+              docs: ["README.md"]
+            ]
+          ]
+        ]
+      ]
+      """
+    )
+
+    manifest_path
+  end
 end

@@ -5,11 +5,14 @@ logic thin.
 
 ## Recommended Layout
 
-- add `{:weld, "~> 0.1.0", runtime: false}` to the root project
+- add `{:weld, "~> 0.3.0", runtime: false}` to the root project
 - store manifests under a stable repo-local path such as `packaging/weld/`
 - keep artifact-owned tests beside the manifest
 - declare canonical external package requirements in the manifest when source
   projects use non-publishable `:path` or SCM transports
+- declare source-only monolith test support in
+  `monolith_opts[:test_support_projects]` instead of relying on implicit
+  projector behavior
 - call `weld` from CI or release automation rather than wrapping it in large
   custom shell logic
 

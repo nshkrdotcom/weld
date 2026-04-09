@@ -4,7 +4,7 @@ defmodule Weld.MixProject do
   def project do
     [
       app: :weld,
-      version: "0.2.0",
+      version: "0.3.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -47,7 +47,7 @@ defmodule Weld.MixProject do
       licenses: ["MIT"],
       maintainers: ["nshkrdotcom"],
       links: %{"GitHub" => "https://github.com/nshkrdotcom/weld"},
-      files: ~w(lib assets mix.exs README.md LICENSE CHANGELOG.md .formatter.exs)
+      files: ~w(lib assets guides mix.exs README.md LICENSE CHANGELOG.md .formatter.exs)
     ]
   end
 

@@ -69,6 +69,10 @@ contains:
 - `extra_test_deps` — list of app name atoms referencing manifest-declared
   dependencies that should be forced into test-only deps in the generated
   `mix.exs`, even if they would not otherwise appear in the test closure.
+- `test_support_projects` — list of non-selected project ids (atoms or strings)
+  that are allowed to appear in the monolith `:test` view. When present,
+  `weld` fails closed if the discovered non-selected test support set does not
+  match the manifest.
 
 ## Package Keys
 
@@ -156,7 +160,8 @@ Smoke verification is not run in monolith mode.
       roots: ["runtime/api"],
       monolith_opts: [
         shared_test_configs: ["core/contracts"],
-        extra_test_deps: [:bypass]
+        extra_test_deps: [:bypass],
+        test_support_projects: ["tooling/test_support"]
       ],
       package: [
         name: "my_monolith",

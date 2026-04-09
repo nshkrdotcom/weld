@@ -29,6 +29,7 @@ Mix tooling, and prepares an archiveable release bundle for publication.
 - canonicalizes external workspace path or git deps into manifest-owned Hex deps
 - synthesizes a merged application module when selected projects publish OTP children
 - merges sources, tests, config, migrations, and priv from all selected projects in monolith mode
+- supports explicit manifest-owned source-only monolith test support projects
 - prepares a deterministic release bundle under `dist/release_bundles/<package>/...`
 - archives released bundles without turning generated output into a long-lived source tree
 
@@ -39,7 +40,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.2.0", runtime: false}
+    {:weld, "~> 0.3.0", runtime: false}
   ]
 end
 ```
@@ -109,7 +110,8 @@ Monolith mode:
       mode: :monolith,
       roots: ["runtime/api"],
       monolith_opts: [
-        shared_test_configs: ["core/contracts"]
+        shared_test_configs: ["core/contracts"],
+        test_support_projects: ["tooling/test_support"]
       ],
       package: [
         name: "my_monolith",
@@ -189,6 +191,12 @@ When selected projects expose OTP applications, `weld` synthesizes a merged
 `lib/<otp_app>/application.ex` that starts those children inside the welded
 package. In monolith mode this module also bootstraps per-package config at
 startup via `Config.Reader`.
+
+When selected-package tests depend on non-selected workspace projects, declare
+those source-only support projects explicitly in
+`monolith_opts[:test_support_projects]`. `weld` copies that support code under
+`test/support/weld_projects/` and fails closed if the discovered support set
+drifts from the manifest contract.
 
 The welded artifact is a normal Mix project. `weld.verify` runs:
 

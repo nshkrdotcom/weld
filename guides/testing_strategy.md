@@ -28,6 +28,8 @@ These tests cover:
 - compiling the smoke app when configured (package-projection mode)
 - monolith test baseline gate: asserting the merged artifact runs at least as
   many tests as the sum of selected-package baselines
+- monolith source-only test support policy: asserting any non-selected support
+  projects are explicitly declared when the manifest opts into that contract
 
 ## Fixture Strategy
 

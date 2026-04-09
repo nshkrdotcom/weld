@@ -16,8 +16,7 @@ defmodule Weld.Projector.Monolith do
   @spec project!(Plan.t(), Path.t()) :: map()
   def project!(%Plan{} = plan, build_path) do
     validate_source_assumptions!(plan)
-    test_projects = Plan.projects_for_view(plan, :test)
-    test_support_projects = Enum.reject(test_projects, &Plan.selected?(plan, &1.id))
+    test_support_projects = resolve_test_support_projects!(plan)
     all_projects = plan.selected_projects ++ test_support_projects
 
     copied_docs = Enum.flat_map(plan.artifact.output.docs, &copy_relative!(plan, build_path, &1))
@@ -111,6 +110,40 @@ defmodule Weld.Projector.Monolith do
       repo_infos: repo_infos,
       test_support_projects: Enum.map(test_support_projects, & &1.id)
     }
+  end
+
+  defp resolve_test_support_projects!(plan) do
+    discovered =
+      plan
+      |> Plan.projects_for_view(:test)
+      |> Enum.reject(&Plan.selected?(plan, &1.id))
+      |> Enum.sort_by(& &1.id)
+
+    declared =
+      plan.artifact.monolith_opts
+      |> Keyword.get(:test_support_projects, [])
+      |> Enum.sort()
+
+    case declared do
+      [] ->
+        discovered
+
+      _declared ->
+        discovered_ids = Enum.map(discovered, & &1.id)
+        missing = discovered_ids -- declared
+        unused = declared -- discovered_ids
+
+        if missing != [] or unused != [] do
+          raise Error,
+                "monolith_opts[:test_support_projects] does not match discovered non-selected test support projects:\n" <>
+                  "discovered: #{Enum.join(discovered_ids, ", ")}\n" <>
+                  "declared: #{Enum.join(declared, ", ")}\n" <>
+                  "missing declarations: #{Enum.join(missing, ", ")}\n" <>
+                  "unused declarations: #{Enum.join(unused, ", ")}"
+        end
+
+        discovered
+    end
   end
 
   defp copy_relative!(plan, build_path, relative_path) do

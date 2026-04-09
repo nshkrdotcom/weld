@@ -8,7 +8,7 @@ multi-project Elixir repo.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.2.0", runtime: false}
+    {:weld, "~> 0.3.0", runtime: false}
   ]
 end
 ```
@@ -83,6 +83,10 @@ priv from all selected packages into a single project tree.
 If selected projects publish OTP application modules, the generated package also
 gets a merged `lib/<otp_app>/application.ex`. In monolith mode this module also
 bootstraps per-package config at startup via `Config.Reader`.
+
+If monolith tests need source-only support from non-selected workspace
+projects, keep that policy explicit with
+`monolith_opts[:test_support_projects]`.
 
 ## 5. Verify The Welded Package
 

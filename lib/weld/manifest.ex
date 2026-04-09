@@ -191,6 +191,12 @@ defmodule Weld.Manifest do
     verify: [type: :keyword_list, default: []]
   ]
 
+  @monolith_opts_schema [
+    shared_test_configs: [type: {:list, :any}, default: []],
+    extra_test_deps: [type: {:list, :atom}, default: []],
+    test_support_projects: [type: {:list, :any}, default: []]
+  ]
+
   @package_schema [
     name: [type: :string, required: true],
     otp_app: [type: :atom, required: true],
@@ -357,7 +363,7 @@ defmodule Weld.Manifest do
         %Artifact{
           id: artifact_id,
           mode: normalize_mode(normalized[:mode]),
-          monolith_opts: normalized[:monolith_opts],
+          monolith_opts: normalize_monolith_opts(normalized[:monolith_opts]),
           roots: Enum.sort(normalized[:roots]),
           include: Enum.sort(normalized[:include]),
           optional_features: Enum.sort(normalized[:optional_features]),
@@ -422,6 +428,33 @@ defmodule Weld.Manifest do
 
   defp normalize_mode(:components), do: :package_projection
   defp normalize_mode(mode), do: mode
+
+  defp normalize_monolith_opts(monolith_opts) do
+    opts = NimbleOptions.validate!(monolith_opts, @monolith_opts_schema)
+
+    normalized = [
+      shared_test_configs: normalize_project_refs(opts[:shared_test_configs]),
+      extra_test_deps: Enum.uniq(opts[:extra_test_deps]) |> Enum.sort(),
+      test_support_projects: normalize_project_refs(opts[:test_support_projects])
+    ]
+
+    if Enum.all?(normalized, fn {_key, value} -> value == [] end) do
+      []
+    else
+      normalized
+    end
+  end
+
+  defp normalize_project_refs(entries) do
+    entries
+    |> Enum.map(fn
+      value when is_binary(value) -> value
+      value when is_atom(value) -> Atom.to_string(value)
+      other -> to_string(other)
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
 
   defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)
   defp normalize_key(key) when is_binary(key), do: key
