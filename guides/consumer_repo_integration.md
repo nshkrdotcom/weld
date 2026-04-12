@@ -5,7 +5,7 @@ logic thin.
 
 ## Recommended Layout
 
-- add `{:weld, "~> 0.4.0", runtime: false}` to the root project
+- add `{:weld, "~> 0.4.1", runtime: false}` to the root project
 - store manifests under a stable repo-local path such as `packaging/weld/`
 - keep artifact-owned tests beside the manifest
 - declare canonical external package requirements in the manifest when source
@@ -37,6 +37,10 @@ mix weld.release.prepare packaging/weld/my_bundle.exs
 mix hex.publish --yes
 mix weld.release.archive packaging/weld/my_bundle.exs
 ```
+
+For internal-only artifacts, keep `verify.hex_build` and `verify.hex_publish`
+explicit in the manifest so CI and release automation skip Hex-only checks by
+policy instead of by ad hoc shell branching.
 
 ## Integration Rule
 

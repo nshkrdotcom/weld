@@ -8,7 +8,7 @@ multi-project Elixir repo.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.4.0", runtime: false}
+    {:weld, "~> 0.4.1", runtime: false}
   ]
 end
 ```
@@ -41,7 +41,9 @@ Create a manifest such as `packaging/weld/my_bundle.exs`:
         docs: ["README.md", "guides/architecture.md"]
       ],
       verify: [
-        artifact_tests: ["packaging/weld/my_bundle/test"]
+        artifact_tests: ["packaging/weld/my_bundle/test"],
+        hex_build: true,
+        hex_publish: true
       ]
     ]
   ]
@@ -104,6 +106,10 @@ mix weld.verify packaging/weld/my_bundle.exs
 - `mix hex.publish --dry-run --yes`
 - optional smoke verification when configured
 
+Set `verify: [hex_build: false]` for internal artifacts that intentionally
+depend on non-Hex git dependencies, and `verify: [hex_publish: false]` when
+you want package verification without the dry-run publish step.
+
 **Monolith mode** runs:
 
 - per-package test baseline (each selected package's own test suite)
@@ -112,6 +118,9 @@ mix weld.verify packaging/weld/my_bundle.exs
 - `mix test` (asserts test count is not lower than the baseline sum)
 - `mix docs --warnings-as-errors`
 - `mix hex.build`
+
+Monolith artifacts can also disable `hex.build` with
+`verify: [hex_build: false]` when they are intentionally not Hex-packagable.
 
 ## 6. Prepare And Archive Releases
 

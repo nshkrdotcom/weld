@@ -20,9 +20,14 @@ This command:
 - builds the tarball
 - writes a deterministic release bundle
 
+If the manifest sets `verify: [hex_build: false]`, release preparation skips
+tarball generation because the artifact is intentionally not Hex-buildable.
+
 ## Publish
 
-Run `mix hex.publish` from the prepared bundle after inspection.
+Run `mix hex.publish` from the prepared bundle after inspection. In
+package-projection mode, `weld.verify` already exercises
+`mix hex.publish --dry-run --yes` unless `verify: [hex_publish: false]` is set.
 
 ## Archive
 

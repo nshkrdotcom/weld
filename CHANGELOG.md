@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-04-11
+
+### Added
+
+- explicit `verify.hex_build` and `verify.hex_publish` manifest controls so
+  artifacts can opt out of Hex-only verification steps by policy.
+
+### Changed
+
+- README and guide examples now target the `0.4.1` dependency line and document
+  when Hex build and dry-run publish verification should be disabled.
+
+### Fixed
+
+- verifier results now mark skipped Hex-only steps explicitly and only record a
+  tarball path when `mix hex.build` actually ran successfully.
+
 ## [0.4.0] - 2026-04-09
 
 ### Added
