@@ -88,7 +88,7 @@ defmodule Weld.Manifest do
     Verification configuration for a generated artifact.
     """
 
-    @enforce_keys [:artifact_tests, :smoke]
+    @enforce_keys [:artifact_tests, :smoke, :hex_build, :hex_publish]
     defstruct @enforce_keys
 
     @type smoke_config :: %{
@@ -98,7 +98,9 @@ defmodule Weld.Manifest do
 
     @type t :: %__MODULE__{
             artifact_tests: [String.t()],
-            smoke: smoke_config()
+            smoke: smoke_config(),
+            hex_build: boolean(),
+            hex_publish: boolean()
           }
   end
 
@@ -218,7 +220,9 @@ defmodule Weld.Manifest do
 
   @verify_schema [
     artifact_tests: [type: {:list, :string}, default: []],
-    smoke: [type: :keyword_list, default: []]
+    smoke: [type: :keyword_list, default: []],
+    hex_build: [type: :boolean, default: true],
+    hex_publish: [type: :boolean, default: true]
   ]
 
   @smoke_schema [
@@ -419,6 +423,8 @@ defmodule Weld.Manifest do
 
     %Verify{
       artifact_tests: Enum.sort(verify[:artifact_tests]),
+      hex_build: verify[:hex_build],
+      hex_publish: verify[:hex_publish],
       smoke: %{
         enabled: smoke[:enabled],
         entry_file: smoke[:entry_file]

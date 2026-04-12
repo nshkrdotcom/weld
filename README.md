@@ -87,6 +87,8 @@ Package-projection mode (default):
       ],
       verify: [
         artifact_tests: ["packaging/weld/my_bundle/test"],
+        hex_build: true,
+        hex_publish: true,
         smoke: [
           enabled: true,
           entry_file: "packaging/weld/my_bundle/smoke.ex"
@@ -210,6 +212,15 @@ The welded artifact is a normal Mix project. `weld.verify` runs:
 - `mix hex.publish --dry-run --yes`
 - optional smoke-app compilation
 
+You can opt out of the Hex-only steps per artifact with:
+
+- `verify: [hex_build: false]`
+- `verify: [hex_publish: false]`
+
+This is the correct setting for internal artifacts that intentionally depend on
+non-Hex git dependencies. When disabled, Weld records the step as `:skipped`
+instead of forcing a failing `mix hex.build`.
+
 **Monolith mode:**
 
 - per-package test baseline (asserts selected packages pass their own tests)
@@ -218,6 +229,9 @@ The welded artifact is a normal Mix project. `weld.verify` runs:
 - `mix test` (asserts test count ≥ baseline sum)
 - `mix docs --warnings-as-errors`
 - `mix hex.build`
+
+Monolith artifacts can also disable `hex.build` with `verify: [hex_build: false]`
+when they are intentionally not Hex-packagable.
 
 Prepared release bundles include `release.json` metadata with a repo-relative
 manifest path and the Weld version used to create the bundle, so bundle

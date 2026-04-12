@@ -23,8 +23,9 @@ These tests cover:
 - compiling the artifact
 - running welded artifact tests
 - building docs
-- building the Hex tarball
-- running `mix hex.publish --dry-run --yes` (package-projection mode)
+- building the Hex tarball when `verify.hex_build` is enabled
+- running `mix hex.publish --dry-run --yes` when `verify.hex_publish` is enabled
+  in package-projection mode
 - compiling the smoke app when configured (package-projection mode)
 - monolith test baseline gate: asserting the merged artifact runs at least as
   many tests as the sum of selected-package baselines
@@ -57,4 +58,4 @@ The target is not just "projection succeeded". The target is:
 - the artifact is structurally correct
 - the artifact is testable
 - the artifact is buildable
-- the artifact is publishable
+- the artifact is publishable when Hex verification is enabled

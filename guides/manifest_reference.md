@@ -95,10 +95,15 @@ contains:
 ## Verify Keys
 
 - `artifact_tests`
+- `hex_build`
+- `hex_publish`
 - `smoke.enabled`
 - `smoke.entry_file`
 
 Smoke verification is not run in monolith mode.
+Set `hex_build: false` for internal artifacts that intentionally depend on
+non-Hex git dependencies. Set `hex_publish: false` when package-projection
+verification should skip `mix hex.publish --dry-run --yes`.
 
 ## Example — Package Projection
 
@@ -139,7 +144,9 @@ Smoke verification is not run in monolith mode.
         docs: ["README.md", "guides/architecture.md"]
       ],
       verify: [
-        artifact_tests: ["packaging/weld/web_bundle/test"]
+        artifact_tests: ["packaging/weld/web_bundle/test"],
+        hex_build: true,
+        hex_publish: true
       ]
     ]
   ]
@@ -171,6 +178,9 @@ Smoke verification is not run in monolith mode.
       ],
       output: [
         docs: ["README.md"]
+      ],
+      verify: [
+        hex_build: false
       ]
     ]
   ]

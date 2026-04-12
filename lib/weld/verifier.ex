@@ -15,6 +15,7 @@ defmodule Weld.Verifier do
     build_path = projection.build_path
 
     verification_results = verify_by_mode!(plan, build_path)
+    tarball_path = tarball_path_for(plan, build_path, verification_results)
 
     lockfile =
       Lockfile.build(
@@ -34,11 +35,7 @@ defmodule Weld.Verifier do
     %{
       build_path: build_path,
       lockfile_path: projection.lockfile_path,
-      tarball_path:
-        Path.join(
-          build_path,
-          "#{plan.artifact.package.name}-#{plan.artifact.package.version}.tar"
-        ),
+      tarball_path: tarball_path,
       verification_results: verification_results
     }
   end
@@ -52,7 +49,9 @@ defmodule Weld.Verifier do
       run_mix!(build_path, :dev, ["compile", "--warnings-as-errors"]),
       run_mix!(build_path, :test, ["test"]),
       run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"]),
-      run_mix!(build_path, :dev, ["hex.build"])
+      maybe_run_mix!(build_path, :dev, ["hex.build"], plan.artifact.verify.hex_build,
+        reason: :artifact_opted_out
+      )
     ]
 
     monolith_test_result = Enum.find(results, &(&1.task == "test"))
@@ -72,8 +71,20 @@ defmodule Weld.Verifier do
       run_mix!(build_path, :dev, ["compile", "--warnings-as-errors", "--no-compile-deps"]),
       run_mix!(build_path, :test, ["test"]),
       run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"]),
-      run_mix!(build_path, :dev, ["hex.build"]),
-      run_mix!(build_path, :dev, ["hex.publish", "--dry-run", "--yes"])
+      maybe_run_mix!(build_path, :dev, ["hex.build"], plan.artifact.verify.hex_build,
+        reason: :artifact_opted_out
+      ),
+      maybe_run_mix!(
+        build_path,
+        :dev,
+        ["hex.publish", "--dry-run", "--yes"],
+        plan.artifact.verify.hex_build and plan.artifact.verify.hex_publish,
+        reason:
+          if(plan.artifact.verify.hex_build,
+            do: :artifact_opted_out,
+            else: :hex_build_disabled
+          )
+      )
     ]
 
     smoke_results =
@@ -99,6 +110,12 @@ defmodule Weld.Verifier do
 
     %{task: Enum.join(args, " "), env: env, status: :ok}
     |> maybe_put_test_summary(output)
+  end
+
+  defp maybe_run_mix!(build_path, env, args, true, _opts), do: run_mix!(build_path, env, args)
+
+  defp maybe_run_mix!(_build_path, env, args, false, opts) do
+    %{task: Enum.join(args, " "), env: env, status: :skipped, reason: opts[:reason]}
   end
 
   defp run_selected_project_tests!(%Plan{} = plan) do
@@ -138,6 +155,12 @@ defmodule Weld.Verifier do
     case parse_test_summary(output) do
       {:ok, summary} -> Map.merge(result, summary)
       :error -> result
+    end
+  end
+
+  defp tarball_path_for(plan, build_path, verification_results) do
+    if Enum.any?(verification_results, &(&1.task == "hex.build" and &1.status == :ok)) do
+      Path.join(build_path, "#{plan.artifact.package.name}-#{plan.artifact.package.version}.tar")
     end
   end
 
