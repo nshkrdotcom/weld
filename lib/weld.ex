@@ -85,7 +85,7 @@ defmodule Weld do
       manifest_path
       |> Plan.build!(opts)
       |> then(fn plan -> Graph.subgraph(plan.graph, :all) end)
-      |> Elixir.Graph.to_dot()
+      |> Multigraph.to_dot()
 
     dot
   end

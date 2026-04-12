@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-11
+
+### Changed
+
+- Weld now depends on `multigraph ~> 0.16.1-mg.3` directly instead of the old
+  `libgraph` alias shape, matching the dependency's current package and OTP app
+  contract.
+- workspace graph operations now target `Multigraph.*` throughout the codebase,
+  which restores compatibility with the current graph backend API.
+- README and guide installation examples now target the `0.5.0` dependency
+  line.
+
 ## [0.4.1] - 2026-04-11
 
 ### Added

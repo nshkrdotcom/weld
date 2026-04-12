@@ -1,6 +1,6 @@
 defmodule Weld.Graph do
   @moduledoc """
-  Immutable workspace graph wrapper built on top of `:libgraph`.
+  Immutable workspace graph wrapper built on top of `Multigraph`.
   """
 
   alias Weld.Graph.Edge
@@ -30,7 +30,7 @@ defmodule Weld.Graph do
         }
 
   @type t :: %__MODULE__{
-          dag: Graph.t(),
+          dag: Multigraph.t(),
           projects: %{optional(project_id()) => Project.t()},
           edges: %{optional({project_id(), project_id()}) => [Edge.t()]},
           classifications: %{optional(project_id()) => Project.classification()},
@@ -42,7 +42,7 @@ defmodule Weld.Graph do
   @spec new() :: t()
   def new do
     %__MODULE__{
-      dag: Graph.new(type: :directed, vertex_identifier: & &1),
+      dag: Multigraph.new(type: :directed, vertex_identifier: & &1),
       projects: %{},
       edges: %{},
       classifications: %{},
@@ -56,7 +56,7 @@ defmodule Weld.Graph do
   def add_project(%__MODULE__{} = graph, %Project{} = project) do
     %{
       graph
-      | dag: Graph.add_vertex(graph.dag, project.id),
+      | dag: Multigraph.add_vertex(graph.dag, project.id),
         projects: Map.put(graph.projects, project.id, project),
         classifications: Map.put(graph.classifications, project.id, project.classification),
         publication_roles: Map.put(graph.publication_roles, project.id, project.publication_role),
@@ -71,7 +71,7 @@ defmodule Weld.Graph do
 
     %{
       graph
-      | dag: Graph.add_edge(graph.dag, edge.from, edge.to, label: edge.kind),
+      | dag: Multigraph.add_edge(graph.dag, edge.from, edge.to, label: edge.kind),
         edges: updated_edges
     }
   end
@@ -114,7 +114,7 @@ defmodule Weld.Graph do
   @spec reachable_from(t(), project_id() | [project_id()], View.t()) :: [project_id()]
   def reachable_from(%__MODULE__{} = graph, project_ids, view) when is_list(project_ids) do
     view_graph = subgraph(graph, view)
-    Graph.reachable(view_graph, project_ids) |> Enum.sort()
+    Multigraph.reachable(view_graph, project_ids) |> Enum.sort()
   end
 
   def reachable_from(%__MODULE__{} = graph, project_id, view) do
@@ -126,7 +126,7 @@ defmodule Weld.Graph do
 
   def reaching(%__MODULE__{} = graph, project_ids, view) when is_list(project_ids) do
     view_graph = subgraph(graph, view)
-    Graph.reaching(view_graph, project_ids) |> Enum.sort()
+    Multigraph.reaching(view_graph, project_ids) |> Enum.sort()
   end
 
   def reaching(%__MODULE__{} = graph, project_id, view) do
@@ -135,7 +135,7 @@ defmodule Weld.Graph do
 
   @spec path(t(), project_id(), project_id(), View.t()) :: {:ok, [project_id()]} | :no_path
   def path(%__MODULE__{} = graph, from, to, view \\ :all) do
-    case Graph.get_shortest_path(subgraph(graph, view), from, to) do
+    case Multigraph.get_shortest_path(subgraph(graph, view), from, to) do
       nil -> :no_path
       path -> {:ok, path}
     end
@@ -143,7 +143,7 @@ defmodule Weld.Graph do
 
   @spec topo_sort(t(), View.t()) :: [project_id()]
   def topo_sort(%__MODULE__{} = graph, view \\ :all) do
-    case Graph.topsort(subgraph(graph, view)) do
+    case Multigraph.topsort(subgraph(graph, view)) do
       false -> []
       sorted -> sorted
     end
@@ -156,20 +156,20 @@ defmodule Weld.Graph do
     end)
   end
 
-  @spec subgraph(t(), View.t()) :: Graph.t()
+  @spec subgraph(t(), View.t()) :: Multigraph.t()
   def subgraph(%__MODULE__{} = graph, view) do
     projects = Map.keys(graph.projects)
 
     dag =
       Enum.reduce(
         projects,
-        Graph.new(type: :directed, vertex_identifier: & &1),
-        &Graph.add_vertex(&2, &1)
+        Multigraph.new(type: :directed, vertex_identifier: & &1),
+        &Multigraph.add_vertex(&2, &1)
       )
 
     Enum.reduce(edges(graph), dag, fn edge, acc ->
       if View.allowed?(edge.kind, view) do
-        Graph.add_edge(acc, edge.from, edge.to, label: edge.kind)
+        Multigraph.add_edge(acc, edge.from, edge.to, label: edge.kind)
       else
         acc
       end
