@@ -5,7 +5,7 @@ logic thin.
 
 ## Recommended Layout
 
-- add `{:weld, "~> 0.6.0", runtime: false}` to the root project
+- add `{:weld, "~> 0.7.0", runtime: false}` to the root project
 - store manifests under a stable repo-local path such as `packaging/weld/`
 - keep artifact-owned tests beside the manifest
 - declare canonical external package requirements in the manifest when source
@@ -16,19 +16,17 @@ logic thin.
 - call `weld` from CI or release automation rather than wrapping it in large
   custom shell logic
 
-## Recommended Override Policy
+## Consumer Dependency Policy
 
-Consumer repos should keep Weld dependency override policy repo-local. A common
-shape is:
+Consumer repos should keep the committed dependency line simple:
 
-- local implementation and debugging: `WELD_PATH=../weld`
-- shared pre-release validation: `WELD_GIT_REF=<commit_sha>` with an optional
-  `WELD_GIT_URL=<repo_url>`
-- normal steady-state consumption: Hex `{:weld, "~> 0.6.0", runtime: false}`
+- committed steady state: Hex `{:weld, "~> 0.7.0", runtime: false}`
+- coordinated pre-release validation: bump to a Weld prerelease such as
+  `0.7.0-rc.1`
+- avoid baking repo-local path/git override logic into every consumer repo
 
-That keeps `weld` responsible for projection and verification behavior while
-letting each consumer repo choose how aggressively it tracks unreleased Weld
-commits.
+That keeps `weld` responsible for projection and verification behavior without
+making every consumer repo carry custom dependency-resolution code.
 
 ## Suggested CI Shape
 
@@ -60,7 +58,8 @@ from there. Official release semantics should stay on tags, not on a separate
 
 For internal-only artifacts, keep `verify.hex_build` and `verify.hex_publish`
 explicit in the manifest so CI and release automation skip Hex-only checks by
-policy instead of by ad hoc shell branching.
+policy instead of by ad hoc shell branching. `weld.release.prepare`,
+`weld.release.track`, and `weld.release.archive` still work without a tarball.
 
 ## Integration Rule
 

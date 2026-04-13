@@ -31,6 +31,7 @@ Mix tooling, and prepares an archiveable release bundle for publication.
 - merges sources, tests, config, migrations, and priv from all selected projects in monolith mode
 - supports explicit manifest-owned source-only monolith test support projects
 - prepares a deterministic release bundle under `dist/release_bundles/<package>/...`
+- keeps the prepared bundle model valid for both publishable and internal-only artifacts
 - archives released bundles without turning generated output into a long-lived source tree
 
 ## Installation
@@ -40,7 +41,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.6.0", runtime: false}
+    {:weld, "~> 0.7.0", runtime: false}
   ]
 end
 ```
@@ -55,13 +56,17 @@ The intended lifecycle is:
 4. run `mix hex.publish` from the prepared bundle when you are doing a release
 5. run `mix weld.release.archive ...`
 
-`weld` owns create, welded-package verification, and archive preparation. Hex
-publish remains external.
+`weld` owns create, welded-package verification, prepared bundle creation,
+projection tracking, and archive preparation. Hex publish remains external.
 
 `mix weld.release.track` is for tracked projected source, including unreleased
 or pre-release snapshots. It updates `projection/<package_name>` by default and
 creates that branch as an orphan on first use so the projection history stays
 isolated from the source repo history.
+
+For coordinated pre-release validation across consumer repos, prefer normal
+version bumps to a prerelease Weld package such as `0.7.0-rc.1` rather than
+embedding repo-local path or git override logic in every consumer.
 
 ## Example Manifest
 
@@ -240,9 +245,11 @@ instead of forcing a failing `mix hex.build`.
 Monolith artifacts can also disable `hex.build` with `verify: [hex_build: false]`
 when they are intentionally not Hex-packagable.
 
-Prepared release bundles include `release.json` metadata with a repo-relative
-manifest path and the Weld version used to create the bundle, so bundle
-metadata remains portable across checkout locations.
+Prepared release bundles include the projected project tree, `release.json`
+metadata, `projection.lock.json`, and an optional tarball when
+`verify.hex_build` is enabled. Bundle metadata remains portable across checkout
+locations because it records the manifest path relative to the repo root and
+the Weld version used to create the bundle.
 
 ## Guides
 

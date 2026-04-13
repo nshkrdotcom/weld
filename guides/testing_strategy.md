@@ -24,6 +24,8 @@ These tests cover:
 - running welded artifact tests
 - building docs
 - building the Hex tarball when `verify.hex_build` is enabled
+- preparing and tracking bundles for internal-only artifacts even when no
+  tarball is present
 - running `mix hex.publish --dry-run --yes` when `verify.hex_publish` is enabled
   in package-projection mode
 - compiling the smoke app when configured (package-projection mode)
@@ -58,4 +60,6 @@ The target is not just "projection succeeded". The target is:
 - the artifact is structurally correct
 - the artifact is testable
 - the artifact is buildable
+- the artifact is trackable and archivable even when it is intentionally not
+  Hex-buildable
 - the artifact is publishable when Hex verification is enabled

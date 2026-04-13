@@ -59,7 +59,9 @@ Runs package-level verification against the generated artifact.
 mix weld.release.prepare <manifest_path> [--artifact name]
 ```
 
-Generates, verifies, and bundles the welded artifact for publication.
+Generates, verifies, and bundles the welded artifact. The prepared bundle always
+contains the projected project tree and metadata, and it also contains the
+tarball when `verify.hex_build` is enabled.
 
 ## Release Track
 
@@ -78,3 +80,5 @@ mix weld.release.archive <manifest_path> [--artifact name]
 ```
 
 Copies the prepared bundle into the archive surface after publish succeeds.
+Internal-only artifacts can archive bundles even when the bundle does not
+contain a tarball.

@@ -18,11 +18,12 @@ This command:
 
 - generates the welded artifact
 - runs welded package verification
-- builds the tarball
 - writes a deterministic release bundle
+- includes a tarball when `verify.hex_build` is enabled
 
-If the manifest sets `verify: [hex_build: false]`, release preparation skips
-tarball generation because the artifact is intentionally not Hex-buildable.
+If the manifest sets `verify: [hex_build: false]`, release preparation still
+writes the prepared bundle. The only thing omitted is the tarball, because the
+artifact is intentionally not Hex-buildable.
 
 ## Track
 
@@ -47,6 +48,8 @@ Run `mix hex.publish` from the prepared bundle after inspection. In
 package-projection mode, `weld.verify` already exercises
 `mix hex.publish --dry-run --yes` unless `verify: [hex_publish: false]` is set.
 
+Publish is the only release step that actually requires a tarball.
+
 ## Archive
 
 ```bash
@@ -61,7 +64,7 @@ The prepared bundle contains:
 
 - projected Mix project tree
 - `projection.lock.json`
-- built tarball
+- built tarball when `verify.hex_build` is enabled
 - `release.json` metadata
 
 `release.json` records the manifest path relative to the repo root and the

@@ -105,6 +105,10 @@ Set `hex_build: false` for internal artifacts that intentionally depend on
 non-Hex git dependencies. Set `hex_publish: false` when package-projection
 verification should skip `mix hex.publish --dry-run --yes`.
 
+`hex_build: false` does not disable `weld.release.prepare`,
+`weld.release.track`, or `weld.release.archive`. It only omits the tarball from
+the prepared bundle.
+
 ## Example — Package Projection
 
 ```elixir

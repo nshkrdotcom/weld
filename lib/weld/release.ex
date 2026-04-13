@@ -16,16 +16,14 @@ defmodule Weld.Release do
     bundle_path = bundle_path(plan)
     relative_manifest_path = manifest_path(plan)
     manifest_digest = Hash.sha256_file(plan.manifest.manifest_path)
+    project_target = Path.join(bundle_path, "project")
 
     File.rm_rf!(bundle_path)
     File.mkdir_p!(bundle_path)
 
-    project_target = Path.join(bundle_path, "project")
     File.cp_r!(verification.build_path, project_target)
 
-    tarball_path = verification.tarball_path
-    tarball_target = Path.join(bundle_path, Path.basename(tarball_path))
-    File.cp!(tarball_path, tarball_target)
+    tarball_target = maybe_copy_tarball(bundle_path, verification.tarball_path)
 
     release_json =
       %{
@@ -41,7 +39,9 @@ defmodule Weld.Release do
         weld_version: Weld.version(),
         elixir_version: System.version(),
         otp_release: List.to_string(:erlang.system_info(:otp_release)),
-        prepared_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+        prepared_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+        project_path: Path.basename(project_target),
+        tarball_path: tarball_target && Path.basename(tarball_target)
       }
 
     release_json_path = Path.join(bundle_path, "release.json")
@@ -49,6 +49,7 @@ defmodule Weld.Release do
 
     %{
       bundle_path: bundle_path,
+      project_path: project_target,
       tarball_path: tarball_target,
       release_metadata_path: release_json_path,
       build_path: verification.build_path
@@ -133,6 +134,14 @@ defmodule Weld.Release do
 
   defp projection_branch(%Plan{} = plan) do
     "projection/#{plan.artifact.package.name}"
+  end
+
+  defp maybe_copy_tarball(_bundle_path, nil), do: nil
+
+  defp maybe_copy_tarball(bundle_path, tarball_path) do
+    target = Path.join(bundle_path, Path.basename(tarball_path))
+    File.cp!(tarball_path, target)
+    target
   end
 
   defp track_opts(%Plan{} = plan, opts) do

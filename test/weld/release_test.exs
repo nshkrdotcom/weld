@@ -146,4 +146,90 @@ defmodule Weld.ReleaseTest do
     assert FixtureCase.tag_exists?(repo_root, "fixture_bundle/rc/2026-04-13-test")
     assert FixtureCase.remote_branch_exists?(repo_root, "origin", "projection/fixture_bundle")
   end
+
+  test "prepares and archives internal-only bundles without a tarball" do
+    manifest_path = internal_only_monolith_manifest_path()
+    prepared = Weld.release_prepare!(manifest_path)
+
+    assert File.dir?(prepared.bundle_path)
+    assert File.dir?(prepared.project_path)
+    assert File.regular?(prepared.release_metadata_path)
+    refute prepared.tarball_path
+
+    metadata =
+      prepared.release_metadata_path
+      |> File.read!()
+      |> Jason.decode!()
+
+    assert metadata["tarball_path"] == nil
+
+    archived = Weld.release_archive!(manifest_path)
+
+    assert File.dir?(archived.archive_path)
+    refute File.exists?(Path.join(archived.archive_path, "root_web_monolith-0.1.0.tar"))
+  end
+
+  test "release tracking works from internal-only bundles without a tarball" do
+    repo_root = FixtureCase.copy_fixture("root_workspace")
+    manifest_path = write_internal_only_monolith_manifest(repo_root)
+
+    FixtureCase.init_git!(repo_root)
+    prepared = Weld.release_prepare!(manifest_path)
+
+    refute prepared.tarball_path
+
+    result = Weld.release_track!(manifest_path)
+
+    assert result.branch == "projection/root_web_monolith"
+    assert result.branch_created?
+    assert result.committed?
+    assert FixtureCase.branch_exists?(repo_root, "projection/root_web_monolith")
+  end
+
+  defp internal_only_monolith_manifest_path do
+    repo_root = FixtureCase.copy_fixture("root_workspace")
+    write_internal_only_monolith_manifest(repo_root)
+  end
+
+  defp write_internal_only_monolith_manifest(repo_root) do
+    manifest_path = Path.join([repo_root, "packaging", "weld", "web_monolith.exs"])
+
+    File.write!(
+      manifest_path,
+      """
+      [
+        workspace: [
+          root: "../.."
+        ],
+        classify: [
+          tooling: [".", "tooling/test_support"],
+          proofs: ["proofs/demo"]
+        ],
+        publication: [
+          internal_only: ["tooling/test_support"]
+        ],
+        artifacts: [
+          web_monolith: [
+            mode: :monolith,
+            roots: ["apps/web"],
+            package: [
+              name: "root_web_monolith",
+              otp_app: :root_web_monolith,
+              version: "0.1.0",
+              description: "Root web monolith"
+            ],
+            output: [
+              docs: ["README.md"]
+            ],
+            verify: [
+              hex_build: false
+            ]
+          ]
+        ]
+      ]
+      """
+    )
+
+    manifest_path
+  end
 end

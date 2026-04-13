@@ -8,7 +8,7 @@ multi-project Elixir repo.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.6.0", runtime: false}
+    {:weld, "~> 0.7.0", runtime: false}
   ]
 end
 ```
@@ -122,15 +122,19 @@ you want package verification without the dry-run publish step.
 Monolith artifacts can also disable `hex.build` with
 `verify: [hex_build: false]` when they are intentionally not Hex-packagable.
 
-## 6. Prepare And Archive Releases
+## 6. Prepare, Track, And Archive Releases
 
 ```bash
 mix weld.release.prepare packaging/weld/my_bundle.exs
+mix weld.release.track packaging/weld/my_bundle.exs
 mix hex.publish --yes
 mix weld.release.archive packaging/weld/my_bundle.exs
 ```
 
-The prepared bundle contains the projected project tree, tarball, lockfile, and
-release metadata needed to preserve exactly what was published. That metadata
-records the manifest path relative to the repo root so prepared bundles stay
-portable across different checkout locations.
+The prepared bundle always contains the projected project tree, lockfile, and
+release metadata. It also contains the tarball when `verify.hex_build` is
+enabled. That means internal-only artifacts can still use prepare, track, and
+archive without pretending they are Hex-buildable.
+
+`mix weld.release.track` updates `projection/<package_name>` from the prepared
+bundle and creates the first projection branch as an orphan by default.
