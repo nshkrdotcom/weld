@@ -1,6 +1,7 @@
 # Release Process
 
-`Weld` separates release preparation from Hex publication.
+`Weld` separates release preparation, projection tracking, and archiving from
+Hex publication.
 
 ## Why
 
@@ -22,6 +23,23 @@ This command:
 
 If the manifest sets `verify: [hex_build: false]`, release preparation skips
 tarball generation because the artifact is intentionally not Hex-buildable.
+
+## Track
+
+```bash
+mix weld.release.track packaging/weld/my_bundle.exs
+```
+
+This command:
+
+- reads the prepared release bundle
+- updates `projection/<package_name>` by default
+- creates the first projection branch as an orphan by default
+- optionally tags and pushes that projection commit
+
+Tracking is for durable projected-source history, including unreleased and
+pre-release snapshots. It is not a substitute for Hex publication and it does
+not imply that a tracked projection commit was released.
 
 ## Publish
 
@@ -50,9 +68,14 @@ The prepared bundle contains:
 Weld version used to prepare the bundle, which keeps release metadata portable
 across checkout locations.
 
+Tracked projection commits are intentionally separate from the prepared bundle.
+The bundle is the release input; the projection branch is an optional durable
+generated-source history.
+
 ## Archive Policy
 
 The archive output is meant to preserve exactly what was released.
 
 It is not intended to be an active generated development branch. The source
-monorepo remains the source of truth.
+monorepo remains the source of truth, and `projection/<package_name>` is the
+optional generated-source tracking surface when you need one.

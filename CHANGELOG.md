@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-04-13
+
+### Added
+
+- `mix weld.release.track` and the corresponding public API for tracking
+  prepared bundles on durable `projection/<package_name>` branches.
+- thin Git helpers for branch detection, worktree management, tagging, and
+  push operations used by projection tracking.
+- real Git fixture coverage for projection tracking, including orphan-branch
+  initialization, no-op sync, content updates, and tag/push behavior.
+- a root `mix ci` alias that runs the full formatter, compiler, test, Credo,
+  Dialyzer, and docs gate.
+
+### Changed
+
+- projection tracking now treats orphan `projection/<package_name>` branches as
+  the default durable generated-source history surface.
+- README and guides now document tracked projections, consumer override policy,
+  and the `0.6.0` dependency line.
+
 ## [0.5.0] - 2026-04-11
 
 ### Changed

@@ -37,13 +37,56 @@ defmodule Weld.FixtureCase do
     run!(repo_root, ["commit", "-m", "initial"])
   end
 
+  def init_bare_git!(repo_root) do
+    File.rm_rf!(repo_root)
+    File.mkdir_p!(repo_root)
+
+    {output, status} =
+      System.cmd("git", ["init", "--bare", repo_root], stderr_to_stdout: true)
+
+    if status != 0 do
+      raise "git init --bare failed:\n#{output}"
+    end
+  end
+
   def commit_all!(repo_root, message) do
     run!(repo_root, ["add", "."])
     run!(repo_root, ["commit", "-m", message])
   end
 
+  def git_output!(repo_root, args) do
+    {output, status} = git(repo_root, args)
+
+    if status != 0 do
+      raise "git #{Enum.join(args, " ")} failed:\n#{output}"
+    end
+
+    String.trim(output)
+  end
+
+  def branch_exists?(repo_root, branch) do
+    {_output, status} =
+      git(repo_root, ["show-ref", "--verify", "--quiet", "refs/heads/#{branch}"])
+
+    status == 0
+  end
+
+  def remote_branch_exists?(repo_root, remote, branch) do
+    {_output, status} = git(repo_root, ["ls-remote", "--exit-code", "--heads", remote, branch])
+    status == 0
+  end
+
+  def tag_exists?(repo_root, tag) do
+    {_output, status} = git(repo_root, ["show-ref", "--verify", "--quiet", "refs/tags/#{tag}"])
+    status == 0
+  end
+
+  def git(repo_root, args) do
+    System.cmd("git", args, cd: repo_root, stderr_to_stdout: true)
+  end
+
   defp run!(repo_root, args) do
-    {output, status} = System.cmd("git", args, cd: repo_root, stderr_to_stdout: true)
+    {output, status} = git(repo_root, args)
 
     if status != 0 do
       raise "git #{Enum.join(args, " ")} failed:\n#{output}"

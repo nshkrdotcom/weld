@@ -169,6 +169,13 @@ defmodule Weld do
     |> Release.archive!()
   end
 
+  @spec release_track!(Path.t(), keyword()) :: map()
+  def release_track!(manifest_path, opts \\ []) do
+    manifest_path
+    |> Plan.build!(opts)
+    |> Release.track!(opts)
+  end
+
   defp classify(plan, classification) do
     plan.workspace
     |> Weld.Workspace.projects()

@@ -40,7 +40,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.5.0", runtime: false}
+    {:weld, "~> 0.6.0", runtime: false}
   ]
 end
 ```
@@ -51,11 +51,17 @@ The intended lifecycle is:
 
 1. run the normal source-repo checks
 2. run `mix weld.release.prepare ...`
-3. run `mix hex.publish` from the prepared bundle
-4. run `mix weld.release.archive ...`
+3. optionally run `mix weld.release.track ...` to update a durable projection
+4. run `mix hex.publish` from the prepared bundle when you are doing a release
+5. run `mix weld.release.archive ...`
 
 `weld` owns create, welded-package verification, and archive preparation. Hex
 publish remains external.
+
+`mix weld.release.track` is for tracked projected source, including unreleased
+or pre-release snapshots. It updates `projection/<package_name>` by default and
+creates that branch as an orphan on first use so the projection history stays
+isolated from the source repo history.
 
 ## Example Manifest
 
@@ -138,6 +144,7 @@ mix weld.query deps packaging/weld/my_bundle.exs runtime/local
 mix weld.project packaging/weld/my_bundle.exs
 mix weld.verify packaging/weld/my_bundle.exs
 mix weld.release.prepare packaging/weld/my_bundle.exs
+mix weld.release.track packaging/weld/my_bundle.exs
 mix weld.release.archive packaging/weld/my_bundle.exs
 mix weld.affected packaging/weld/my_bundle.exs --task verify.all --base main --head HEAD
 ```

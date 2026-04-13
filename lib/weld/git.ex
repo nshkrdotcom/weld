@@ -48,6 +48,88 @@ defmodule Weld.Git do
     end
   end
 
+  @spec branch_exists?(Path.t(), String.t()) :: boolean()
+  def branch_exists?(repo_root, branch) do
+    match?({:ok, _}, run(repo_root, ["show-ref", "--verify", "--quiet", "refs/heads/#{branch}"]))
+  end
+
+  @spec remote_branch_exists?(Path.t(), String.t(), String.t()) :: boolean()
+  def remote_branch_exists?(repo_root, remote, branch) do
+    match?({:ok, _}, run(repo_root, ["ls-remote", "--exit-code", "--heads", remote, branch]))
+  end
+
+  @spec fetch_branch!(Path.t(), String.t(), String.t()) :: :ok
+  def fetch_branch!(repo_root, remote, branch) do
+    run!(repo_root, ["fetch", remote, "#{branch}:refs/heads/#{branch}"])
+    :ok
+  end
+
+  @spec worktree_add!(Path.t(), Path.t(), String.t()) :: :ok
+  def worktree_add!(repo_root, worktree_path, branch) do
+    run!(repo_root, ["worktree", "add", worktree_path, branch])
+    :ok
+  end
+
+  @spec worktree_add_detached!(Path.t(), Path.t()) :: :ok
+  def worktree_add_detached!(repo_root, worktree_path) do
+    run!(repo_root, ["worktree", "add", "--detach", worktree_path, "HEAD"])
+    :ok
+  end
+
+  @spec worktree_remove!(Path.t(), Path.t()) :: :ok
+  def worktree_remove!(repo_root, worktree_path) do
+    run!(repo_root, ["worktree", "remove", "--force", worktree_path])
+    :ok
+  end
+
+  @spec switch_orphan!(Path.t(), String.t()) :: :ok
+  def switch_orphan!(repo_root, branch) do
+    run!(repo_root, ["switch", "--orphan", branch])
+    :ok
+  end
+
+  @spec stage_all!(Path.t()) :: :ok
+  def stage_all!(repo_root) do
+    run!(repo_root, ["add", "-A"])
+    :ok
+  end
+
+  @spec staged_changes?(Path.t()) :: boolean()
+  def staged_changes?(repo_root) do
+    case System.cmd("git", ["diff", "--cached", "--quiet", "--exit-code"],
+           cd: repo_root,
+           stderr_to_stdout: true
+         ) do
+      {_output, 0} -> false
+      {_output, 1} -> true
+      {output, _status} -> raise Error, "git diff --cached failed: #{String.trim(output)}"
+    end
+  end
+
+  @spec commit_all!(Path.t(), String.t()) :: :ok
+  def commit_all!(repo_root, message) do
+    run!(repo_root, ["commit", "-m", message])
+    :ok
+  end
+
+  @spec create_tag!(Path.t(), String.t()) :: :ok
+  def create_tag!(repo_root, tag) do
+    run!(repo_root, ["tag", tag])
+    :ok
+  end
+
+  @spec push_branch!(Path.t(), String.t(), String.t()) :: :ok
+  def push_branch!(repo_root, remote, branch) do
+    run!(repo_root, ["push", "--set-upstream", remote, branch])
+    :ok
+  end
+
+  @spec push_tag!(Path.t(), String.t(), String.t()) :: :ok
+  def push_tag!(repo_root, remote, tag) do
+    run!(repo_root, ["push", remote, tag])
+    :ok
+  end
+
   @spec run(Path.t(), [String.t()]) :: {:ok, String.t()} | {:error, String.t()}
   def run(repo_root, args) do
     case System.cmd("git", args, cd: repo_root, stderr_to_stdout: true) do

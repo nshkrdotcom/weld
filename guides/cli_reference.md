@@ -61,6 +61,16 @@ mix weld.release.prepare <manifest_path> [--artifact name]
 
 Generates, verifies, and bundles the welded artifact for publication.
 
+## Release Track
+
+```bash
+mix weld.release.track <manifest_path> [--artifact name] [--branch name] [--remote origin] [--tag tag] [--push]
+```
+
+Tracks the prepared bundle on a projection branch. Defaults to
+`projection/<package_name>` and creates the first branch as an orphan by
+default.
+
 ## Release Archive
 
 ```bash

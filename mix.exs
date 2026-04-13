@@ -4,11 +4,12 @@ defmodule Weld.MixProject do
   def project do
     [
       app: :weld,
-      version: "0.5.0",
+      version: "0.6.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       test_paths: test_paths(Mix.env()),
+      aliases: aliases(),
       preferred_cli_env: preferred_cli_env(),
       dialyzer: dialyzer(),
       deps: deps(),
@@ -106,6 +107,7 @@ defmodule Weld.MixProject do
           Mix.Tasks.Weld.Project,
           Mix.Tasks.Weld.Verify,
           Mix.Tasks.Weld.Release.Prepare,
+          Mix.Tasks.Weld.Release.Track,
           Mix.Tasks.Weld.Release.Archive
         ]
       ],
@@ -124,6 +126,19 @@ defmodule Weld.MixProject do
       credo: :test,
       dialyzer: :dev,
       docs: :dev
+    ]
+  end
+
+  defp aliases do
+    [
+      ci: [
+        "cmd mix format --check-formatted",
+        "cmd mix compile --warnings-as-errors",
+        "cmd MIX_ENV=test mix test",
+        "cmd MIX_ENV=test mix credo --strict",
+        "cmd mix dialyzer",
+        "cmd mix docs --warnings-as-errors"
+      ]
     ]
   end
 
