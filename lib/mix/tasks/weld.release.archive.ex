@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Weld.Release.Archive do
   use Mix.Task
 
+  alias Weld.TaskSupport
+
   @moduledoc """
   Archive a previously prepared welded release bundle.
   """
@@ -11,11 +13,8 @@ defmodule Mix.Tasks.Weld.Release.Archive do
   def run(args) do
     {opts, positional, _invalid} = OptionParser.parse(args, strict: [artifact: :string])
 
-    manifest_path =
-      case positional do
-        [path] -> path
-        _ -> Mix.raise("Usage: mix weld.release.archive <manifest_path> [--artifact name]")
-      end
+    usage = "Usage: mix weld.release.archive [manifest_path] [--artifact name]"
+    manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
 
     result = Weld.release_archive!(manifest_path, artifact: opts[:artifact])
     Mix.shell().info("Archived release bundle in #{result.archive_path}")

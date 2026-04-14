@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Weld.Release.Track do
   use Mix.Task
 
+  alias Weld.TaskSupport
+
   @moduledoc """
   Track a prepared welded release bundle on a projection branch.
   """
@@ -20,11 +22,10 @@ defmodule Mix.Tasks.Weld.Release.Track do
         ]
       )
 
-    manifest_path =
-      case positional do
-        [path] -> path
-        _ -> Mix.raise("Usage: mix weld.release.track <manifest_path> [--artifact name]")
-      end
+    usage =
+      "Usage: mix weld.release.track [manifest_path] [--artifact name] [--branch name] [--remote origin] [--tag tag] [--push]"
+
+    manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
 
     result =
       Weld.release_track!(manifest_path,

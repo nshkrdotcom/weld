@@ -41,7 +41,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.7.0", runtime: false}
+    {:weld, "~> 0.7.1", runtime: false}
   ]
 end
 ```
@@ -51,10 +51,10 @@ end
 The intended lifecycle is:
 
 1. run the normal source-repo checks
-2. run `mix weld.release.prepare ...`
-3. optionally run `mix weld.release.track ...` to update a durable projection
+2. run `mix release.prepare`
+3. optionally run `mix release.track` to update a durable projection
 4. run `mix hex.publish` from the prepared bundle when you are doing a release
-5. run `mix weld.release.archive ...`
+5. run `mix release.archive`
 
 `weld` owns create, welded-package verification, prepared bundle creation,
 projection tracking, and archive preparation. Hex publish remains external.
@@ -65,7 +65,7 @@ creates that branch as an orphan on first use so the projection history stays
 isolated from the source repo history.
 
 For coordinated pre-release validation across consumer repos, prefer normal
-version bumps to a prerelease Weld package such as `0.7.0-rc.1` rather than
+version bumps to a prerelease Weld package such as `0.7.1-rc.1` rather than
 embedding repo-local path or git override logic in every consumer.
 
 ## Example Manifest
@@ -142,17 +142,27 @@ Monolith mode:
 
 ## Core Commands
 
+Standard-layout repos can omit the manifest path. `weld` now discovers, in
+order:
+
+1. `build_support/weld.exs`
+2. `build_support/weld_contract.exs`
+3. a single `packaging/weld/*.exs`
+
 ```bash
-mix weld.inspect packaging/weld/my_bundle.exs
-mix weld.graph packaging/weld/my_bundle.exs --format dot
-mix weld.query deps packaging/weld/my_bundle.exs runtime/local
-mix weld.project packaging/weld/my_bundle.exs
-mix weld.verify packaging/weld/my_bundle.exs
-mix weld.release.prepare packaging/weld/my_bundle.exs
-mix weld.release.track packaging/weld/my_bundle.exs
-mix weld.release.archive packaging/weld/my_bundle.exs
-mix weld.affected packaging/weld/my_bundle.exs --task verify.all --base main --head HEAD
+mix weld.inspect
+mix weld.graph --format dot
+mix weld.query deps runtime/local
+mix weld.project
+mix weld.verify
+mix release.prepare
+mix release.track
+mix release.archive
+mix weld.affected --task verify.all --base main --head HEAD
 ```
+
+You can still pass an explicit manifest path when a repo carries more than one
+Weld manifest or when you want to target a nonstandard location.
 
 ## Generated Output
 

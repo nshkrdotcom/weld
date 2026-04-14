@@ -4,7 +4,7 @@ defmodule Weld.MixProject do
   def project do
     [
       app: :weld,
-      version: "0.7.0",
+      version: "0.7.1",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -108,7 +108,10 @@ defmodule Weld.MixProject do
           Mix.Tasks.Weld.Verify,
           Mix.Tasks.Weld.Release.Prepare,
           Mix.Tasks.Weld.Release.Track,
-          Mix.Tasks.Weld.Release.Archive
+          Mix.Tasks.Weld.Release.Archive,
+          Mix.Tasks.Release.Prepare,
+          Mix.Tasks.Release.Track,
+          Mix.Tasks.Release.Archive
         ]
       ],
       groups_for_extras: [

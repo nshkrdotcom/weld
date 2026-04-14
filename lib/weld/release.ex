@@ -172,8 +172,13 @@ defmodule Weld.Release do
   end
 
   defp unique_worktree_path(%Plan{} = plan) do
+    suffix =
+      8
+      |> :crypto.strong_rand_bytes()
+      |> Base.encode16(case: :lower)
+
     base =
-      "weld_projection_#{plan.artifact.package.name}_#{System.unique_integer([:positive, :monotonic])}"
+      "weld_projection_#{plan.artifact.package.name}_#{suffix}"
 
     Path.join(System.tmp_dir!(), base)
   end

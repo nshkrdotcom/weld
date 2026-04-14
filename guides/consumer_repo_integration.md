@@ -5,7 +5,7 @@ logic thin.
 
 ## Recommended Layout
 
-- add `{:weld, "~> 0.7.0", runtime: false}` to the root project
+- add `{:weld, "~> 0.7.1", runtime: false}` to the root project
 - store manifests under a stable repo-local path such as `packaging/weld/`
 - keep artifact-owned tests beside the manifest
 - declare canonical external package requirements in the manifest when source
@@ -20,13 +20,24 @@ logic thin.
 
 Consumer repos should keep the committed dependency line simple:
 
-- committed steady state: Hex `{:weld, "~> 0.7.0", runtime: false}`
+- committed steady state: Hex `{:weld, "~> 0.7.1", runtime: false}`
 - coordinated pre-release validation: bump to a Weld prerelease such as
-  `0.7.0-rc.1`
+  `0.7.1-rc.1`
 - avoid baking repo-local path/git override logic into every consumer repo
 
 That keeps `weld` responsible for projection and verification behavior without
 making every consumer repo carry custom dependency-resolution code.
+
+Consumer repos should also prefer the standard manifest locations:
+
+- `build_support/weld.exs`
+- `build_support/weld_contract.exs`
+- a single manifest under `packaging/weld/`
+
+With that layout, repos can call `mix weld.inspect`, `mix weld.verify`,
+`mix release.prepare`, `mix release.track`, and `mix release.archive` directly
+without maintaining a root alias block that only forwards the manifest path and
+artifact name.
 
 ## Suggested CI Shape
 
@@ -35,8 +46,8 @@ mix deps.get
 mix test
 mix credo --strict
 mix dialyzer
-mix weld.inspect packaging/weld/my_bundle.exs
-mix weld.verify packaging/weld/my_bundle.exs
+mix weld.inspect
+mix weld.verify
 ```
 
 ## Suggested Release Shape
@@ -45,10 +56,10 @@ mix weld.verify packaging/weld/my_bundle.exs
 mix test
 mix credo --strict
 mix dialyzer
-mix weld.release.prepare packaging/weld/my_bundle.exs
-mix weld.release.track packaging/weld/my_bundle.exs
+mix release.prepare
+mix release.track
 mix hex.publish --yes
-mix weld.release.archive packaging/weld/my_bundle.exs
+mix release.archive
 ```
 
 If you want tracked generated source before a release, push the default
@@ -59,7 +70,8 @@ from there. Official release semantics should stay on tags, not on a separate
 For internal-only artifacts, keep `verify.hex_build` and `verify.hex_publish`
 explicit in the manifest so CI and release automation skip Hex-only checks by
 policy instead of by ad hoc shell branching. `weld.release.prepare`,
-`weld.release.track`, and `weld.release.archive` still work without a tarball.
+`weld.release.track`, and `weld.release.archive` still work without a tarball,
+and the plain `mix release.*` wrappers call into that same flow.
 
 ## Integration Rule
 

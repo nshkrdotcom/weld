@@ -11,7 +11,7 @@ credentials or network-side retry semantics.
 ## Prepare
 
 ```bash
-mix weld.release.prepare packaging/weld/my_bundle.exs
+mix release.prepare
 ```
 
 This command:
@@ -28,7 +28,7 @@ artifact is intentionally not Hex-buildable.
 ## Track
 
 ```bash
-mix weld.release.track packaging/weld/my_bundle.exs
+mix release.track
 ```
 
 This command:
@@ -53,8 +53,12 @@ Publish is the only release step that actually requires a tarball.
 ## Archive
 
 ```bash
-mix weld.release.archive packaging/weld/my_bundle.exs
+mix release.archive
 ```
+
+These wrappers delegate to the Weld release tasks and use the same manifest
+auto-discovery rules. Pass an explicit manifest path only when the repo carries
+more than one Weld manifest or uses a nonstandard manifest location.
 
 This copies the prepared release bundle into the archive surface.
 

@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Weld.Query do
   use Mix.Task
 
+  alias Weld.TaskSupport
+
   @moduledoc """
   Query direct dependencies or explanatory dependency paths.
   """
@@ -18,8 +20,24 @@ defmodule Mix.Tasks.Weld.Query do
         |> Jason.encode_to_iodata!(pretty: true)
         |> Mix.shell().info()
 
+      ["deps", project_id] ->
+        TaskSupport.discover_manifest!(
+          "Usage: mix weld.query deps [manifest_path] <project_id> [--artifact name]"
+        )
+        |> Weld.query_deps!(project_id, artifact: opts[:artifact])
+        |> Jason.encode_to_iodata!(pretty: true)
+        |> Mix.shell().info()
+
       ["why", manifest_path, from, to] ->
         manifest_path
+        |> Weld.query_why!(from, to, artifact: opts[:artifact])
+        |> Jason.encode_to_iodata!(pretty: true)
+        |> Mix.shell().info()
+
+      ["why", from, to] ->
+        TaskSupport.discover_manifest!(
+          "Usage: mix weld.query why [manifest_path] <from_project> <to_project> [--artifact name]"
+        )
         |> Weld.query_why!(from, to, artifact: opts[:artifact])
         |> Jason.encode_to_iodata!(pretty: true)
         |> Mix.shell().info()
@@ -27,8 +45,8 @@ defmodule Mix.Tasks.Weld.Query do
       _ ->
         Mix.raise("""
         Usage:
-          mix weld.query deps <manifest_path> <project_id> [--artifact name]
-          mix weld.query why <manifest_path> <from_project> <to_project> [--artifact name]
+          mix weld.query deps [manifest_path] <project_id> [--artifact name]
+          mix weld.query why [manifest_path] <from_project> <to_project> [--artifact name]
         """)
     end
   after

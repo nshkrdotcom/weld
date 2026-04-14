@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Weld.Graph do
   use Mix.Task
 
+  alias Weld.TaskSupport
+
   @moduledoc """
   Render the workspace graph for a weld manifest.
   """
@@ -12,14 +14,8 @@ defmodule Mix.Tasks.Weld.Graph do
     {opts, positional, _invalid} =
       OptionParser.parse(args, strict: [artifact: :string, format: :string])
 
-    manifest_path =
-      case positional do
-        [path] ->
-          path
-
-        _ ->
-          Mix.raise("Usage: mix weld.graph <manifest_path> [--artifact name] [--format json|dot]")
-      end
+    usage = "Usage: mix weld.graph [manifest_path] [--artifact name] [--format json|dot]"
+    manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
 
     case opts[:format] do
       "json" ->

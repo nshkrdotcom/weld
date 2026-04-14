@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Weld.Release.Prepare do
   use Mix.Task
 
+  alias Weld.TaskSupport
+
   @moduledoc """
   Prepare a deterministic release bundle for the welded artifact.
   """
@@ -11,11 +13,8 @@ defmodule Mix.Tasks.Weld.Release.Prepare do
   def run(args) do
     {opts, positional, _invalid} = OptionParser.parse(args, strict: [artifact: :string])
 
-    manifest_path =
-      case positional do
-        [path] -> path
-        _ -> Mix.raise("Usage: mix weld.release.prepare <manifest_path> [--artifact name]")
-      end
+    usage = "Usage: mix weld.release.prepare [manifest_path] [--artifact name]"
+    manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
 
     result = Weld.release_prepare!(manifest_path, artifact: opts[:artifact])
     Mix.shell().info("Prepared release bundle in #{result.bundle_path}")

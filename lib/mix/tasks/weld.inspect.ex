@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Weld.Inspect do
   use Mix.Task
 
+  alias Weld.TaskSupport
+
   @moduledoc """
   Inspect a weld manifest, discovered workspace, and selected artifact.
   """
@@ -12,14 +14,8 @@ defmodule Mix.Tasks.Weld.Inspect do
     {opts, positional, _invalid} =
       OptionParser.parse(args, strict: [artifact: :string, format: :string])
 
-    manifest_path =
-      case positional do
-        [path] ->
-          path
-
-        _ ->
-          Mix.raise("Usage: mix weld.inspect <manifest_path> [--artifact name] [--format json]")
-      end
+    usage = "Usage: mix weld.inspect [manifest_path] [--artifact name] [--format json]"
+    manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
 
     result = Weld.inspect!(manifest_path, artifact: opts[:artifact])
 

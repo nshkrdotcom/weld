@@ -8,7 +8,7 @@ multi-project Elixir repo.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.7.0", runtime: false}
+    {:weld, "~> 0.7.1", runtime: false}
   ]
 end
 ```
@@ -61,17 +61,21 @@ canonical requirement you declare here.
 ## 3. Inspect Before You Project
 
 ```bash
-mix weld.inspect packaging/weld/my_bundle.exs
-mix weld.graph packaging/weld/my_bundle.exs --format dot
+mix weld.inspect
+mix weld.graph --format dot
 ```
 
 Use these commands to confirm project discovery, classifications, and graph
 shape before generating output.
 
+If the repo uses one of Weld's standard manifest locations, you can omit the
+manifest path entirely. Explicit paths are still useful when a repo carries
+more than one manifest.
+
 ## 4. Generate The Welded Package
 
 ```bash
-mix weld.project packaging/weld/my_bundle.exs
+mix weld.project
 ```
 
 Package-projection mode (the default, `mode: :package_projection`) creates a
@@ -93,7 +97,7 @@ projects, keep that policy explicit with
 ## 5. Verify The Welded Package
 
 ```bash
-mix weld.verify packaging/weld/my_bundle.exs
+mix weld.verify
 ```
 
 **Package-projection mode** runs:
@@ -125,10 +129,10 @@ Monolith artifacts can also disable `hex.build` with
 ## 6. Prepare, Track, And Archive Releases
 
 ```bash
-mix weld.release.prepare packaging/weld/my_bundle.exs
-mix weld.release.track packaging/weld/my_bundle.exs
+mix release.prepare
+mix release.track
 mix hex.publish --yes
-mix weld.release.archive packaging/weld/my_bundle.exs
+mix release.archive
 ```
 
 The prepared bundle always contains the projected project tree, lockfile, and
@@ -136,5 +140,5 @@ release metadata. It also contains the tarball when `verify.hex_build` is
 enabled. That means internal-only artifacts can still use prepare, track, and
 archive without pretending they are Hex-buildable.
 
-`mix weld.release.track` updates `projection/<package_name>` from the prepared
+`mix release.track` updates `projection/<package_name>` from the prepared
 bundle and creates the first projection branch as an orphan by default.

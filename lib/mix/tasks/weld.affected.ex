@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Weld.Affected do
   use Mix.Task
 
+  alias Weld.TaskSupport
+
   @moduledoc """
   Show which selected projects are affected by a Git diff range.
   """
@@ -15,16 +17,10 @@ defmodule Mix.Tasks.Weld.Affected do
         strict: [artifact: :string, task: :string, base: :string, head: :string]
       )
 
-    manifest_path =
-      case positional do
-        [path] ->
-          path
+    usage =
+      "Usage: mix weld.affected [manifest_path] --task verify.all --base main --head HEAD [--artifact name]"
 
-        _ ->
-          Mix.raise(
-            "Usage: mix weld.affected <manifest_path> --task verify.all --base main --head HEAD [--artifact name]"
-          )
-      end
+    manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
 
     result =
       Weld.affected!(

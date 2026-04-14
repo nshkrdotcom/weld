@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-04-13
+
+### Added
+
+- repo-layout autodiscovery for Weld CLI tasks. When no manifest path is
+  passed, Weld now prefers `build_support/weld.exs`, then
+  `build_support/weld_contract.exs`, then a single `packaging/weld/*.exs`
+- plain `mix release.prepare`, `mix release.track`, and `mix release.archive`
+  wrapper tasks that delegate to the Weld release flow
+
+### Changed
+
+- the recommended consumer steady state now uses Weld's standard manifest
+  locations plus direct task invocation instead of repo-local alias blocks that
+  only forward manifest paths and artifact names
+
 ## [0.7.0] - 2026-04-13
 
 ### Changed
