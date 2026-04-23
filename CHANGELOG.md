@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-04-23
+
+### Changed
+
+- publish Weld with a current Telemetry dependency requirement (`~> 1.4`) so
+  downstream welded-package verification can use the latest Telemetry 1.4.x
+  line without stale owned-package constraints.
+- refresh development quality tooling to the latest available Credo patch
+  release.
+
 ## [0.7.1] - 2026-04-13
 
 ### Added

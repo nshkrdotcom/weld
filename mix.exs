@@ -4,7 +4,7 @@ defmodule Weld.MixProject do
   def project do
     [
       app: :weld,
-      version: "0.7.1",
+      version: "0.7.2",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -39,7 +39,7 @@ defmodule Weld.MixProject do
       {:jason, "~> 1.4"},
       {:multigraph, "~> 0.16.1-mg.3"},
       {:nimble_options, "~> 1.1"},
-      {:telemetry, "~> 1.3"}
+      {:telemetry, "~> 1.4"}
     ]
   end
 
