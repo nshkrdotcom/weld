@@ -5,7 +5,7 @@ logic thin.
 
 ## Recommended Layout
 
-- add `{:weld, "~> 0.7.1", runtime: false}` to the root project
+- add `{:weld, "~> 0.8.0", only: [:dev, :test], runtime: false}` to the root project
 - store manifests under a stable repo-local path such as `packaging/weld/`
 - keep artifact-owned tests beside the manifest
 - declare canonical external package requirements in the manifest when source
@@ -20,9 +20,9 @@ logic thin.
 
 Consumer repos should keep the committed dependency line simple:
 
-- committed steady state: Hex `{:weld, "~> 0.7.1", runtime: false}`
+- committed steady state: Hex `{:weld, "~> 0.8.0", only: [:dev, :test], runtime: false}`
 - coordinated pre-release validation: bump to a Weld prerelease such as
-  `0.7.1-rc.1`
+  `0.8.0-rc.1`
 - avoid baking repo-local path/git override logic into every consumer repo
 
 That keeps `weld` responsible for projection and verification behavior without
@@ -46,6 +46,8 @@ mix deps.get
 mix test
 mix credo --strict
 mix dialyzer
+mix weld.dependency_sources.verify
+mix weld.agents.verify
 mix weld.inspect
 mix weld.verify
 ```

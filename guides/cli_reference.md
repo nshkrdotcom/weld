@@ -57,6 +57,34 @@ mix weld.verify [manifest_path] [--artifact name]
 
 Runs package-level verification against the generated artifact.
 
+## Dependency Sources Verify
+
+```bash
+mix weld.dependency_sources.verify [--repo-root path] [--publish] [--format json]
+```
+
+Verifies the repo-local `build_support/dependency_sources.exs` helper, the
+`build_support/dependency_sources.config.exs` manifest, source metadata, and
+publish-mode Hex-only blockers.
+
+## Agents Verify
+
+```bash
+mix weld.agents.verify [--repo-root path] [--format json]
+```
+
+Verifies root and nested `AGENTS.md` files for dependency-source and runtime
+environment guidance.
+
+## Ecosystem Report
+
+```bash
+mix weld.ecosystem.report repos.exs [--format json]
+```
+
+Builds dependency graph, publish-order, clean-clone, and publish-readiness
+reports for a repo list.
+
 ## Release Prepare
 
 ```bash

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-05-10
+
+### Added
+
+- `Weld.Credo.Check.NoRuntimeOsEnv` for rejecting direct OS environment API
+  calls in runtime `lib/**` code.
+- a canonical `build_support/dependency_sources.exs` template plus
+  `mix weld.dependency_sources.verify` for helper drift, manifest shape,
+  source metadata, and publish-mode blocker checks.
+- `mix weld.agents.verify` for root and nested `AGENTS.md` dependency-source
+  and runtime-env guidance.
+- `mix weld.ecosystem.report` for dependency graph, publish-order,
+  clean-clone, and publish-readiness reports across repo sets.
+
+### Changed
+
+- consumer guidance now targets the Weld `~> 0.8.0` line.
+- the Hex package file list now includes `priv/templates` so packaged Weld
+  carries the dependency-source helper template without generated PLT files.
+
 ## [0.7.2] - 2026-04-23
 
 ### Changed

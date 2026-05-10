@@ -36,6 +36,15 @@ Important subtrees:
 
 - Keep `weld` focused on generic publication/projection behavior. Do not add
   repo-specific consumer hacks here.
+- Dependency source selection for consumer repos is verified through
+  `build_support/dependency_sources.exs` and
+  `build_support/dependency_sources.config.exs`. Local overrides use
+  `.dependency_sources.local.exs`.
+- Dependency source selection must not use environment variables. Weld
+  maintains and verifies helper drift, manifests, clone checks, publish checks,
+  and publish order.
+- Runtime application code under `lib/**` must not call direct OS env APIs.
+  Runtime env reads belong in `config/runtime.exs` or a `Config.Provider`.
 - Prefer fixture-backed tests when changing projection, verification, or git
   behavior. Validate real generated output instead of only unit-level mocks.
 - Treat the public Mix tasks and manifest shape as the product surface. Changes

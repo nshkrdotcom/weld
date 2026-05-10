@@ -41,7 +41,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.7.2", runtime: false}
+    {:weld, "~> 0.8.0", only: [:dev, :test], runtime: false}
   ]
 end
 ```
@@ -65,7 +65,7 @@ creates that branch as an orphan on first use so the projection history stays
 isolated from the source repo history.
 
 For coordinated pre-release validation across consumer repos, prefer normal
-version bumps to a prerelease Weld package such as `0.7.2-rc.1` rather than
+version bumps to a prerelease Weld package such as `0.8.0-rc.1` rather than
 embedding repo-local path or git override logic in every consumer.
 
 ## Example Manifest
@@ -155,6 +155,9 @@ mix weld.graph --format dot
 mix weld.query deps runtime/local
 mix weld.project
 mix weld.verify
+mix weld.dependency_sources.verify
+mix weld.agents.verify
+mix weld.ecosystem.report repos.exs --format json
 mix release.prepare
 mix release.track
 mix release.archive

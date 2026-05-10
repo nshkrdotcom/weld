@@ -4,7 +4,7 @@ defmodule Weld.MixProject do
   def project do
     [
       app: :weld,
-      version: "0.7.2",
+      version: "0.8.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -33,7 +33,7 @@ defmodule Weld.MixProject do
 
   defp deps do
     [
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:jason, "~> 1.4"},
@@ -48,7 +48,8 @@ defmodule Weld.MixProject do
       licenses: ["MIT"],
       maintainers: ["nshkrdotcom"],
       links: %{"GitHub" => "https://github.com/nshkrdotcom/weld"},
-      files: ~w(lib assets guides mix.exs README.md LICENSE CHANGELOG.md .formatter.exs)
+      files:
+        ~w(lib priv/templates assets guides mix.exs README.md LICENSE CHANGELOG.md .formatter.exs)
     ]
   end
 
@@ -87,7 +88,10 @@ defmodule Weld.MixProject do
           Weld.Release,
           Weld.Lockfile,
           Weld.SmokeApp,
-          Weld.Affected
+          Weld.Affected,
+          Weld.DependencySources,
+          Weld.AgentsVerifier,
+          Weld.EcosystemReport
         ],
         "Workspace And Graph": [
           Weld.Workspace.Project,
@@ -104,6 +108,9 @@ defmodule Weld.MixProject do
           Mix.Tasks.Weld.Graph,
           Mix.Tasks.Weld.Query,
           Mix.Tasks.Weld.Affected,
+          Mix.Tasks.Weld.Agents.Verify,
+          Mix.Tasks.Weld.DependencySources.Verify,
+          Mix.Tasks.Weld.Ecosystem.Report,
           Mix.Tasks.Weld.Project,
           Mix.Tasks.Weld.Verify,
           Mix.Tasks.Weld.Release.Prepare,
@@ -147,7 +154,7 @@ defmodule Weld.MixProject do
 
   defp dialyzer do
     [
-      plt_add_apps: [:mix],
+      plt_add_apps: [:mix, :credo],
       plt_local_path: "priv/plts",
       flags: [:error_handling, :missing_return, :underspecs, :unknown]
     ]
