@@ -152,20 +152,9 @@ defmodule Weld.DependencySources do
 
   defp normalize_dep(app, config, path) when is_map(config) or is_list(config) do
     config = Map.new(config)
-
-    default_order =
-      normalize_order(config[:default_order] || config["default_order"] || [:path, :github, :hex])
-
-    publish_order = normalize_order(config[:publish_order] || config["publish_order"] || [:hex])
-
-    dep = %{
-      app: app,
-      path: normalize_paths(config[:path] || config["path"]),
-      github: normalize_github(config[:github] || config["github"]),
-      hex: config[:hex] || config["hex"],
-      default_order: default_order,
-      publish_order: publish_order
-    }
+    default_order = default_order(config)
+    publish_order = publish_order(config)
+    dep = dep_from_config(app, config, default_order, publish_order)
 
     violations =
       []
@@ -181,6 +170,26 @@ defmodule Weld.DependencySources do
 
   defp normalize_app(app) when is_atom(app), do: app
   defp normalize_app(app) when is_binary(app), do: String.to_atom(app)
+
+  defp default_order(config),
+    do:
+      normalize_order(config[:default_order] || config["default_order"] || [:path, :github, :hex])
+
+  defp publish_order(config),
+    do: normalize_order(config[:publish_order] || config["publish_order"] || [:hex])
+
+  defp dep_from_config(app, config, default_order, publish_order) do
+    %{
+      app: app,
+      path: normalize_paths(config[:path] || config["path"]),
+      github: normalize_github(config[:github] || config["github"]),
+      hex: config[:hex] || config["hex"],
+      opts:
+        normalize_opts(config[:opts] || config["opts"] || config[:options] || config["options"]),
+      default_order: default_order,
+      publish_order: publish_order
+    }
+  end
 
   defp normalize_order(order) when is_list(order), do: Enum.map(order, &normalize_source/1)
   defp normalize_order(_order), do: []
@@ -201,6 +210,11 @@ defmodule Weld.DependencySources do
   defp normalize_github(nil), do: nil
   defp normalize_github(github) when is_map(github) or is_list(github), do: Map.new(github)
   defp normalize_github(_github), do: nil
+
+  defp normalize_opts(nil), do: %{}
+  defp normalize_opts(opts) when is_list(opts), do: Map.new(opts)
+  defp normalize_opts(opts) when is_map(opts), do: opts
+  defp normalize_opts(_opts), do: %{}
 
   defp add_order_violations(violations, app, path, dep, order) do
     Enum.reduce(order, violations, fn source, acc ->

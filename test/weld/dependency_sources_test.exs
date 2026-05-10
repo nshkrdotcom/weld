@@ -14,6 +14,32 @@ defmodule Weld.DependencySourcesTest do
     assert report.config.status == :ok
     assert report.publish.status == :ok
     assert report.deps[:shared_core].sources == [:path, :github, :hex]
+    assert report.deps[:shared_core].github[:subdir] == "apps/shared_core"
+    assert report.deps[:shared_core].opts == %{only: [:dev, :test], runtime: false}
+  end
+
+  test "canonical helper preserves github subdir and dependency options" do
+    repo_root = valid_dependency_repo!()
+
+    File.write!(
+      Path.join(repo_root, ".dependency_sources.local.exs"),
+      "%{deps: %{shared_core: %{source: :github}}}\n"
+    )
+
+    Code.require_file(Path.join(repo_root, "build_support/dependency_sources.exs"))
+
+    assert {{:shared_core, opts}, _binding} =
+             Code.eval_string(
+               "DependencySources.dep(:shared_core, repo_root, override: true)",
+               repo_root: repo_root
+             )
+
+    assert opts[:github] == "nshkrdotcom/shared_core"
+    assert opts[:branch] == "main"
+    assert opts[:subdir] == "apps/shared_core"
+    assert opts[:only] == [:dev, :test]
+    assert opts[:runtime] == false
+    assert opts[:override] == true
   end
 
   test "reports helper drift, manifest shape errors, source errors, and publish blockers" do
@@ -106,8 +132,9 @@ defmodule Weld.DependencySourcesTest do
         deps: %{
           shared_core: %{
             path: ["../shared_core"],
-            github: %{repo: "nshkrdotcom/shared_core", branch: "main"},
+            github: %{repo: "nshkrdotcom/shared_core", branch: "main", subdir: "apps/shared_core"},
             hex: "~> 0.1.0",
+            opts: [only: [:dev, :test], runtime: false],
             default_order: [:path, :github, :hex],
             publish_order: [:hex]
           }
