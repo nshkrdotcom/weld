@@ -12,6 +12,9 @@ defmodule Weld.AgentsVerifierTest do
     nested_dir = Path.join([repo_root, "apps", "web"])
     File.mkdir_p!(nested_dir)
     write_agents!(nested_dir)
+    ignored_dir = Path.join([repo_root, "apps", "web", "deps", "hex_dep"])
+    File.mkdir_p!(ignored_dir)
+    File.write!(Path.join(ignored_dir, "AGENTS.md"), "# Dependency instructions\n")
 
     assert {:ok, report} = AgentsVerifier.verify(repo_root)
 

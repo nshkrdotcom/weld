@@ -70,8 +70,9 @@ defmodule Weld.AgentsVerifier do
   end
 
   defp ignored_path?(path) do
-    String.starts_with?(path, "deps/") or String.starts_with?(path, "_build/") or
-      String.starts_with?(path, ".git/")
+    path
+    |> Path.split()
+    |> Enum.any?(&(&1 in ~w(.git _build deps dist tmp doc)))
   end
 
   defp file_violations(path, content) do
