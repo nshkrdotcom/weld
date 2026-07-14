@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-07-13
+
+### Added
+
+- generated-package HexDocs metadata for logos, homepage/source links, source
+  refs, copied assets, titled extras, and ordered extra-page groups in both
+  package-projection and monolith modes.
+
+### Fixed
+
+- monolith `package.files` now includes every manifest-declared output document
+  and asset, including individual changelog and SVG paths outside Weld's legacy
+  hard-coded candidates.
+- monolith package allowlists now collapse descendant paths already covered by
+  a declared directory, keeping generated Hex previews explicit but minimal.
+- the repository `mix ci` alias now launches test-environment child commands
+  through an explicit `env` executable, avoiding Mix 1.19's literal-command
+  parsing failure for the former inline assignment syntax.
+
+### Changed
+
+- consumer guidance and release documentation now target Weld `~> 0.8.3`.
+
 ## [0.8.2] - 2026-05-10
 
 ### Fixed

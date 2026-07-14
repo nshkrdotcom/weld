@@ -1,13 +1,12 @@
-# Weld
-
 <p align="center">
   <img src="assets/weld.svg" alt="Weld logo" width="200" />
 </p>
 
+<h1 align="center">Weld</h1>
+
 <p align="center">
-  <a href="https://hex.pm/packages/weld"><img src="https://img.shields.io/hexpm/v/weld.svg" alt="Hex.pm Version" /></a>
-  <a href="https://hexdocs.pm/weld/"><img src="https://img.shields.io/badge/hex-docs-blue.svg" alt="HexDocs" /></a>
   <a href="https://github.com/nshkrdotcom/weld"><img src="https://img.shields.io/badge/github-nshkrdotcom/weld-8da0cb?style=flat&logo=github" alt="GitHub" /></a>
+  <a href="https://github.com/nshkrdotcom/weld/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-4c9f70.svg" alt="MIT License" /></a>
 </p>
 
 `Weld` is a graph-native publication system for Elixir monorepos.
@@ -41,7 +40,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.8.2", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.8.3", only: [:dev, :test], runtime: false}
   ]
 end
 ```
@@ -65,7 +64,7 @@ creates that branch as an orphan on first use so the projection history stays
 isolated from the source repo history.
 
 For coordinated pre-release validation across consumer repos, prefer normal
-version bumps to a prerelease Weld package such as `0.8.2-rc.1` rather than
+version bumps to a prerelease Weld package such as `0.8.4-rc.1` rather than
 embedding repo-local path or git override logic in every consumer.
 
 ## Example Manifest
@@ -91,10 +90,21 @@ Package-projection mode (default):
         name: "my_bundle",
         otp_app: :my_bundle,
         version: "0.1.0",
-        description: "My welded package"
+        description: "My welded package",
+        docs: [
+          logo: "assets/my_bundle.svg",
+          source_url: "https://github.com/example/my_bundle",
+          source_ref: "v0.1.0",
+          extra_titles: %{"README.md" => "Overview"},
+          groups_for_extras: [
+            {"Start Here", ["README.md"]},
+            {"Release", ["CHANGELOG.md", "LICENSE"]}
+          ]
+        ]
       ],
       output: [
-        docs: ["README.md", "guides/architecture.md"]
+        docs: ["README.md", "CHANGELOG.md", "LICENSE", "guides/architecture.md"],
+        assets: ["assets/my_bundle.svg"]
       ],
       verify: [
         artifact_tests: ["packaging/weld/my_bundle/test"],

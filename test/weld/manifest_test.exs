@@ -36,6 +36,28 @@ defmodule Weld.ManifestTest do
     assert manifest.dependencies[:git_dep].opts[:branch] == "main"
   end
 
+  test "normalizes professional HexDocs metadata for generated packages" do
+    manifest = Manifest.load!(FixtureCase.manifest_path("monolith_bundle", "monolith_bundle"))
+    artifact = Manifest.artifact!(manifest, nil)
+
+    assert artifact.package.docs.main == "readme"
+    assert artifact.package.docs.logo == "assets/monolith_bundle.svg"
+    assert artifact.package.docs.homepage_url == "https://example.test/monolith_bundle"
+    assert artifact.package.docs.source_url == "https://example.test/monolith_bundle"
+    assert artifact.package.docs.source_ref == "v0.1.0"
+    assert artifact.package.docs.assets == %{"assets" => "assets"}
+
+    assert artifact.package.docs.extra_titles == %{
+             "CHANGELOG.md" => "Changelog",
+             "README.md" => "Overview"
+           }
+
+    assert artifact.package.docs.groups_for_extras == [
+             {"Start Here", ["README.md"]},
+             {"Release", ["CHANGELOG.md"]}
+           ]
+  end
+
   test "normalizes monolith-specific test support project ids" do
     repo_root = FixtureCase.copy_fixture("root_workspace")
     manifest_path = Path.join([repo_root, "packaging", "weld", "web_monolith.exs"])

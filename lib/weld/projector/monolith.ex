@@ -108,7 +108,7 @@ defmodule Weld.Projector.Monolith do
     %{
       mode: :monolith,
       copied_files: copied_files,
-      package_files: MixFile.package_files(build_path),
+      package_files: MixFile.package_files(plan, build_path),
       file_remaps: source_merge.remaps,
       migration_layout: migration_merge.layout,
       migration_remaps: migration_merge.remaps,

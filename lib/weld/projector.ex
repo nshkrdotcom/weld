@@ -73,6 +73,28 @@ defmodule Weld.Projector do
     |> Enum.filter(&File.regular?(Path.join(plan.manifest.repo_root, &1)))
   end
 
+  @doc false
+  @spec docs_options(Plan.t()) :: keyword()
+  def docs_options(%Plan{} = plan) do
+    docs = plan.artifact.package.docs
+
+    extras =
+      Enum.map(plan.artifact.output.docs, fn path ->
+        case docs.extra_titles do
+          %{^path => title} -> {path, [title: title]}
+          _titles -> path
+        end
+      end)
+
+    [main: docs.main, extras: extras]
+    |> maybe_put_docs_option(:logo, docs.logo)
+    |> maybe_put_docs_option(:homepage_url, docs.homepage_url)
+    |> maybe_put_docs_option(:source_url, docs.source_url)
+    |> maybe_put_docs_option(:source_ref, docs.source_ref)
+    |> maybe_put_docs_option(:assets, docs.assets)
+    |> maybe_put_docs_option(:groups_for_extras, docs.groups_for_extras)
+  end
+
   defp copy_project!(build_path, project) do
     base = Path.join([build_path, "components", component_dir(project)])
 
@@ -251,7 +273,7 @@ defmodule Weld.Projector do
     erlc_paths = component_paths(plan.selected_projects, & &1.erlc_paths)
     deps = render_deps(plan.external_deps)
     files = package_files(plan, opts) |> Enum.map_join(",\n        ", &inspect/1)
-    extras = plan.artifact.output.docs |> Enum.map_join(",\n        ", &inspect/1)
+    docs = docs_options(plan) |> inspect(pretty: true, limit: :infinity)
     links = package.links |> fallback_links(plan.manifest.repo_root) |> inspect(pretty: true)
     application_config = application_config_literal(application)
 
@@ -309,12 +331,7 @@ defmodule Weld.Projector do
       end
 
       defp docs do
-        [
-          main: #{inspect(package.docs_main)},
-          extras: [
-            #{extras}
-          ]
-        ]
+        #{docs}
       end
     end
     """
@@ -355,6 +372,10 @@ defmodule Weld.Projector do
       remote -> %{"Source" => remote}
     end
   end
+
+  defp maybe_put_docs_option(options, _key, nil), do: options
+  defp maybe_put_docs_option(options, _key, empty) when empty in [%{}, []], do: options
+  defp maybe_put_docs_option(options, key, value), do: Keyword.put(options, key, value)
 
   defp generated_root_paths(nil, _opts), do: []
 

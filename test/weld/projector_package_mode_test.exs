@@ -3,6 +3,21 @@ defmodule Weld.ProjectorPackageModeTest do
 
   alias Weld.FixtureCase
 
+  test "package mode renders the same professional HexDocs metadata contract" do
+    result = Weld.project!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
+    mixfile = File.read!(Path.join(result.build_path, "mix.exs"))
+
+    assert mixfile =~ "source_url: \"https://example.test/fixture_bundle\""
+    assert mixfile =~ "source_ref: \"v0.1.0\""
+    assert mixfile =~ "{\"README.md\", [title: \"Overview\"]}"
+
+    assert mixfile =~
+             "{\"Start Here\", [\"README.md\", \"guides/getting_started.md\"]}"
+
+    assert mixfile =~
+             "{\"Reference\", [\"guides/architecture.md\", \"CHANGELOG.md\"]}"
+  end
+
   test "package mode verification succeeds when selected projects need projected config" do
     manifest_path =
       FixtureCase.copied_manifest_path("package_bootstrap_bundle", "package_bootstrap_bundle")

@@ -8,7 +8,7 @@ multi-project Elixir repo.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.8.2", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.8.3", only: [:dev, :test], runtime: false}
   ]
 end
 ```
@@ -35,10 +35,21 @@ Create a manifest such as `packaging/weld/my_bundle.exs`:
       package: [
         name: "my_bundle",
         otp_app: :my_bundle,
-        version: "0.1.0"
+        version: "0.1.0",
+        docs: [
+          logo: "assets/my_bundle.svg",
+          source_url: "https://github.com/example/my_bundle",
+          source_ref: "v0.1.0",
+          extra_titles: %{"README.md" => "Overview"},
+          groups_for_extras: [
+            {"Start Here", ["README.md", "guides/architecture.md"]},
+            {"Release", ["CHANGELOG.md", "LICENSE"]}
+          ]
+        ]
       ],
       output: [
-        docs: ["README.md", "guides/architecture.md"]
+        docs: ["README.md", "guides/architecture.md", "CHANGELOG.md", "LICENSE"],
+        assets: ["assets/my_bundle.svg"]
       ],
       verify: [
         artifact_tests: ["packaging/weld/my_bundle/test"],
@@ -52,6 +63,11 @@ Create a manifest such as `packaging/weld/my_bundle.exs`:
 
 `workspace.root` is resolved relative to the manifest file. In
 `packaging/weld/...`, `"../.."` points back to the repo root.
+
+Every `output.docs` and `output.assets` entry is copied into the generated
+project and included in its Hex package allowlist. `package.docs` controls the
+generated ExDoc menu and presentation without requiring a consumer-specific
+post-generation edit.
 
 Use `dependencies` when a selected workspace project depends on an external
 package through a local `:path`, `:git`, or `:github` declaration that cannot

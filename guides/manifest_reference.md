@@ -84,13 +84,27 @@ contains:
 - `licenses`
 - `maintainers`
 - `links`
-- `docs_main`
+- `docs_main` — backward-compatible shorthand for `docs.main`
+- `docs` — generated HexDocs metadata:
+  - `main`
+  - `logo`
+  - `homepage_url`
+  - `source_url`
+  - `source_ref`
+  - `assets` — source-to-target asset-directory map passed to ExDoc
+  - `extra_titles` — map of `output.docs` paths to sidebar titles
+  - `groups_for_extras` — ordered `{group, [output.docs paths]}` entries
 
 ## Output Keys
 
 - `dist_root`
 - `docs`
 - `assets`
+
+Every declared `output.docs` and `output.assets` path is copied and included in
+the generated package's explicit `package.files` allowlist. Weld rejects
+HexDocs title/group paths that are not declared in `output.docs`, logos that are
+not covered by `output.assets`, and ExDoc asset roots that are not copied.
 
 ## Verify Keys
 
@@ -142,10 +156,23 @@ the prepared bundle.
       package: [
         name: "web_bundle",
         otp_app: :web_bundle,
-        version: "0.1.0"
+        version: "0.1.0",
+        docs: [
+          logo: "assets/web_bundle.svg",
+          homepage_url: "https://github.com/example/web_bundle",
+          source_url: "https://github.com/example/web_bundle",
+          source_ref: "v0.1.0",
+          assets: %{"assets" => "assets"},
+          extra_titles: %{"README.md" => "Overview"},
+          groups_for_extras: [
+            {"Start Here", ["README.md"]},
+            {"Release", ["CHANGELOG.md", "LICENSE"]}
+          ]
+        ]
       ],
       output: [
-        docs: ["README.md", "guides/architecture.md"]
+        docs: ["README.md", "guides/architecture.md", "CHANGELOG.md", "LICENSE"],
+        assets: ["assets/web_bundle.svg"]
       ],
       verify: [
         artifact_tests: ["packaging/weld/web_bundle/test"],
@@ -178,10 +205,20 @@ the prepared bundle.
         name: "my_monolith",
         otp_app: :my_monolith,
         version: "0.1.0",
-        description: "My welded monolith"
+        description: "My welded monolith",
+        docs: [
+          logo: "assets/my_monolith.svg",
+          source_url: "https://github.com/example/my_monolith",
+          source_ref: "v0.1.0",
+          groups_for_extras: [
+            {"Start Here", ["README.md"]},
+            {"Release", ["CHANGELOG.md", "LICENSE"]}
+          ]
+        ]
       ],
       output: [
-        docs: ["README.md"]
+        docs: ["README.md", "CHANGELOG.md", "LICENSE"],
+        assets: ["assets/my_monolith.svg"]
       ],
       verify: [
         hex_build: false

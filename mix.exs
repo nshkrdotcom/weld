@@ -4,13 +4,12 @@ defmodule Weld.MixProject do
   def project do
     [
       app: :weld,
-      version: "0.8.2",
+      version: "0.8.3",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       test_paths: test_paths(Mix.env()),
       aliases: aliases(),
-      preferred_cli_env: preferred_cli_env(),
       dialyzer: dialyzer(),
       deps: deps(),
       description: "Deterministic Hex package projection for Elixir monorepos",
@@ -23,6 +22,10 @@ defmodule Weld.MixProject do
     [
       extra_applications: [:logger]
     ]
+  end
+
+  def cli do
+    [preferred_envs: preferred_cli_env()]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
@@ -48,8 +51,7 @@ defmodule Weld.MixProject do
       licenses: ["MIT"],
       maintainers: ["nshkrdotcom"],
       links: %{"GitHub" => "https://github.com/nshkrdotcom/weld"},
-      files:
-        ~w(lib priv/templates assets guides mix.exs README.md LICENSE CHANGELOG.md .formatter.exs)
+      files: ~w(lib priv/templates assets guides mix.exs README.md LICENSE CHANGELOG.md)
     ]
   end
 
@@ -60,6 +62,7 @@ defmodule Weld.MixProject do
       logo: "assets/weld.svg",
       homepage_url: "https://github.com/nshkrdotcom/weld",
       source_url: "https://github.com/nshkrdotcom/weld",
+      source_ref: "v0.8.3",
       assets: %{"assets" => "assets"},
       extras: [
         "README.md": [title: "Overview"],
@@ -144,8 +147,8 @@ defmodule Weld.MixProject do
       ci: [
         "cmd mix format --check-formatted",
         "cmd mix compile --warnings-as-errors",
-        "cmd MIX_ENV=test mix test",
-        "cmd MIX_ENV=test mix credo --strict",
+        "cmd env MIX_ENV=test mix test",
+        "cmd env MIX_ENV=test mix credo --strict",
         "cmd mix dialyzer",
         "cmd mix docs --warnings-as-errors"
       ]

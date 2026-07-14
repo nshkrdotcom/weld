@@ -36,6 +36,35 @@ defmodule Weld.Manifest do
           }
   end
 
+  defmodule Docs do
+    @moduledoc """
+    HexDocs metadata for a generated artifact.
+    """
+
+    @enforce_keys [
+      :main,
+      :logo,
+      :homepage_url,
+      :source_url,
+      :source_ref,
+      :assets,
+      :extra_titles,
+      :groups_for_extras
+    ]
+    defstruct @enforce_keys
+
+    @type t :: %__MODULE__{
+            main: String.t(),
+            logo: String.t() | nil,
+            homepage_url: String.t() | nil,
+            source_url: String.t() | nil,
+            source_ref: String.t() | nil,
+            assets: %{optional(String.t()) => String.t()},
+            extra_titles: %{optional(String.t()) => String.t()},
+            groups_for_extras: [{String.t(), [String.t()]}]
+          }
+  end
+
   defmodule Package do
     @moduledoc """
     Package metadata for a generated artifact.
@@ -50,7 +79,8 @@ defmodule Weld.Manifest do
       :licenses,
       :maintainers,
       :links,
-      :docs_main
+      :docs_main,
+      :docs
     ]
     defstruct @enforce_keys
 
@@ -63,7 +93,8 @@ defmodule Weld.Manifest do
             licenses: [String.t()],
             maintainers: [String.t()],
             links: %{optional(String.t()) => String.t()},
-            docs_main: String.t()
+            docs_main: String.t(),
+            docs: Weld.Manifest.Docs.t()
           }
   end
 
@@ -208,7 +239,19 @@ defmodule Weld.Manifest do
     licenses: [type: {:list, :string}, default: ["MIT"]],
     maintainers: [type: {:list, :string}, default: []],
     links: [type: :any, default: %{}],
-    docs_main: [type: :string, default: "readme"]
+    docs_main: [type: :string, default: "readme"],
+    docs: [type: :keyword_list, default: []]
+  ]
+
+  @docs_schema [
+    main: [type: :string],
+    logo: [type: :string],
+    homepage_url: [type: :string],
+    source_url: [type: :string],
+    source_ref: [type: :string],
+    assets: [type: :any, default: %{}],
+    extra_titles: [type: :any, default: %{}],
+    groups_for_extras: [type: :any, default: []]
   ]
 
   @output_schema [
@@ -375,6 +418,7 @@ defmodule Weld.Manifest do
           output: normalize_output(normalized[:output]),
           verify: normalize_verify(normalized[:verify])
         }
+        |> validate_docs_output!()
 
       {artifact_id, artifact}
     end)
@@ -383,6 +427,7 @@ defmodule Weld.Manifest do
 
   defp normalize_package(package) do
     package = NimbleOptions.validate!(package, @package_schema)
+    docs = normalize_docs(package[:docs], package[:docs_main])
 
     links =
       Map.new(package[:links], fn {label, url} ->
@@ -402,8 +447,109 @@ defmodule Weld.Manifest do
       licenses: package[:licenses],
       maintainers: package[:maintainers],
       links: links,
-      docs_main: package[:docs_main]
+      docs_main: docs.main,
+      docs: docs
     }
+  end
+
+  defp normalize_docs(docs, legacy_main) do
+    docs = NimbleOptions.validate!(docs, @docs_schema)
+
+    %Docs{
+      main: docs[:main] || legacy_main,
+      logo: docs[:logo],
+      homepage_url: docs[:homepage_url],
+      source_url: docs[:source_url],
+      source_ref: docs[:source_ref],
+      assets: normalize_string_map!(docs[:assets], "package.docs.assets"),
+      extra_titles: normalize_string_map!(docs[:extra_titles], "package.docs.extra_titles"),
+      groups_for_extras: normalize_extra_groups!(docs[:groups_for_extras])
+    }
+  end
+
+  defp normalize_string_map!(entries, label) when is_map(entries) or is_list(entries) do
+    Map.new(entries, fn
+      {key, value}
+      when is_binary(key) and key != "" and is_binary(value) and value != "" ->
+        {key, value}
+
+      entry ->
+        raise Error,
+              "#{label} must contain non-empty string keys and values, got: #{inspect(entry)}"
+    end)
+  end
+
+  defp normalize_string_map!(entries, label) do
+    raise Error, "#{label} must be a map or keyword-style list, got: #{inspect(entries)}"
+  end
+
+  defp normalize_extra_groups!(groups) when is_list(groups) do
+    Enum.map(groups, fn
+      {label, paths} when (is_binary(label) or is_atom(label)) and is_list(paths) ->
+        normalized_label = to_string(label)
+
+        unless normalized_label != "" and paths != [] and
+                 Enum.all?(paths, &(is_binary(&1) and &1 != "")) do
+          raise Error,
+                "package.docs.groups_for_extras entries require a non-empty label and non-empty path list"
+        end
+
+        {normalized_label, Enum.uniq(paths)}
+
+      entry ->
+        raise Error,
+              "package.docs.groups_for_extras must contain {label, paths} entries, got: #{inspect(entry)}"
+    end)
+  end
+
+  defp normalize_extra_groups!(groups) do
+    raise Error,
+          "package.docs.groups_for_extras must be a list, got: #{inspect(groups)}"
+  end
+
+  defp validate_docs_output!(%Artifact{} = artifact) do
+    docs = artifact.package.docs
+    output_docs = MapSet.new(artifact.output.docs)
+
+    referenced_docs =
+      Map.keys(docs.extra_titles) ++
+        Enum.flat_map(docs.groups_for_extras, fn {_label, paths} -> paths end)
+
+    missing_docs = referenced_docs |> Enum.uniq() |> Enum.reject(&MapSet.member?(output_docs, &1))
+
+    if missing_docs != [] do
+      raise Error,
+            "package.docs references paths not declared in output.docs: #{Enum.join(missing_docs, ", ")}"
+    end
+
+    if docs.logo && !output_path_covered?(docs.logo, artifact.output.assets) do
+      raise Error,
+            "package.docs.logo must be copied by output.assets: #{docs.logo}"
+    end
+
+    missing_asset_roots =
+      docs.assets
+      |> Map.keys()
+      |> Enum.reject(&asset_root_covered?(&1, artifact.output.assets))
+
+    if missing_asset_roots != [] do
+      raise Error,
+            "package.docs.assets roots must be copied by output.assets: #{Enum.join(missing_asset_roots, ", ")}"
+    end
+
+    artifact
+  end
+
+  defp output_path_covered?(path, output_paths) do
+    Enum.any?(output_paths, fn output_path ->
+      path == output_path or String.starts_with?(path, output_path <> "/")
+    end)
+  end
+
+  defp asset_root_covered?(root, output_paths) do
+    Enum.any?(output_paths, fn output_path ->
+      output_path == root or String.starts_with?(output_path, root <> "/")
+    end)
   end
 
   defp normalize_output(output) do

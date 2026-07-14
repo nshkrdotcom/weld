@@ -16,6 +16,8 @@ defmodule Weld.ProjectorMonolithTest do
     assert File.regular?(Path.join(result.build_path, "config/sources/core_store/config.exs"))
     assert File.regular?(Path.join(result.build_path, "config/sources/runtime_api/config.exs"))
     assert File.regular?(Path.join(result.build_path, ".formatter.exs"))
+    assert File.regular?(Path.join(result.build_path, "CHANGELOG.md"))
+    assert File.regular?(Path.join(result.build_path, "assets/monolith_bundle.svg"))
     assert File.regular?(Path.join(result.build_path, "test/test_helper.exs"))
     assert File.regular?(Path.join(result.build_path, "test/core_store/fixture/store_test.exs"))
     assert File.regular?(Path.join(result.build_path, "test/runtime_api/fixture/api_test.exs"))
@@ -34,8 +36,23 @@ defmodule Weld.ProjectorMonolithTest do
 
     mixfile = File.read!(Path.join(result.build_path, "mix.exs"))
     assert ".formatter.exs" in result.package_files
+    assert "CHANGELOG.md" in result.package_files
+    assert "assets/monolith_bundle.svg" in result.package_files
+    assert "guides" in result.package_files
+    refute "guides/release.md" in result.package_files
     assert mixfile =~ "\".formatter.exs\""
+    assert mixfile =~ "\"CHANGELOG.md\""
+    assert mixfile =~ "\"assets/monolith_bundle.svg\""
     assert mixfile =~ "build_path: \"_build\""
+    assert mixfile =~ "logo: \"assets/monolith_bundle.svg\""
+    assert mixfile =~ "homepage_url: \"https://example.test/monolith_bundle\""
+    assert mixfile =~ "source_url: \"https://example.test/monolith_bundle\""
+    assert mixfile =~ "source_ref: \"v0.1.0\""
+    assert mixfile =~ "assets: %{\"assets\" => \"assets\"}"
+    assert mixfile =~ "{\"README.md\", [title: \"Overview\"]}"
+    assert mixfile =~ "{\"CHANGELOG.md\", [title: \"Changelog\"]}"
+    assert mixfile =~ "{\"Start Here\", [\"README.md\"]}"
+    assert mixfile =~ "{\"Release\", [\"CHANGELOG.md\"]}"
     refute mixfile =~ "components/"
     refute mixfile =~ ", path:"
   end

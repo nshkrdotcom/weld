@@ -20,11 +20,14 @@ defmodule Weld.Projector.Monolith.MixFile do
     write_application_module!(generated, application, plan, build_path)
   end
 
-  @spec package_files(Path.t(), keyword()) :: [String.t()]
-  def package_files(build_path, opts \\ []) do
+  @spec package_files(Plan.t(), Path.t(), keyword()) :: [String.t()]
+  def package_files(%Plan{} = plan, build_path, opts \\ []) do
     package_dir_files(build_path, Keyword.get(opts, :include_tests?, false))
+    |> Kernel.++(plan.artifact.output.docs)
+    |> Kernel.++(plan.artifact.output.assets)
     |> Kernel.++(["mix.exs", "projection.lock.json"])
     |> Enum.uniq()
+    |> collapse_descendant_paths()
     |> Enum.sort()
   end
 
@@ -56,13 +59,8 @@ defmodule Weld.Projector.Monolith.MixFile do
         Keyword.get(opts, :forced_test_external_deps, [])
       )
 
-    files = package_files(build_path) |> Enum.map_join(",\n        ", &inspect/1)
-
-    extras =
-      plan.artifact.output.docs
-      |> Enum.uniq()
-      |> Enum.sort()
-      |> Enum.map_join(",\n        ", &inspect/1)
+    files = package_files(plan, build_path) |> Enum.map_join(",\n        ", &inspect/1)
+    docs = Projector.docs_options(plan) |> inspect(pretty: true, limit: :infinity)
 
     links = package.links |> fallback_links(plan.manifest.repo_root) |> inspect(pretty: true)
     application_config = application_config_literal(application)
@@ -119,12 +117,7 @@ defmodule Weld.Projector.Monolith.MixFile do
       end
 
       defp docs do
-        [
-          main: #{inspect(package.docs_main)},
-          extras: [
-            #{extras}
-          ]
-        ]
+        #{docs}
       end
     end
     """
@@ -419,6 +412,14 @@ defmodule Weld.Projector.Monolith.MixFile do
   defp root_tooling_files(build_path) do
     Projector.root_tooling_candidates()
     |> Enum.filter(&File.regular?(Path.join(build_path, &1)))
+  end
+
+  defp collapse_descendant_paths(paths) do
+    Enum.reject(paths, fn path ->
+      Enum.any?(paths, fn candidate ->
+        candidate != path and String.starts_with?(path, candidate <> "/")
+      end)
+    end)
   end
 
   defp project_slug(project_id) do
