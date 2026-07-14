@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-07-13
+
+### Fixed
+
+- monolith projection now honors every selected project's declared
+  `test_paths` instead of copying all files below `test/`, preventing dormant
+  or separately owned suites from leaking into generated-package verification.
+- selected-project test paths are constrained to their owning project root and
+  overlapping paths are de-duplicated before projection.
+
+### Changed
+
+- consumer guidance and release documentation now target Weld `~> 0.8.4`.
+
 ## [0.8.3] - 2026-07-13
 
 ### Added

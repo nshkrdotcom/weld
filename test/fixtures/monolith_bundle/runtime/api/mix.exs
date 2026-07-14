@@ -6,6 +6,7 @@ defmodule FixtureApi.MixProject do
       app: :fixture_api,
       version: "0.1.0",
       elixir: "~> 1.18",
+      test_paths: ["test/fixture"],
       deps: [
         {:fixture_store, path: "../../core/store"}
       ]

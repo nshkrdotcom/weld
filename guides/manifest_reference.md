@@ -63,6 +63,11 @@ contains:
 
 ## Monolith Options (`monolith_opts`)
 
+Selected projects contribute tests only from their Mix `:test_paths`
+configuration, which defaults to `["test"]`. Weld preserves paths relative to
+the owning project, de-duplicates overlaps, and rejects paths outside that
+project root.
+
 - `shared_test_configs` — list of project ids (atoms or strings) whose
   `config/test.exs` files are imported into the generated root `config/test.exs`.
   Other packages' test configs are omitted and a warning is emitted for each.

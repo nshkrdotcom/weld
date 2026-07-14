@@ -40,7 +40,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.8.3", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.8.4", only: [:dev, :test], runtime: false}
   ]
 end
 ```
@@ -149,6 +149,10 @@ Monolith mode:
   ]
 ]
 ```
+
+For each selected project, monolith mode copies tests only from the project's
+declared Mix `:test_paths` (defaulting to `["test"]`). This keeps the generated
+suite aligned with the tests the owning project actually runs.
 
 ## Core Commands
 

@@ -23,6 +23,8 @@ defmodule Weld.ProjectorMonolithTest do
     assert File.regular?(Path.join(result.build_path, "test/runtime_api/fixture/api_test.exs"))
     assert File.regular?(Path.join(result.build_path, "test/support/core_store/store_case.exs"))
 
+    refute File.exists?(Path.join(result.build_path, "test/runtime_api/dormant/dormant_test.exs"))
+
     assert File.read!(Path.join(result.build_path, "lib/monolith_bundle/application.ex")) =~
              "@moduledoc false"
 

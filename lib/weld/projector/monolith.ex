@@ -177,27 +177,48 @@ defmodule Weld.Projector.Monolith do
   end
 
   defp copy_tests!(project, build_path) do
-    test_root = Path.join(project.abs_path, "test")
     slug = project_slug(project.id)
 
-    if File.dir?(test_root) do
-      copied_files =
-        test_root
-        |> Hash.list_files()
-        |> Enum.sort()
-        |> Enum.reject(&(Path.basename(&1) == "test_helper.exs"))
-        |> Enum.flat_map(fn source ->
-          relative = Path.relative_to(source, test_root)
-          target = projected_test_target(build_path, slug, relative)
+    copied_files =
+      project.test_paths
+      |> Enum.map(&project_test_path!(project, &1))
+      |> Enum.filter(&File.dir?/1)
+      |> Enum.flat_map(&Hash.list_files/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.reject(&(Path.basename(&1) == "test_helper.exs"))
+      |> Enum.flat_map(fn source ->
+        relative = project_test_relative(project, source)
+        target = projected_test_target(build_path, slug, relative)
 
-          File.mkdir_p!(Path.dirname(target))
-          File.cp!(source, target)
-          [Path.relative_to(target, build_path)]
-        end)
+        File.mkdir_p!(Path.dirname(target))
+        File.cp!(source, target)
+        [Path.relative_to(target, build_path)]
+      end)
 
-      %{copied_files: copied_files}
+    %{copied_files: copied_files}
+  end
+
+  defp project_test_path!(project, test_path) do
+    expanded = Path.expand(test_path, project.abs_path)
+    project_root = Path.expand(project.abs_path)
+
+    if expanded == project_root or String.starts_with?(expanded, project_root <> "/") do
+      expanded
     else
-      %{copied_files: []}
+      raise Error,
+            "project #{project.id} test path escapes its project root: #{inspect(test_path)}"
+    end
+  end
+
+  defp project_test_relative(project, source) do
+    test_root = Path.join(project.abs_path, "test")
+    relative_to_test = Path.relative_to(source, test_root)
+
+    if relative_to_test == ".." or String.starts_with?(relative_to_test, "../") do
+      Path.relative_to(source, project.abs_path)
+    else
+      relative_to_test
     end
   end
 

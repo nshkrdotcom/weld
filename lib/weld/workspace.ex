@@ -90,6 +90,7 @@ defmodule Weld.Workspace do
       application: normalize_application(application),
       elixirc_paths: normalize_paths(Keyword.get(config, :elixirc_paths, ["lib"])),
       erlc_paths: normalize_paths(Keyword.get(config, :erlc_paths, ["src"])),
+      test_paths: normalize_paths(Keyword.get(config, :test_paths, ["test"])),
       copy_dirs: existing_copy_dirs(abs_path),
       classification: classification_for(project_id, manifest),
       publication_role: publication_role_for(project_id, manifest)

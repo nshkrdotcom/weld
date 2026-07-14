@@ -14,6 +14,14 @@ defmodule Weld.WorkspaceTest do
     assert Map.keys(workspace.projects) == ["core/contracts", "runtime/local"]
   end
 
+  test "loads each project's declared test paths" do
+    manifest = Manifest.load!(FixtureCase.manifest_path("monolith_bundle", "monolith_bundle"))
+    workspace = Workspace.load!(manifest)
+
+    assert workspace.projects["core/store"].test_paths == ["test"]
+    assert workspace.projects["runtime/api"].test_paths == ["test/fixture"]
+  end
+
   test "discovers projects from blitz_workspace when the root has a mix.exs" do
     manifest = Manifest.load!(FixtureCase.manifest_path("root_workspace", "artifacts"))
     workspace = Workspace.load!(manifest)

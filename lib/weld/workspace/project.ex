@@ -17,7 +17,7 @@ defmodule Weld.Workspace.Project do
     :classification,
     :publication_role
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [test_paths: ["test"]]
 
   @type dep :: %{
           app: atom(),
@@ -46,6 +46,7 @@ defmodule Weld.Workspace.Project do
           application: application_config(),
           elixirc_paths: [String.t()],
           erlc_paths: [String.t()],
+          test_paths: [String.t()],
           copy_dirs: [String.t()],
           classification: classification(),
           publication_role: publication_role()
