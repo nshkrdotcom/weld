@@ -80,7 +80,8 @@ defmodule Weld.Manifest do
       :maintainers,
       :links,
       :docs_main,
-      :docs
+      :docs,
+      :development_dependencies
     ]
     defstruct @enforce_keys
 
@@ -94,7 +95,8 @@ defmodule Weld.Manifest do
             maintainers: [String.t()],
             links: %{optional(String.t()) => String.t()},
             docs_main: String.t(),
-            docs: Weld.Manifest.Docs.t()
+            docs: Weld.Manifest.Docs.t(),
+            development_dependencies: [tuple()]
           }
   end
 
@@ -240,7 +242,8 @@ defmodule Weld.Manifest do
     maintainers: [type: {:list, :string}, default: []],
     links: [type: :any, default: %{}],
     docs_main: [type: :string, default: "readme"],
-    docs: [type: :keyword_list, default: []]
+    docs: [type: :keyword_list, default: []],
+    development_dependencies: [type: {:list, :any}, default: []]
   ]
 
   @docs_schema [
@@ -448,8 +451,36 @@ defmodule Weld.Manifest do
       maintainers: package[:maintainers],
       links: links,
       docs_main: docs.main,
-      docs: docs
+      docs: docs,
+      development_dependencies:
+        normalize_development_dependencies(package[:development_dependencies])
     }
+  end
+
+  defp normalize_development_dependencies(dependencies) do
+    Enum.map(dependencies, fn
+      {app, requirement, opts}
+      when is_atom(app) and is_binary(requirement) and is_list(opts) ->
+        validate_development_dependency!(app, opts)
+        {app, requirement, opts}
+
+      dependency ->
+        raise Error,
+              "package development_dependencies must use " <>
+                "{:app, \"requirement\", only: ..., runtime: false}; got #{inspect(dependency)}"
+    end)
+  end
+
+  defp validate_development_dependency!(app, opts) do
+    only = opts |> Keyword.get(:only) |> List.wrap()
+    source_keys = Keyword.keys(opts) -- [:only, :runtime, :optional, :override]
+
+    if only == [] or Enum.any?(only, &(&1 not in [:dev, :test])) or opts[:runtime] != false or
+         source_keys != [] do
+      raise Error,
+            "package development dependency #{inspect(app)} must be Hex-only, scoped to " <>
+              ":dev/:test, and runtime: false"
+    end
   end
 
   defp normalize_docs(docs, legacy_main) do

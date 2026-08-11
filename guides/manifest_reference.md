@@ -162,6 +162,10 @@ the prepared bundle.
         name: "web_bundle",
         otp_app: :web_bundle,
         version: "0.1.0",
+        development_dependencies: [
+          {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+          {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+        ],
         docs: [
           logo: "assets/web_bundle.svg",
           homepage_url: "https://github.com/example/web_bundle",

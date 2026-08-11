@@ -13,6 +13,11 @@ defmodule Weld.ManifestTest do
     assert artifact.id == "fixture_bundle"
     assert artifact.roots == ["runtime/local"]
     assert artifact.verify.smoke.enabled
+
+    assert artifact.package.development_dependencies == [
+             {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+             {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+           ]
   end
 
   test "requires an explicit artifact when the manifest defines more than one" do

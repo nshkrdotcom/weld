@@ -271,7 +271,7 @@ defmodule Weld.Projector do
     application = generated_application(plan, opts)
     elixirc_paths = component_paths(plan.selected_projects, & &1.elixirc_paths, plan, opts)
     erlc_paths = component_paths(plan.selected_projects, & &1.erlc_paths)
-    deps = render_deps(plan.external_deps)
+    deps = render_deps(plan.external_deps, package.development_dependencies)
     files = package_files(plan, opts) |> Enum.map_join(",\n        ", &inspect/1)
     docs = docs_options(plan) |> inspect(pretty: true, limit: :infinity)
     links = package.links |> fallback_links(plan.manifest.repo_root) |> inspect(pretty: true)
@@ -357,10 +357,11 @@ defmodule Weld.Projector do
        |> Enum.sort())
   end
 
-  defp render_deps(external_deps) do
-    external_deps
-    |> Enum.map(fn dep -> dep.original end)
-    |> Kernel.++([{:ex_doc, "~> 0.40", only: :dev, runtime: false}])
+  defp render_deps(external_deps, development_dependencies) do
+    external = Enum.map(external_deps, fn dep -> dep.original end)
+
+    (external ++ development_dependencies ++ [{:ex_doc, "~> 0.40", only: :dev, runtime: false}])
+    |> Enum.uniq_by(&elem(&1, 0))
     |> Enum.map_join(",\n      ", &inspect/1)
   end
 

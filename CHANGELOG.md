@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - the canonical dependency-source template now provides fail-closed publish
   preflight checks, machine-readable release ordering, source inspection, and
   exact task-token detection for Hex-only package builds and publication.
+- package projections can declare Hex-only development dependencies so their
+  generated artifacts run Credo and Dialyzer as first-class release gates.
 
 ### Security
 
