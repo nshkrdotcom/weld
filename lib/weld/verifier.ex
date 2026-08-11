@@ -179,6 +179,11 @@ defmodule Weld.Verifier do
            failure_count: String.to_integer(failure_count)
          }}
 
+      captures = Regex.run(~r/Result:\s+(\d+)\s+passed/, output, capture: :all_but_first) ->
+        [test_count] = captures
+
+        {:ok, %{test_count: String.to_integer(test_count), failure_count: 0}}
+
       true ->
         :error
     end

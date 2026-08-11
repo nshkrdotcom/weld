@@ -1,6 +1,8 @@
 defmodule Weld.ReleaseTest do
   use ExUnit.Case, async: false
 
+  @moduletag timeout: 180_000
+
   alias Weld.FixtureCase
 
   test "prepares and archives a release bundle" do

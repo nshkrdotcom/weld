@@ -71,7 +71,7 @@ defmodule Weld.ProjectorMonolithTest do
 
     assert status == 0, output
     refute output =~ "configured but not available", output
-    assert output =~ "2 tests, 0 failures"
+    assert output =~ ~r/(?:2 tests, 0 failures|Result: 2 passed)/
 
     {format_output, format_status} =
       System.cmd("mix", ["format", "--check-formatted"],

@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-08-10
+
+### Added
+
+- the canonical dependency-source template now provides fail-closed publish
+  preflight checks, machine-readable release ordering, source inspection, and
+  exact task-token detection for Hex-only package builds and publication.
+
+### Security
+
+- dependency-source configuration and local overrides are parsed as literals
+  instead of evaluated as code, configured names cannot allocate arbitrary
+  atoms, and local-path resolution is absolute and bounded to declared sources.
+
+### Changed
+
+- consumer guidance and release documentation now target Weld `~> 0.9.0`.
+
+### Fixed
+
+- generated-project verification recognizes both the legacy ExUnit summary and
+  Elixir 1.20's `Result: N passed` summary without weakening the zero-test or
+  failure checks.
+
 ## [0.8.4] - 2026-07-13
 
 ### Fixed
