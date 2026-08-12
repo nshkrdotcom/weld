@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-08-11
+
+### Added
+
+- prepared release metadata now exposes a bounded,
+  `mix_workspace_ops.prepared_artifact/v1` data handoff containing the source
+  revision, package/version, relative artifact paths, and SHA-256 digests.
+
+### Changed
+
+- consumer guidance and release documentation now target Weld `~> 0.10.0`.
+
+### Architecture
+
+- Weld retains complete ownership of projection and artifact preparation; the
+  handoff introduces no Mix Workspace Ops dependency or executable coupling,
+  leaving clean-checkout transaction consumption to a later product-driven
+  integration.
+
 ## [0.9.0] - 2026-08-10
 
 ### Added

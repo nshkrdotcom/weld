@@ -3,17 +3,17 @@ defmodule Weld.ReleaseMetadataTest do
 
   @repo_root Path.expand("../..", __DIR__)
 
-  test "0.9.0 package metadata is release complete and narrowly allowlisted" do
+  test "0.10.0 package metadata is release complete and narrowly allowlisted" do
     project = Mix.Project.config()
 
-    assert project[:version] == "0.9.0"
+    assert project[:version] == "0.10.0"
 
     assert project[:package][:files] ==
              ~w(lib priv/templates assets guides mix.exs README.md LICENSE CHANGELOG.md)
 
     assert project[:docs][:main] == "readme"
     assert project[:docs][:logo] == "assets/weld.svg"
-    assert project[:docs][:source_ref] == "v0.9.0"
+    assert project[:docs][:source_ref] == "v0.10.0"
     assert length(project[:docs][:groups_for_extras]) == 4
 
     assert "cmd env MIX_ENV=test mix test" in project[:aliases][:ci]
@@ -34,7 +34,7 @@ defmodule Weld.ReleaseMetadataTest do
 
     assert license =~ "MIT License"
     assert license =~ "Copyright (c) 2026 nshkrdotcom"
-    assert changelog =~ "## [0.9.0] - 2026-08-10"
+    assert changelog =~ "## [0.10.0] - 2026-08-11"
 
     assert svg =~ "width=\"200\" height=\"200\" viewBox=\"0 0 200 200\""
     assert svg =~ "M100 14L173 57V143L100 186L27 143V57L100 14Z"

@@ -75,6 +75,14 @@ The prepared bundle contains:
 Weld version used to prepare the bundle, which keeps release metadata portable
 across checkout locations.
 
+When preparation runs from a Git revision, `release.json` also contains the
+small `mix_workspace_ops.prepared_artifact/v1` handoff: source revision,
+package/version, relative project and archive paths, and their SHA-256 digests.
+Weld does not depend on or invoke Mix Workspace Ops. This data-only boundary
+lets a future clean-checkout transaction verify Weld output without teaching
+MWO to parse a Weld manifest. Actual projected-package publication through that
+boundary remains deferred until a product release needs it.
+
 Tracked projection commits are intentionally separate from the prepared bundle.
 The bundle is the release input; the projection branch is an optional durable
 generated-source history.
