@@ -6,7 +6,7 @@ defmodule Weld.AgentsVerifierTest do
   alias Weld.AgentsVerifier
   alias Weld.FixtureCase
 
-  test "verifies root and nested AGENTS dependency and runtime env guidance" do
+  test "verifies root and nested AGENTS runtime environment guidance" do
     repo_root = FixtureCase.unique_tmp_dir("weld_agents")
     write_agents!(repo_root)
     nested_dir = Path.join([repo_root, "apps", "web"])
@@ -31,12 +31,18 @@ defmodule Weld.AgentsVerifierTest do
     assert {:error, report} = AgentsVerifier.verify(repo_root)
 
     assert Enum.map(report.violations, & &1.code) == [
-             :missing_dependency_sources_guidance,
-             :missing_local_override_guidance,
-             :missing_no_env_dependency_selection_guidance,
-             :missing_runtime_env_guidance,
-             :missing_weld_guidance
+             :missing_runtime_env_guidance
            ]
+  end
+
+  test "requires a root AGENTS file even when nested guidance is valid" do
+    repo_root = FixtureCase.unique_tmp_dir("weld_agents_missing_root")
+    nested_dir = Path.join([repo_root, "apps", "web"])
+    File.mkdir_p!(nested_dir)
+    write_agents!(nested_dir)
+
+    assert {:error, report} = AgentsVerifier.verify(repo_root)
+    assert Enum.map(report.violations, & &1.code) == [:missing_root_agents]
   end
 
   test "mix weld.agents.verify emits JSON for valid repos" do
@@ -57,13 +63,8 @@ defmodule Weld.AgentsVerifierTest do
     File.write!(Path.join(dir, "AGENTS.md"), """
     # Agents
 
-    Dependency source selection is handled by build_support/dependency_sources.exs
-    and build_support/dependency_sources.config.exs. Local overrides use
-    .dependency_sources.local.exs. Dependency source selection must not use
-    environment variables. Weld maintains and verifies helper drift, manifests,
-    clone checks, publish checks, and publish order. Runtime application code
-    under lib/** must not call direct OS env APIs. Runtime env reads belong in
-    config/runtime.exs or a Config.Provider.
+    Runtime application code under lib/** must not call direct OS env APIs.
+    Runtime env reads belong in config/runtime.exs or a Config.Provider.
     """)
   end
 end

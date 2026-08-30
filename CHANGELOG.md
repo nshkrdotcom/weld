@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-08-30
+
+### Removed
+
+- **Breaking:** remove `Weld.DependencySources`, its canonical helper template,
+  and `mix weld.dependency_sources.verify`. Dependency-source selection and
+  verification now live outside Weld's package-projection boundary.
+- **Breaking:** remove `Weld.EcosystemReport` and
+  `mix weld.ecosystem.report`; their graph, publish-order, clone, and readiness
+  fields were projections of the removed dependency-source manifest.
+- remove dependency-source requirements from `mix weld.agents.verify`; the task
+  continues to enforce runtime-environment guidance.
+
+### Changed
+
+- consumer guidance now targets Weld `~> 0.11.0` and keeps Weld focused on
+  projection, generated-package verification, and release bundles.
+
 ## [0.10.0] - 2026-08-11
 
 ### Added

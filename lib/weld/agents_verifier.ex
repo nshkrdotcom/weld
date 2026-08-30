@@ -1,20 +1,10 @@
 defmodule Weld.AgentsVerifier do
   @moduledoc """
-  Verifies AGENTS.md files carry dependency-source and runtime-env guidance.
+  Verifies AGENTS.md files carry runtime-environment guidance.
   """
 
   @required_groups [
-    dependency_sources_guidance: [
-      "build_support/dependency_sources.exs",
-      "build_support/dependency_sources.config.exs"
-    ],
-    local_override_guidance: [".dependency_sources.local.exs"],
-    no_env_dependency_selection_guidance: [
-      "dependency source selection",
-      "environment variables"
-    ],
-    runtime_env_guidance: ["lib/**", "os env", "config/runtime.exs"],
-    weld_guidance: ["weld", "helper drift", "publish order"]
+    runtime_env_guidance: ["lib/**", "os env", "config/runtime.exs"]
   ]
 
   def verify(repo_root) do
@@ -87,13 +77,6 @@ defmodule Weld.AgentsVerifier do
     end)
   end
 
-  defp missing_code(:dependency_sources_guidance), do: :missing_dependency_sources_guidance
-  defp missing_code(:local_override_guidance), do: :missing_local_override_guidance
-
-  defp missing_code(:no_env_dependency_selection_guidance),
-    do: :missing_no_env_dependency_selection_guidance
-
-  defp missing_code(:weld_guidance), do: :missing_weld_guidance
   defp missing_code(:runtime_env_guidance), do: :missing_runtime_env_guidance
 
   defp violation(code, message, path), do: %{code: code, message: message, path: path}

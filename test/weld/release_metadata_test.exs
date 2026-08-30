@@ -3,18 +3,33 @@ defmodule Weld.ReleaseMetadataTest do
 
   @repo_root Path.expand("../..", __DIR__)
 
-  test "0.10.0 package metadata is release complete and narrowly allowlisted" do
+  test "0.11.0 package metadata is release complete and narrowly allowlisted" do
     project = Mix.Project.config()
 
-    assert project[:version] == "0.10.0"
+    assert project[:version] == "0.11.0"
 
     assert project[:package][:files] ==
-             ~w(lib priv/templates assets guides mix.exs README.md LICENSE CHANGELOG.md)
+             ~w(lib assets guides mix.exs README.md LICENSE CHANGELOG.md)
 
     assert project[:docs][:main] == "readme"
     assert project[:docs][:logo] == "assets/weld.svg"
-    assert project[:docs][:source_ref] == "v0.10.0"
+    assert project[:docs][:source_ref] == "v0.11.0"
     assert length(project[:docs][:groups_for_extras]) == 4
+
+    assert Enum.map(project[:deps], &elem(&1, 0)) == [
+             :credo,
+             :dialyxir,
+             :ex_doc,
+             :jason,
+             :multigraph,
+             :nimble_options,
+             :telemetry
+           ]
+
+    refute Enum.any?(project[:deps], fn dependency ->
+             options = dependency |> Tuple.to_list() |> Enum.find([], &is_list/1)
+             Enum.any?([:path, :git, :github], &Keyword.has_key?(options, &1))
+           end)
 
     assert "cmd env MIX_ENV=test mix test" in project[:aliases][:ci]
     assert "cmd env MIX_ENV=test mix credo --strict" in project[:aliases][:ci]
@@ -34,7 +49,7 @@ defmodule Weld.ReleaseMetadataTest do
 
     assert license =~ "MIT License"
     assert license =~ "Copyright (c) 2026 nshkrdotcom"
-    assert changelog =~ "## [0.10.0] - 2026-08-11"
+    assert changelog =~ "## [0.11.0] - 2026-08-30"
 
     assert svg =~ "width=\"200\" height=\"200\" viewBox=\"0 0 200 200\""
     assert svg =~ "M100 14L173 57V143L100 186L27 143V57L100 14Z"

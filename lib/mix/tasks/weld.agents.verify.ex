@@ -2,7 +2,7 @@ defmodule Mix.Tasks.Weld.Agents.Verify do
   use Mix.Task
 
   @moduledoc """
-  Verify AGENTS.md dependency-source and runtime-env guidance.
+  Verify AGENTS.md runtime-environment guidance.
   """
 
   @shortdoc "Verify AGENTS.md guidance"
