@@ -43,7 +43,15 @@ defmodule Weld.Release do
         prepared_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
         project_path: Path.basename(project_target),
         tarball_path: tarball_target && Path.basename(tarball_target),
-        handoff: prepared_artifact_handoff(plan, source_revision, project_target, tarball_target)
+        handoff:
+          prepared_artifact_handoff(
+            plan,
+            source_revision,
+            relative_manifest_path,
+            manifest_digest,
+            project_target,
+            tarball_target
+          )
       }
 
     release_json_path = Path.join(bundle_path, "release.json")
@@ -146,13 +154,22 @@ defmodule Weld.Release do
     target
   end
 
-  defp prepared_artifact_handoff(plan, source_revision, project_path, tarball_path)
+  defp prepared_artifact_handoff(
+         plan,
+         source_revision,
+         manifest_path,
+         manifest_digest,
+         project_path,
+         tarball_path
+       )
        when is_binary(source_revision) and byte_size(source_revision) == 40 do
     %{
-      schema: "mix_workspace_ops.prepared_artifact/v1",
+      schema: "mix_workspace_ops.prepared_artifact/v2",
       package: plan.artifact.package.name,
       version: plan.artifact.package.version,
       source_revision: source_revision,
+      manifest_path: manifest_path,
+      manifest_sha256: manifest_digest,
       project_path: Path.basename(project_path),
       project_sha256: Hash.sha256_tree(project_path),
       archive_path: tarball_path && Path.basename(tarball_path),
@@ -160,8 +177,15 @@ defmodule Weld.Release do
     }
   end
 
-  defp prepared_artifact_handoff(_plan, _source_revision, _project_path, _tarball_path),
-    do: nil
+  defp prepared_artifact_handoff(
+         _plan,
+         _source_revision,
+         _manifest_path,
+         _manifest_digest,
+         _project_path,
+         _tarball_path
+       ),
+       do: nil
 
   defp track_opts(%Plan{} = plan, opts) do
     %{

@@ -59,9 +59,14 @@ defmodule Weld.ReleaseTest do
     metadata = prepared.release_metadata_path |> File.read!() |> Jason.decode!()
     handoff = metadata["handoff"]
 
-    assert handoff["schema"] == "mix_workspace_ops.prepared_artifact/v1"
+    assert handoff["schema"] == "mix_workspace_ops.prepared_artifact/v2"
     assert handoff["package"] == "fixture_bundle"
     assert handoff["source_revision"] =~ ~r/^[0-9a-f]{40}$/
+    assert handoff["manifest_path"] == "packaging/weld/fixture_bundle.exs"
+
+    assert handoff["manifest_sha256"] ==
+             Weld.Hash.sha256_file(Path.join(repo_root, handoff["manifest_path"]))
+
     assert handoff["project_path"] == "project"
     assert handoff["project_sha256"] == Weld.Hash.sha256_tree(prepared.project_path)
     assert handoff["archive_path"] == Path.basename(prepared.tarball_path)
