@@ -35,6 +35,7 @@ defmodule Weld.Verifier do
     %{
       build_path: build_path,
       lockfile_path: projection.lockfile_path,
+      package_files: projection.package_files,
       tarball_path: tarball_path,
       verification_results: verification_results
     }

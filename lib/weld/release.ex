@@ -21,7 +21,7 @@ defmodule Weld.Release do
     File.rm_rf!(bundle_path)
     File.mkdir_p!(bundle_path)
 
-    File.cp_r!(verification.build_path, project_target)
+    copy_prepared_project!(verification.build_path, project_target, verification.package_files)
 
     tarball_target = maybe_copy_tarball(bundle_path, verification.tarball_path)
     source_revision = Git.revision(plan.manifest.repo_root)
@@ -152,6 +152,30 @@ defmodule Weld.Release do
     target = Path.join(bundle_path, Path.basename(tarball_path))
     File.cp!(tarball_path, target)
     target
+  end
+
+  defp copy_prepared_project!(source, target, package_files) do
+    roots = Enum.uniq(package_files ++ ["mix.lock", "test"])
+    File.mkdir_p!(target)
+
+    source
+    |> Hash.list_files()
+    |> Enum.filter(fn path -> included_in_prepared_project?(path, source, roots) end)
+    |> Enum.each(fn source_path ->
+      relative = Path.relative_to(source_path, source)
+      target_path = Path.join(target, relative)
+      File.mkdir_p!(Path.dirname(target_path))
+      File.cp!(source_path, target_path)
+      File.chmod!(target_path, Bitwise.band(File.stat!(source_path).mode, 0o777))
+    end)
+  end
+
+  defp included_in_prepared_project?(path, source, roots) do
+    relative = Path.relative_to(path, source)
+
+    Enum.any?(roots, fn root ->
+      relative == root or String.starts_with?(relative, root <> "/")
+    end)
   end
 
   defp prepared_artifact_handoff(

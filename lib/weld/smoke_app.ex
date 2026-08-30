@@ -16,7 +16,9 @@ defmodule Weld.SmokeApp do
       raise Error, "smoke verification requires verify.smoke.entry_file"
     end
 
-    digest = Hash.sha256_binary("#{build_path}:#{smoke.entry_file}") |> binary_part(0, 12)
+    digest =
+      Hash.sha256_binary("#{plan.artifact.package.name}:#{smoke.entry_file}")
+      |> binary_part(0, 12)
 
     smoke_root =
       Path.join([

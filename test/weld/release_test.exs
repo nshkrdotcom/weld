@@ -13,6 +13,12 @@ defmodule Weld.ReleaseTest do
     assert Weld.release_bundle_path!(manifest_path) == prepared.bundle_path
     assert File.regular?(prepared.release_metadata_path)
     assert File.regular?(prepared.tarball_path)
+    assert File.regular?(Path.join(prepared.project_path, "mix.lock"))
+    assert File.regular?(Path.join(prepared.project_path, "test/runtime_test.exs"))
+    refute File.exists?(Path.join(prepared.project_path, "_build"))
+    refute File.exists?(Path.join(prepared.project_path, "deps"))
+    refute File.exists?(Path.join(prepared.project_path, "doc"))
+    refute File.exists?(Path.join(prepared.project_path, "fixture_bundle-0.1.0.tar"))
 
     archived = Weld.release_archive!(manifest_path)
 
@@ -48,6 +54,19 @@ defmodule Weld.ReleaseTest do
     assert metadata["manifest_path"] == "packaging/weld/fixture_bundle.exs"
     refute Path.type(metadata["manifest_path"]) == :absolute
     assert metadata["weld_version"] == Weld.version()
+
+    lockfile =
+      prepared.project_path
+      |> Path.join("projection.lock.json")
+      |> File.read!()
+
+    refute lockfile =~ Path.dirname(Path.dirname(manifest_path))
+
+    assert %{
+             "manifest" => %{"path" => "packaging/weld/fixture_bundle.exs"},
+             "workspace" => %{"root" => "."},
+             "projection" => %{"build_path" => "dist/hex/fixture_bundle"}
+           } = Jason.decode!(lockfile)
   end
 
   test "release metadata exposes a bounded prepared-artifact handoff" do
@@ -85,6 +104,12 @@ defmodule Weld.ReleaseTest do
       |> Weld.release_prepare!()
 
     assert Path.basename(prepared_a.bundle_path) == Path.basename(prepared_b.bundle_path)
+
+    assert Weld.Hash.sha256_tree(prepared_a.project_path) ==
+             Weld.Hash.sha256_tree(prepared_b.project_path)
+
+    assert Weld.Hash.sha256_file(prepared_a.tarball_path) ==
+             Weld.Hash.sha256_file(prepared_b.tarball_path)
   end
 
   test "release tracking uses projection package-name branches with orphan history" do
