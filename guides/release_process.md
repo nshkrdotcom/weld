@@ -79,9 +79,11 @@ When preparation runs from a Git revision, `release.json` also contains the
 small `mix_workspace_ops.prepared_artifact/v2` handoff: source revision,
 package/version, relative manifest, project and archive paths, and their SHA-256 digests.
 Weld does not depend on or invoke Mix Workspace Ops. This data-only boundary
-lets a future clean-checkout transaction verify Weld output without teaching
-MWO to parse a Weld manifest. Actual projected-package publication through that
-boundary remains deferred until a product release needs it.
+is consumed by Mix Workspace Ops' clean-checkout release transaction without
+teaching MWO to parse a Weld manifest: the transaction invokes Weld's declared
+prepare command in the pinned source checkout, compares the rebuilt handoff and
+its files with the expected handoff, and only then admits the archive to the
+publication step. Weld never receives or manages publication credentials.
 
 Tracked projection commits are intentionally separate from the prepared bundle.
 The bundle is the release input; the projection branch is an optional durable

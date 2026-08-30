@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- prepared bundles now expose the portable
+  `mix_workspace_ops.prepared_artifact/v2` handoff consumed by an external
+  clean-checkout release transaction, while Weld remains independent of Mix
+  Workspace Ops and publication credentials.
+- generated release projects contain only declared package files, the portable
+  lockfile, and owned tests; transient build, dependency, documentation, and
+  nested archive outputs are excluded.
+
+### Fixed
+
+- prepared project trees and lockfiles are reproducible across independent
+  checkout locations, and handoff manifest paths are anchored to the Git root.
+
 ## [0.11.0] - 2026-08-30
 
 ### Removed
