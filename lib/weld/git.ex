@@ -24,6 +24,16 @@ defmodule Weld.Git do
     end
   end
 
+  @spec root(Path.t()) :: String.t() | nil
+  def root(path) do
+    path
+    |> run(["rev-parse", "--show-toplevel"])
+    |> case do
+      {:ok, output} -> String.trim(output)
+      {:error, _reason} -> nil
+    end
+  end
+
   @spec remote_url(Path.t()) :: String.t() | nil
   def remote_url(repo_root) do
     repo_root

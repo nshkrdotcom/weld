@@ -139,7 +139,8 @@ defmodule Weld.Release do
   end
 
   defp manifest_path(plan) do
-    Path.relative_to(plan.manifest.manifest_path, plan.manifest.repo_root)
+    repository_root = Git.root(plan.manifest.repo_root) || plan.manifest.repo_root
+    Path.relative_to(plan.manifest.manifest_path, repository_root)
   end
 
   defp projection_branch(%Plan{} = plan) do
