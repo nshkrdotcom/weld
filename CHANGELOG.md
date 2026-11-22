@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.12.0] - 2026-11-22
 
 Default `mix test` runs the fast checks. `mix ci` also runs the tests that
-build and verify generated packages. CI runs those groups in separate Mix
-processes and reuses prepared release outputs where possible.
+build and verify generated packages. Blitz runs the independent checks in
+parallel with isolated Mix build directories and streams labeled results.
+Release checks reuse prepared outputs and compare package contents across
+clean checkouts.
 
 ### Added
 
