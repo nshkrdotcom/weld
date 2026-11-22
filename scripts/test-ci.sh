@@ -1,16 +1,29 @@
 #!/usr/bin/env bash
-set -eu
+set -euo pipefail
 
 export MIX_ENV=test
 mix compile
 
-mix test --no-compile &
+run_group() {
+  local name=$1
+  shift
+  printf '[%s] Starting\n' "$name"
+
+  if mix test --no-compile "$@" 2>&1 | sed -u "s/^/[$name] /"; then
+    printf '[%s] Passed\n' "$name"
+  else
+    printf '[%s] Failed\n' "$name" >&2
+    return 1
+  fi
+}
+
+run_group fast &
 fast=$!
-mix test --no-compile --only integration test/weld/release_test.exs &
+run_group release --trace --only integration test/weld/release_test.exs &
 release=$!
-mix test --no-compile --only integration test/weld/verifier_test.exs &
+run_group verifier --trace --only integration test/weld/verifier_test.exs &
 verify=$!
-mix test --no-compile --only integration test/weld/mix_tasks_test.exs test/weld/projector_{monolith,package_mode}_test.exs &
+run_group projection --trace --only integration test/weld/mix_tasks_test.exs test/weld/projector_{monolith,package_mode}_test.exs &
 project=$!
 
 status=0
