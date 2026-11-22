@@ -17,6 +17,7 @@ defmodule Weld.ReleaseMetadataTest do
     assert length(project[:docs][:groups_for_extras]) == 4
 
     assert Enum.map(project[:deps], &elem(&1, 0)) == [
+             :blitz,
              :credo,
              :dialyxir,
              :ex_doc,
@@ -31,7 +32,7 @@ defmodule Weld.ReleaseMetadataTest do
              Enum.any?([:path, :git, :github], &Keyword.has_key?(options, &1))
            end)
 
-    assert "cmd bash scripts/test-ci.sh" in project[:aliases][:ci]
+    assert "cmd env MIX_ENV=test mix run --no-start scripts/test_ci.exs" in project[:aliases][:ci]
     assert "cmd env MIX_ENV=test mix credo --strict" in project[:aliases][:ci]
   end
 

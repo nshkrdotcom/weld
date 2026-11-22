@@ -103,6 +103,7 @@ defmodule Weld.ReleaseTest do
   defp assert_reproducible(repo_root, prepared_a) do
     checkout = FixtureCase.unique_tmp_dir("weld_checkout")
     FixtureCase.git_output!(repo_root, ["clone", "--quiet", repo_root, checkout])
+    FixtureCase.ignore_generated_files!(checkout)
     manifest_path = Path.join(checkout, "packaging/weld/fixture_bundle.exs")
     prepared_b = Weld.release_prepare!(manifest_path)
 

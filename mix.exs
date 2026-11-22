@@ -7,6 +7,7 @@ defmodule Weld.MixProject do
       version: "0.12.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
+      build_path: System.get_env("WELD_CI_BUILD_ROOT", "_build"),
       elixirc_paths: elixirc_paths(Mix.env()),
       test_paths: test_paths(Mix.env()),
       aliases: aliases(),
@@ -36,6 +37,7 @@ defmodule Weld.MixProject do
 
   defp deps do
     [
+      {:blitz, "~> 0.4.1", only: :test, runtime: false},
       {:credo, "~> 1.7", runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
@@ -143,7 +145,7 @@ defmodule Weld.MixProject do
       ci: [
         "cmd mix format --check-formatted",
         "cmd mix compile --warnings-as-errors",
-        "cmd bash scripts/test-ci.sh",
+        "cmd env MIX_ENV=test mix run --no-start scripts/test_ci.exs",
         "cmd env MIX_ENV=test mix credo --strict",
         "cmd mix dialyzer",
         "cmd mix docs --warnings-as-errors"

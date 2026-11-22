@@ -41,16 +41,20 @@ defmodule Weld.FixtureCase do
   def init_git!(repo_root) do
     run!(repo_root, ["init"])
 
-    File.write!(
-      Path.join(repo_root, ".git/info/exclude"),
-      "\n**/_build/\n**/deps/\n**/mix.lock\n/dist/\n/tmp/\n",
-      [:append]
-    )
+    ignore_generated_files!(repo_root)
 
     run!(repo_root, ["config", "user.name", "Weld Test"])
     run!(repo_root, ["config", "user.email", "weld@example.test"])
     run!(repo_root, ["add", "."])
     run!(repo_root, ["commit", "-m", "initial"])
+  end
+
+  def ignore_generated_files!(repo_root) do
+    File.write!(
+      Path.join(repo_root, ".git/info/exclude"),
+      "\n**/_build/\n**/deps/\n**/mix.lock\n/dist/\n/tmp/\n",
+      [:append]
+    )
   end
 
   def init_bare_git!(repo_root) do
