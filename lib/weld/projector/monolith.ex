@@ -196,21 +196,9 @@ defmodule Weld.Projector.Monolith do
         relative = project_test_relative(project, source)
         target = projected_test_target(build_path, slug, relative)
 
-        destination = Path.relative_to(target, build_path)
-
-        if File.exists?(target) do
-          raise Error, "priv path collision at #{destination} while copying #{project.id}"
-        end
-
-        case File.mkdir_p(Path.dirname(target)) do
-          :ok ->
-            File.cp!(source, target)
-
-          {:error, reason} ->
-            raise Error, "cannot create parent of #{destination} for #{project.id}: #{reason}"
-        end
-
-        [destination]
+        File.mkdir_p!(Path.dirname(target))
+        File.cp!(source, target)
+        [Path.relative_to(target, build_path)]
       end)
 
     %{copied_files: copied_files}
@@ -289,9 +277,21 @@ defmodule Weld.Projector.Monolith do
         relative = Path.relative_to(source, priv_root)
         target = Path.join([build_path, "priv", relative])
 
-        File.mkdir_p!(Path.dirname(target))
-        File.cp!(source, target)
-        [Path.relative_to(target, build_path)]
+        destination = Path.relative_to(target, build_path)
+
+        if File.exists?(target) do
+          raise Error, "priv path collision at #{destination} while copying #{project.id}"
+        end
+
+        case File.mkdir_p(Path.dirname(target)) do
+          :ok ->
+            File.cp!(source, target)
+
+          {:error, reason} ->
+            raise Error, "cannot create parent of #{destination} for #{project.id}: #{reason}"
+        end
+
+        [destination]
       end)
     else
       []
