@@ -83,7 +83,7 @@ defmodule Weld.MixTasksTest do
     assert output =~ "projection/fixture_bundle"
   end
 
-  @tag :integration
+  @tag integration: true, ci_build: "prepare_cli"
   test "mix release.prepare delegates to weld release autodiscovery" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
 

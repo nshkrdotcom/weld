@@ -74,7 +74,7 @@ defmodule Weld.ProjectorMonolithTest do
     end
   end
 
-  @tag :integration
+  @tag integration: true, ci_build: "monolith_tests"
   test "the generated monolith compiles and runs real package tests" do
     result = Weld.project!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
 

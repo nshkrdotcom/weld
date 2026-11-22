@@ -4,6 +4,9 @@ set -euo pipefail
 export MIX_ENV=test
 mix compile
 
+# Each independent build starts its own BEAM and inherits this scheduler budget.
+export ERL_FLAGS="${ERL_FLAGS:-+S 4:4}"
+
 run_group() {
   local name=$1
   shift
@@ -18,16 +21,14 @@ run_group() {
 }
 
 run_group fast &
-fast=$!
-run_group release --trace --only integration test/weld/release_test.exs &
-release=$!
-run_group verifier --trace --only integration test/weld/verifier_test.exs &
-verify=$!
-run_group projection --trace --only integration test/weld/mix_tasks_test.exs test/weld/projector_{monolith,package_mode}_test.exs &
-project=$!
+pids=("$!")
+for build in release formatter internal package runtime monolith prepare_cli monolith_tests package_config; do
+  run_group "$build" --trace --only "ci_build:$build" &
+  pids+=("$!")
+done
 
 status=0
-for pid in "$fast" "$release" "$verify" "$project"; do
+for pid in "${pids[@]}"; do
   wait "$pid" || status=1
 done
 exit "$status"

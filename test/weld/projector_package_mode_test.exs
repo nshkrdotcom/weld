@@ -20,7 +20,7 @@ defmodule Weld.ProjectorPackageModeTest do
              "{\"Reference\", [\"guides/architecture.md\", \"CHANGELOG.md\"]}"
   end
 
-  @tag :integration
+  @tag integration: true, ci_build: "package_config"
   test "package mode verification succeeds when selected projects need projected config" do
     manifest_path =
       FixtureCase.copied_manifest_path("package_bootstrap_bundle", "package_bootstrap_bundle")
