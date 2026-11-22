@@ -25,6 +25,10 @@ If the manifest sets `verify: [hex_build: false]`, release preparation still
 writes the prepared bundle. The only thing omitted is the tarball, because the
 artifact is intentionally not Hex-buildable.
 
+Prepare Git releases from a clean committed tree. For a flattened project, set
+`package.docs.source_ref` to an immutable tag on its tracked projection. That
+tag contains the paths referenced by ExDoc's source links.
+
 ## Track
 
 ```bash
@@ -45,7 +49,7 @@ not imply that a tracked projection commit was released.
 ## Publish
 
 Run `mix hex.publish` from the prepared bundle after inspection. In
-package-projection mode, `weld.verify` already exercises
+both projection modes, `weld.verify` exercises
 `mix hex.publish --dry-run --yes` unless `verify: [hex_publish: false]` is set.
 
 Publish is the only release step that actually requires a tarball.
@@ -66,7 +70,8 @@ This copies the prepared release bundle into the archive surface.
 
 The prepared bundle contains:
 
-- projected Mix project tree
+- projected Mix project tree in `project/`
+- browser preview at `docs/index.html` beside the project
 - `projection.lock.json`
 - built tarball when `verify.hex_build` is enabled
 - `release.json` metadata

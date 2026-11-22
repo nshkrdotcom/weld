@@ -13,6 +13,14 @@ defmodule Weld.ReleaseTest do
     assert Weld.release_bundle_path!(manifest_path) == prepared.bundle_path
     assert File.regular?(prepared.release_metadata_path)
     assert File.regular?(prepared.tarball_path)
+    assert File.regular?(Path.join(prepared.docs_path, "index.html"))
+    assert Path.dirname(prepared.docs_path) == prepared.bundle_path
+
+    {:ok, outer} = :erl_tar.extract(String.to_charlist(prepared.tarball_path), [:memory])
+    {~c"contents.tar.gz", contents} = List.keyfind(outer, ~c"contents.tar.gz", 0)
+    {:ok, files} = :erl_tar.extract({:binary, contents}, [:compressed, :memory])
+    {~c"projection.lock.json", archive_lock} = List.keyfind(files, ~c"projection.lock.json", 0)
+    assert archive_lock == File.read!(Path.join(prepared.project_path, "projection.lock.json"))
     assert File.regular?(Path.join(prepared.project_path, "mix.lock"))
     assert File.regular?(Path.join(prepared.project_path, "test/runtime_test.exs"))
     refute File.exists?(Path.join(prepared.project_path, "_build"))
@@ -166,6 +174,8 @@ defmodule Weld.ReleaseTest do
     readme_path = Path.join(repo_root, "README.md")
     File.write!(readme_path, File.read!(readme_path) <> "\nprojection drift\n")
 
+    assert_raise Weld.Error, ~r/repo is dirty/, fn -> Weld.release_prepare!(manifest_path) end
+    FixtureCase.commit_all!(repo_root, "Update release source")
     Weld.release_prepare!(manifest_path)
     second = Weld.release_track!(manifest_path)
 

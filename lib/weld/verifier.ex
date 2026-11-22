@@ -15,7 +15,6 @@ defmodule Weld.Verifier do
     build_path = projection.build_path
 
     verification_results = verify_by_mode!(plan, build_path)
-    tarball_path = tarball_path_for(plan, build_path, verification_results)
 
     lockfile =
       Lockfile.build(
@@ -31,6 +30,10 @@ defmodule Weld.Verifier do
       )
 
     File.write!(projection.lockfile_path, Lockfile.encode!(lockfile))
+
+    hex_results = verify_hex!(plan, build_path)
+    verification_results = verification_results ++ hex_results
+    tarball_path = tarball_path_for(plan, build_path, hex_results)
 
     %{
       build_path: build_path,
@@ -49,10 +52,7 @@ defmodule Weld.Verifier do
       run_mix!(build_path, :dev, ["deps.get"]),
       run_mix!(build_path, :dev, ["compile", "--warnings-as-errors"]),
       run_mix!(build_path, :test, ["test"]),
-      run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"]),
-      maybe_run_mix!(build_path, :dev, ["hex.build"], plan.artifact.verify.hex_build,
-        reason: :artifact_opted_out
-      )
+      run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"])
     ]
 
     monolith_test_result = Enum.find(results, &(&1.task == "test"))
@@ -71,21 +71,7 @@ defmodule Weld.Verifier do
       run_mix!(build_path, :dev, ["deps.compile"]),
       run_mix!(build_path, :dev, ["compile", "--warnings-as-errors", "--no-compile-deps"]),
       run_mix!(build_path, :test, ["test"]),
-      run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"]),
-      maybe_run_mix!(build_path, :dev, ["hex.build"], plan.artifact.verify.hex_build,
-        reason: :artifact_opted_out
-      ),
-      maybe_run_mix!(
-        build_path,
-        :dev,
-        ["hex.publish", "--dry-run", "--yes"],
-        plan.artifact.verify.hex_build and plan.artifact.verify.hex_publish,
-        reason:
-          if(plan.artifact.verify.hex_build,
-            do: :artifact_opted_out,
-            else: :hex_build_disabled
-          )
-      )
+      run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"])
     ]
 
     smoke_results =
@@ -96,6 +82,17 @@ defmodule Weld.Verifier do
       end
 
     results ++ smoke_results
+  end
+
+  defp verify_hex!(plan, build_path) do
+    %{hex_build: build?, hex_publish: publish?} = plan.artifact.verify
+
+    [
+      maybe_run_mix!(build_path, :dev, ["hex.build"], build?, reason: :artifact_opted_out),
+      maybe_run_mix!(build_path, :dev, ["hex.publish", "--dry-run", "--yes"], build? and publish?,
+        reason: if(build?, do: :artifact_opted_out, else: :hex_build_disabled)
+      )
+    ]
   end
 
   defp run_mix!(build_path, env, args) do

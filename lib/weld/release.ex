@@ -12,7 +12,11 @@ defmodule Weld.Release do
   @spec prepare!(Plan.t()) :: map()
   def prepare!(%Plan{} = plan) do
     plan = Plan.ensure_valid!(plan)
+    repo_root = plan.manifest.repo_root
+    source_revision = Git.revision(repo_root)
+    if source_revision, do: Git.ensure_clean_repo!(repo_root)
     verification = Verifier.verify!(plan)
+    ensure_source!(repo_root, source_revision)
     bundle_path = bundle_path(plan)
     relative_manifest_path = manifest_path(plan)
     manifest_digest = Hash.sha256_file(plan.manifest.manifest_path)
@@ -24,7 +28,8 @@ defmodule Weld.Release do
     copy_prepared_project!(verification.build_path, project_target, verification.package_files)
 
     tarball_target = maybe_copy_tarball(bundle_path, verification.tarball_path)
-    source_revision = Git.revision(plan.manifest.repo_root)
+    docs_path = Path.join(bundle_path, "docs")
+    File.cp_r!(Path.join(verification.build_path, "doc"), docs_path)
 
     release_json =
       %{
@@ -42,6 +47,8 @@ defmodule Weld.Release do
         otp_release: List.to_string(:erlang.system_info(:otp_release)),
         prepared_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
         project_path: Path.basename(project_target),
+        docs_path: Path.basename(docs_path),
+        verification_results: verification.verification_results,
         tarball_path: tarball_target && Path.basename(tarball_target),
         handoff:
           prepared_artifact_handoff(
@@ -59,11 +66,22 @@ defmodule Weld.Release do
 
     %{
       bundle_path: bundle_path,
+      docs_path: docs_path,
       project_path: project_target,
       tarball_path: tarball_target,
       release_metadata_path: release_json_path,
       build_path: verification.build_path
     }
+  end
+
+  defp ensure_source!(_root, nil), do: :ok
+
+  defp ensure_source!(root, revision) do
+    Git.ensure_clean_repo!(root)
+
+    unless Git.revision(root) == revision do
+      raise Error, "source revision changed during release preparation"
+    end
   end
 
   @spec archive!(Plan.t()) :: map()

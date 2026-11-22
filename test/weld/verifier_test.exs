@@ -38,6 +38,10 @@ defmodule Weld.VerifierTest do
     assert Enum.any?(result.verification_results, &(&1.task == "docs --warnings-as-errors"))
     assert Enum.any?(result.verification_results, &(&1.task == "hex.build"))
 
+    assert Enum.any?(result.verification_results, fn result ->
+             result.task == "hex.publish --dry-run --yes" and result.status == :ok
+           end)
+
     baseline = Enum.find(result.verification_results, &(&1.task == "selected_tests_baseline"))
     monolith_test = Enum.find(result.verification_results, &(&1.task == "test"))
 

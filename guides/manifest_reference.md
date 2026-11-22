@@ -119,9 +119,9 @@ not covered by `output.assets`, and ExDoc asset roots that are not copied.
 - `smoke.enabled`
 - `smoke.entry_file`
 
-Smoke verification is not run in monolith mode.
+Monolith mode rejects enabled smoke verification and nonempty artifact test paths.
 Set `hex_build: false` for internal artifacts that intentionally depend on
-non-Hex git dependencies. Set `hex_publish: false` when package-projection
+non-Hex git dependencies. Set `hex_publish: false` when
 verification should skip `mix hex.publish --dry-run --yes`.
 
 `hex_build: false` does not disable `weld.release.prepare`,

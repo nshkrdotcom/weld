@@ -17,6 +17,11 @@ defmodule Weld.Projector.Monolith do
   @spec project!(Plan.t(), Path.t()) :: map()
   def project!(%Plan{} = plan, build_path) do
     validate_source_assumptions!(plan)
+
+    if plan.artifact.verify.smoke.enabled or plan.artifact.verify.artifact_tests != [] do
+      raise Error, "monolith verification does not support smoke or artifact_tests"
+    end
+
     test_support_projects = resolve_test_support_projects!(plan)
     all_projects = plan.selected_projects ++ test_support_projects
 
@@ -191,9 +196,21 @@ defmodule Weld.Projector.Monolith do
         relative = project_test_relative(project, source)
         target = projected_test_target(build_path, slug, relative)
 
-        File.mkdir_p!(Path.dirname(target))
-        File.cp!(source, target)
-        [Path.relative_to(target, build_path)]
+        destination = Path.relative_to(target, build_path)
+
+        if File.exists?(target) do
+          raise Error, "priv path collision at #{destination} while copying #{project.id}"
+        end
+
+        case File.mkdir_p(Path.dirname(target)) do
+          :ok ->
+            File.cp!(source, target)
+
+          {:error, reason} ->
+            raise Error, "cannot create parent of #{destination} for #{project.id}: #{reason}"
+        end
+
+        [destination]
       end)
 
     %{copied_files: copied_files}

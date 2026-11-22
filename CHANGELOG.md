@@ -5,7 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.0] - 2026-11-22
+
+### Added
+
+- Prepared bundles provide rendered documentation beside the clean project and archive.
+
+### Release verification
+
+- Freeze the projection lock before building the Hex archive.
+- Apply Hex dry runs in both projection modes and reject unsupported monolith verification settings.
+- Reject dirty Git release inputs and conflicting monolith private assets.
 
 ### Changed
 

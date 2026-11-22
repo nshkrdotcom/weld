@@ -18,6 +18,9 @@ defmodule Mix.Tasks.Weld.Release.Prepare do
 
     result = Weld.release_prepare!(manifest_path, artifact: opts[:artifact])
     Mix.shell().info("Prepared release bundle in #{result.bundle_path}")
+    Mix.shell().info("Project #{result.project_path}")
+    Mix.shell().info("Docs #{Path.join(result.docs_path, "index.html")}")
+    if result.tarball_path, do: Mix.shell().info("Archive #{result.tarball_path}")
   after
     Mix.Task.reenable("weld.release.prepare")
   end
