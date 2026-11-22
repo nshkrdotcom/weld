@@ -44,9 +44,20 @@ defmodule Weld.Lockfile do
   @spec encode!(map()) :: String.t()
   def encode!(lockfile) do
     lockfile
+    |> ordered_json()
     |> Jason.encode_to_iodata!(pretty: true)
     |> IO.iodata_to_binary()
   end
+
+  defp ordered_json(value) when is_map(value) do
+    value
+    |> Enum.map(fn {key, nested} -> {to_string(key), ordered_json(nested)} end)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Jason.OrderedObject.new()
+  end
+
+  defp ordered_json(value) when is_list(value), do: Enum.map(value, &ordered_json/1)
+  defp ordered_json(value), do: value
 
   defp graph_digest(graph) do
     graph

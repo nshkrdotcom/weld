@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Release verification
 
-- Freeze the projection lock before building the Hex archive.
+- Freeze the projection lock before building the Hex archive and encode nested JSON keys in a stable order.
 - Apply Hex dry runs in both projection modes and reject unsupported monolith verification settings.
 - Reject dirty Git release inputs and conflicting monolith private assets.
 
