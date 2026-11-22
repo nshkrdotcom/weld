@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.12.0] - 2026-11-22
 
+Default `mix test` runs the fast checks. `mix ci` also runs the tests that
+build and verify generated packages.
+
 ### Added
 
 - Prepared bundles provide rendered documentation beside the clean project and archive.

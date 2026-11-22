@@ -3,6 +3,8 @@ defmodule Weld.VerifierTest do
 
   alias Weld.FixtureCase
 
+  @moduletag :integration
+
   test "verifies a welded artifact end to end" do
     result = Weld.verify!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
 

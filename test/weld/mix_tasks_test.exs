@@ -65,6 +65,7 @@ defmodule Weld.MixTasksTest do
     assert output =~ "Projected artifact"
   end
 
+  @tag :integration
   test "mix weld.release.track updates the projection branch from a prepared bundle" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
     manifest_path = Path.join([repo_root, "packaging", "weld", "fixture_bundle.exs"])
@@ -83,6 +84,7 @@ defmodule Weld.MixTasksTest do
     assert output =~ "projection/fixture_bundle"
   end
 
+  @tag :integration
   test "mix release.prepare delegates to weld release autodiscovery" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
 

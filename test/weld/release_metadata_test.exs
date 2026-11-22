@@ -31,7 +31,7 @@ defmodule Weld.ReleaseMetadataTest do
              Enum.any?([:path, :git, :github], &Keyword.has_key?(options, &1))
            end)
 
-    assert "cmd env MIX_ENV=test mix test" in project[:aliases][:ci]
+    assert "cmd env MIX_ENV=test mix test --include integration" in project[:aliases][:ci]
     assert "cmd env MIX_ENV=test mix credo --strict" in project[:aliases][:ci]
   end
 

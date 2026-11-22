@@ -5,6 +5,8 @@ defmodule Weld.ReleaseTest do
 
   alias Weld.FixtureCase
 
+  @moduletag :integration
+
   test "prepares and archives a release bundle" do
     manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
     prepared = Weld.release_prepare!(manifest_path)
