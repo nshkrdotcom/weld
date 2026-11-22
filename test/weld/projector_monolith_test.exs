@@ -59,6 +59,21 @@ defmodule Weld.ProjectorMonolithTest do
     refute mixfile =~ ", path:"
   end
 
+  test "rejects colliding private assets in a monolith" do
+    manifest = FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
+    root = Path.expand("../..", Path.dirname(manifest))
+
+    for component <- ["core/store", "runtime/api"] do
+      path = Path.join([root, component, "priv", "shared.txt"])
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, component)
+    end
+
+    assert_raise Weld.Error, ~r/priv path collision at priv\/shared.txt/, fn ->
+      Weld.project!(manifest)
+    end
+  end
+
   test "the generated monolith compiles and runs real package tests" do
     result = Weld.project!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
 
