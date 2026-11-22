@@ -143,7 +143,7 @@ defmodule Weld.MixProject do
       ci: [
         "cmd mix format --check-formatted",
         "cmd mix compile --warnings-as-errors",
-        "cmd env MIX_ENV=test mix test --include integration",
+        "cmd bash scripts/test-ci.sh",
         "cmd env MIX_ENV=test mix credo --strict",
         "cmd mix dialyzer",
         "cmd mix docs --warnings-as-errors"

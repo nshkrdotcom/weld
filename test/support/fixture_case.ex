@@ -16,9 +16,9 @@ defmodule Weld.FixtureCase do
 
   def unique_tmp_dir(prefix) do
     tmp_root = System.tmp_dir!()
-    dir = Path.join(tmp_root, "#{prefix}_#{System.unique_integer([:positive])}")
-    File.rm_rf!(dir)
-    File.mkdir_p!(dir)
+    suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    dir = Path.join(tmp_root, "#{prefix}_#{suffix}")
+    File.mkdir!(dir)
     dir
   end
 
@@ -27,6 +27,15 @@ defmodule Weld.FixtureCase do
     target = Path.join(parent, name)
     File.cp_r!(fixture_path(name), target)
     target
+  end
+
+  def write_tracking_fixture!(repo_root, manifest_path) do
+    bundle = Weld.release_bundle_path!(manifest_path)
+    project = Path.join(bundle, "project")
+    File.mkdir_p!(project)
+    File.cp!(Path.join(repo_root, "README.md"), Path.join(project, "README.md"))
+    revision = git_output!(repo_root, ["rev-parse", "HEAD"])
+    File.write!(Path.join(bundle, "release.json"), Jason.encode!(%{source_revision: revision}))
   end
 
   def init_git!(repo_root) do

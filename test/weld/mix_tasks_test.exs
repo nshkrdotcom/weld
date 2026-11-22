@@ -65,13 +65,12 @@ defmodule Weld.MixTasksTest do
     assert output =~ "Projected artifact"
   end
 
-  @tag :integration
   test "mix weld.release.track updates the projection branch from a prepared bundle" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
     manifest_path = Path.join([repo_root, "packaging", "weld", "fixture_bundle.exs"])
 
     FixtureCase.init_git!(repo_root)
-    Weld.release_prepare!(manifest_path)
+    FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
     output =
       capture_io(fn ->

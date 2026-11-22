@@ -7,10 +7,21 @@ defmodule Weld.ReleaseTest do
 
   @moduletag :integration
 
-  test "prepares and archives a release bundle" do
-    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    prepared = Weld.release_prepare!(manifest_path)
+  setup_all do
+    repo_root = FixtureCase.copy_fixture("library_bundle")
+    FixtureCase.init_git!(repo_root)
+    manifest_path = Path.join(repo_root, "packaging/weld/fixture_bundle.exs")
 
+    {:ok,
+     repo_root: repo_root,
+     manifest_path: manifest_path,
+     prepared: Weld.release_prepare!(manifest_path)}
+  end
+
+  test "prepares and archives a release bundle", %{
+    manifest_path: manifest_path,
+    prepared: prepared
+  } do
     assert File.dir?(prepared.bundle_path)
     assert Weld.release_bundle_path!(manifest_path) == prepared.bundle_path
     assert File.regular?(prepared.release_metadata_path)
@@ -34,6 +45,7 @@ defmodule Weld.ReleaseTest do
 
     assert File.dir?(archived.archive_path)
     assert File.regular?(Path.join(archived.archive_path, "release.json"))
+    assert Weld.release_track!(manifest_path).committed?
   end
 
   test "prepared package bundles preserve root mix tooling config" do
@@ -52,10 +64,10 @@ defmodule Weld.ReleaseTest do
     assert status == 0, output
   end
 
-  test "release metadata records a repo-relative manifest path and the Weld version" do
-    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    prepared = Weld.release_prepare!(manifest_path)
-
+  test "release metadata records a repo-relative manifest path and the Weld version", %{
+    manifest_path: manifest_path,
+    prepared: prepared
+  } do
     metadata =
       prepared.release_metadata_path
       |> File.read!()
@@ -79,12 +91,10 @@ defmodule Weld.ReleaseTest do
            } = Jason.decode!(lockfile)
   end
 
-  test "release metadata exposes a bounded prepared-artifact handoff" do
-    repo_root = FixtureCase.copy_fixture("library_bundle")
-    FixtureCase.init_git!(repo_root)
-    manifest_path = Path.join([repo_root, "packaging", "weld", "fixture_bundle.exs"])
-
-    prepared = Weld.release_prepare!(manifest_path)
+  test "release metadata exposes a bounded prepared-artifact handoff", %{
+    repo_root: repo_root,
+    prepared: prepared
+  } do
     metadata = prepared.release_metadata_path |> File.read!() |> Jason.decode!()
     handoff = metadata["handoff"]
 
@@ -102,16 +112,14 @@ defmodule Weld.ReleaseTest do
     assert handoff["archive_sha256"] == Weld.Hash.sha256_file(prepared.tarball_path)
   end
 
-  test "release bundle slugs are stable across checkout locations" do
-    prepared_a =
-      "library_bundle"
-      |> FixtureCase.copied_manifest_path("fixture_bundle")
-      |> Weld.release_prepare!()
-
-    prepared_b =
-      "library_bundle"
-      |> FixtureCase.copied_manifest_path("fixture_bundle")
-      |> Weld.release_prepare!()
+  test "release bundles are reproducible across checkout locations", %{
+    repo_root: repo_root,
+    prepared: prepared_a
+  } do
+    checkout = FixtureCase.unique_tmp_dir("weld_checkout")
+    FixtureCase.git_output!(repo_root, ["clone", "--quiet", repo_root, checkout])
+    manifest_path = Path.join(checkout, "packaging/weld/fixture_bundle.exs")
+    prepared_b = Weld.release_prepare!(manifest_path)
 
     assert Path.basename(prepared_a.bundle_path) == Path.basename(prepared_b.bundle_path)
 
@@ -127,7 +135,7 @@ defmodule Weld.ReleaseTest do
     manifest_path = Path.join([repo_root, "packaging", "weld", "fixture_bundle.exs"])
 
     FixtureCase.init_git!(repo_root)
-    Weld.release_prepare!(manifest_path)
+    FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
     result = Weld.release_track!(manifest_path)
 
@@ -153,7 +161,7 @@ defmodule Weld.ReleaseTest do
     manifest_path = Path.join([repo_root, "packaging", "weld", "fixture_bundle.exs"])
 
     FixtureCase.init_git!(repo_root)
-    Weld.release_prepare!(manifest_path)
+    FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
     first = Weld.release_track!(manifest_path)
     second = Weld.release_track!(manifest_path)
@@ -169,7 +177,7 @@ defmodule Weld.ReleaseTest do
     manifest_path = Path.join([repo_root, "packaging", "weld", "fixture_bundle.exs"])
 
     FixtureCase.init_git!(repo_root)
-    Weld.release_prepare!(manifest_path)
+    FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
     first = Weld.release_track!(manifest_path)
 
@@ -178,7 +186,7 @@ defmodule Weld.ReleaseTest do
 
     assert_raise Weld.Error, ~r/repo is dirty/, fn -> Weld.release_prepare!(manifest_path) end
     FixtureCase.commit_all!(repo_root, "Update release source")
-    Weld.release_prepare!(manifest_path)
+    FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
     second = Weld.release_track!(manifest_path)
 
     assert second.committed?
@@ -195,7 +203,7 @@ defmodule Weld.ReleaseTest do
     FixtureCase.init_bare_git!(remote_root)
     FixtureCase.git_output!(repo_root, ["remote", "add", "origin", remote_root])
 
-    Weld.release_prepare!(manifest_path)
+    FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
     result =
       Weld.release_track!(manifest_path,
@@ -210,7 +218,9 @@ defmodule Weld.ReleaseTest do
   end
 
   test "prepares and archives internal-only bundles without a tarball" do
-    manifest_path = internal_only_monolith_manifest_path()
+    repo_root = FixtureCase.copy_fixture("root_workspace")
+    manifest_path = write_internal_only_monolith_manifest(repo_root)
+    FixtureCase.init_git!(repo_root)
     prepared = Weld.release_prepare!(manifest_path)
 
     assert File.dir?(prepared.bundle_path)
@@ -229,16 +239,6 @@ defmodule Weld.ReleaseTest do
 
     assert File.dir?(archived.archive_path)
     refute File.exists?(Path.join(archived.archive_path, "root_web_monolith-0.1.0.tar"))
-  end
-
-  test "release tracking works from internal-only bundles without a tarball" do
-    repo_root = FixtureCase.copy_fixture("root_workspace")
-    manifest_path = write_internal_only_monolith_manifest(repo_root)
-
-    FixtureCase.init_git!(repo_root)
-    prepared = Weld.release_prepare!(manifest_path)
-
-    refute prepared.tarball_path
 
     result = Weld.release_track!(manifest_path)
 
@@ -246,11 +246,6 @@ defmodule Weld.ReleaseTest do
     assert result.branch_created?
     assert result.committed?
     assert FixtureCase.branch_exists?(repo_root, "projection/root_web_monolith")
-  end
-
-  defp internal_only_monolith_manifest_path do
-    repo_root = FixtureCase.copy_fixture("root_workspace")
-    write_internal_only_monolith_manifest(repo_root)
   end
 
   defp write_internal_only_monolith_manifest(repo_root) do
