@@ -45,6 +45,11 @@ defmodule Weld.VerifierTest do
     assert File.regular?(result.lockfile_path)
     assert File.regular?(result.tarball_path)
 
+    {:ok, outer} = :erl_tar.extract(String.to_charlist(result.tarball_path), [:memory])
+    {~c"contents.tar.gz", contents} = List.keyfind(outer, ~c"contents.tar.gz", 0)
+    {:ok, files} = :erl_tar.extract({:binary, contents}, [:compressed, :memory])
+    refute List.keymember?(files, ~c"projection.lock.json", 0)
+
     assert Enum.any?(result.verification_results, &(&1.task == "selected_tests_baseline"))
     assert Enum.any?(result.verification_results, &(&1.task == "deps.get"))
     assert Enum.any?(result.verification_results, &(&1.task == "compile --warnings-as-errors"))

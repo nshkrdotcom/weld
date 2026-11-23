@@ -8,6 +8,7 @@ defmodule Weld.ProjectorTest do
 
     assert File.regular?(Path.join(result.build_path, "mix.exs"))
     assert File.regular?(Path.join(result.build_path, "projection.lock.json"))
+    refute "projection.lock.json" in result.package_files
 
     assert File.regular?(
              Path.join(

@@ -9,6 +9,7 @@ defmodule Weld.ProjectorMonolithTest do
     assert result.build_path =~ "/dist/monolith/monolith_bundle"
     assert File.regular?(Path.join(result.build_path, "mix.exs"))
     assert File.regular?(Path.join(result.build_path, "projection.lock.json"))
+    refute "projection.lock.json" in result.package_files
     assert File.regular?(Path.join(result.build_path, "lib/fixture/store.ex"))
     assert File.regular?(Path.join(result.build_path, "lib/fixture/api.ex"))
     assert File.regular?(Path.join(result.build_path, "config/config.exs"))

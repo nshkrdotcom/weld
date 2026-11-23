@@ -40,7 +40,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.13.1", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.14.0", only: [:dev, :test], runtime: false}
   ]
 end
 ```
@@ -64,7 +64,7 @@ creates that branch as an orphan on first use so the projection history stays
 isolated from the source repo history.
 
 For coordinated pre-release validation across consumer repos, prefer normal
-version bumps to a prerelease Weld package such as `0.13.1-rc.1` rather than
+version bumps to a prerelease Weld package such as `0.14.0-rc.1` rather than
 embedding repo-local path or git override logic in every consumer.
 
 ## Example Manifest
@@ -271,8 +271,9 @@ Monolith artifacts can also disable `hex.build` with `verify: [hex_build: false]
 when they are intentionally not Hex-packagable.
 
 Prepared release bundles include the projected project tree, `release.json`
-metadata, `projection.lock.json`, and an optional tarball when
-`verify.hex_build` is enabled. Bundle metadata remains portable across checkout
+metadata, and an optional tarball when `verify.hex_build` is enabled. The
+prepared project and tracked Git projection retain `projection.lock.json`.
+Hex tarballs omit it. Bundle metadata remains portable across checkout
 locations because it records the manifest path relative to the repo root and
 the Weld version used to create the bundle.
 

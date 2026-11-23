@@ -72,7 +72,8 @@ The prepared bundle contains:
 
 - projected Mix project tree in `project/`
 - browser preview at `docs/index.html` beside the project
-- `projection.lock.json`
+- `project/projection.lock.json` for auditing the projection. It is also
+  retained in the tracked Git projection. Hex tarballs omit this file.
 - built tarball when `verify.hex_build` is enabled
 - `release.json` metadata
 

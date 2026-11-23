@@ -179,7 +179,7 @@ defmodule Weld.Release do
   end
 
   defp copy_prepared_project!(source, target, package_files) do
-    roots = Enum.uniq(package_files ++ ["mix.lock", "test"])
+    roots = Enum.uniq(package_files ++ ["mix.lock", "projection.lock.json", "test"])
     File.mkdir_p!(target)
 
     source

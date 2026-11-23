@@ -69,13 +69,14 @@ defmodule Weld.Projector do
       |> Enum.map(&component_dir/1)
       |> Enum.map(&Path.join("components", &1))
 
-    ["mix.exs", "projection.lock.json"]
+    ["mix.exs"]
     |> Kernel.++(generated_root_paths(plan, opts))
     |> Kernel.++(component_roots)
     |> Kernel.++(root_tooling_files(plan))
     |> Kernel.++(plan.artifact.output.docs)
     |> Kernel.++(plan.artifact.output.assets)
     |> Enum.uniq()
+    |> List.delete("projection.lock.json")
     |> Enum.sort()
   end
 

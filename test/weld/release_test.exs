@@ -23,8 +23,7 @@ defmodule Weld.ReleaseTest do
     {:ok, outer} = :erl_tar.extract(String.to_charlist(prepared.tarball_path), [:memory])
     {~c"contents.tar.gz", contents} = List.keyfind(outer, ~c"contents.tar.gz", 0)
     {:ok, files} = :erl_tar.extract({:binary, contents}, [:compressed, :memory])
-    {~c"projection.lock.json", archive_lock} = List.keyfind(files, ~c"projection.lock.json", 0)
-    assert archive_lock == File.read!(Path.join(prepared.project_path, "projection.lock.json"))
+    refute List.keymember?(files, ~c"projection.lock.json", 0)
     assert File.regular?(Path.join(prepared.project_path, "mix.lock"))
     assert File.regular?(Path.join(prepared.project_path, "test/runtime_test.exs"))
     refute File.exists?(Path.join(prepared.project_path, "_build"))
@@ -36,7 +35,13 @@ defmodule Weld.ReleaseTest do
 
     assert File.dir?(archived.archive_path)
     assert File.regular?(Path.join(archived.archive_path, "release.json"))
-    assert Weld.release_track!(manifest_path).committed?
+    tracked = Weld.release_track!(manifest_path)
+    assert tracked.committed?
+
+    assert {tracked_lock, 0} =
+             System.cmd("git", ["show", "#{tracked.branch}:projection.lock.json"], cd: repo_root)
+
+    assert tracked_lock == File.read!(Path.join(prepared.project_path, "projection.lock.json"))
     assert_release_metadata(manifest_path, prepared)
     assert_handoff(repo_root, prepared)
     assert_reproducible(repo_root, prepared)

@@ -25,8 +25,9 @@ defmodule Weld.Projector.Monolith.MixFile do
     package_dir_files(build_path, Keyword.get(opts, :include_tests?, false))
     |> Kernel.++(plan.artifact.output.docs)
     |> Kernel.++(plan.artifact.output.assets)
-    |> Kernel.++(["mix.exs", "projection.lock.json"])
+    |> Kernel.++(["mix.exs"])
     |> Enum.uniq()
+    |> List.delete("projection.lock.json")
     |> collapse_descendant_paths()
     |> Enum.sort()
   end
