@@ -96,7 +96,21 @@ defmodule Weld.Verifier do
   end
 
   defp run_mix!(build_path, env, args) do
-    env_vars = [{"MIX_ENV", Atom.to_string(env)}]
+    toolchain = "#{System.version()}-otp-#{:erlang.system_info(:otp_release)}"
+
+    build_root =
+      Path.join([Path.dirname(build_path), ".weld-build", Path.basename(build_path), toolchain])
+
+    env_vars = [
+      {"MIX_ENV", Atom.to_string(env)},
+      {"MIX_BUILD_PATH", nil},
+      {"MIX_BUILD_ROOT", Path.join(build_root, "build")},
+      {"MIX_DEPS_PATH", Path.join(build_root, "deps")}
+    ]
+
+    task = Enum.join(args, " ")
+    Mix.shell().info("Weld: MIX_ENV=#{env} mix #{task}")
+    started = System.monotonic_time(:millisecond)
 
     {output, status} =
       System.cmd("mix", args, cd: build_path, env: env_vars, stderr_to_stdout: true)
@@ -106,7 +120,10 @@ defmodule Weld.Verifier do
             "generated project command failed: MIX_ENV=#{env} mix #{Enum.join(args, " ")}\n\n#{output}"
     end
 
-    %{task: Enum.join(args, " "), env: env, status: :ok}
+    elapsed = System.monotonic_time(:millisecond) - started
+    Mix.shell().info("Weld: mix #{task} passed in #{elapsed}ms")
+
+    %{task: task, env: env, status: :ok}
     |> maybe_put_test_summary(output)
   end
 
@@ -119,6 +136,8 @@ defmodule Weld.Verifier do
   defp run_selected_project_tests!(%Plan{} = plan) do
     per_project =
       Enum.map(plan.selected_projects, fn project ->
+        Mix.shell().info("Weld: testing selected project #{project.id}")
+
         {output, status} =
           System.cmd("mix", ["test"],
             cd: project.abs_path,

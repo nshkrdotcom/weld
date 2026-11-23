@@ -17,6 +17,7 @@ defmodule Weld.ReleaseTest do
     assert File.regular?(prepared.release_metadata_path)
     assert File.regular?(prepared.tarball_path)
     assert File.regular?(Path.join(prepared.docs_path, "index.html"))
+    assert File.read!(Path.join(prepared.docs_path, "readme.html")) =~ "mermaid@11.12.2"
     assert Path.dirname(prepared.docs_path) == prepared.bundle_path
 
     {:ok, outer} = :erl_tar.extract(String.to_charlist(prepared.tarball_path), [:memory])
@@ -114,6 +115,26 @@ defmodule Weld.ReleaseTest do
 
     assert Weld.Hash.sha256_file(prepared_a.tarball_path) ==
              Weld.Hash.sha256_file(prepared_b.tarball_path)
+  end
+
+  test "track and archive reject a changed prepared project" do
+    repo_root = FixtureCase.copy_fixture("library_bundle")
+    FixtureCase.init_git!(repo_root)
+    manifest_path = Path.join(repo_root, "packaging/weld/fixture_bundle.exs")
+    FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
+
+    bundle = Weld.release_bundle_path!(manifest_path)
+    File.write!(Path.join(bundle, "project/README.md"), "changed after prepare")
+
+    assert_raise Weld.Error, ~r/failed integrity verification/, fn ->
+      Weld.release_track!(manifest_path)
+    end
+
+    assert_raise Weld.Error, ~r/failed integrity verification/, fn ->
+      Weld.release_archive!(manifest_path)
+    end
+
+    refute FixtureCase.branch_exists?(repo_root, "projection/fixture_bundle")
   end
 
   test "release tracking uses projection package-name branches with orphan history" do

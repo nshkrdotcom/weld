@@ -60,7 +60,7 @@ defmodule Weld.Projector.Monolith.MixFile do
       )
 
     files = package_files(plan, build_path) |> Enum.map_join(",\n        ", &inspect/1)
-    docs = Projector.docs_options(plan) |> inspect(pretty: true, limit: :infinity)
+    docs = Projector.render_docs_options(plan)
 
     links = package.links |> fallback_links(plan.manifest.repo_root) |> inspect(pretty: true)
     application_config = application_config_literal(application)

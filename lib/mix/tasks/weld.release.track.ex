@@ -11,7 +11,7 @@ defmodule Mix.Tasks.Weld.Release.Track do
 
   @impl Mix.Task
   def run(args) do
-    {opts, positional, _invalid} =
+    {opts, positional, invalid} =
       OptionParser.parse(args,
         strict: [
           artifact: :string,
@@ -25,6 +25,7 @@ defmodule Mix.Tasks.Weld.Release.Track do
     usage =
       "Usage: mix weld.release.track [manifest_path] [--artifact name] [--branch name] [--remote origin] [--tag tag] [--push]"
 
+    TaskSupport.reject_invalid!(invalid)
     manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
 
     result =

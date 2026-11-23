@@ -4,7 +4,7 @@ defmodule Weld.MixProject do
   def project do
     [
       app: :weld,
-      version: "0.12.0",
+      version: "0.13.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       build_path: System.get_env("WELD_CI_BUILD_ROOT", "_build"),
@@ -64,7 +64,7 @@ defmodule Weld.MixProject do
       logo: "assets/weld.svg",
       homepage_url: "https://github.com/nshkrdotcom/weld",
       source_url: "https://github.com/nshkrdotcom/weld",
-      source_ref: "v0.12.0",
+      source_ref: "v0.13.0",
       assets: %{"assets" => "assets"},
       extras: [
         "README.md": [title: "Overview"],

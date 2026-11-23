@@ -136,23 +136,20 @@ defmodule Weld do
 
   @spec project!(Path.t(), keyword()) :: map()
   def project!(manifest_path, opts \\ []) do
-    manifest_path
-    |> Plan.build!(opts)
-    |> Projector.project!()
+    plan = Plan.build!(manifest_path, opts)
+    Projector.with_output_lock(plan, fn -> Projector.project!(plan) end)
   end
 
   @spec verify!(Path.t(), keyword()) :: map()
   def verify!(manifest_path, opts \\ []) do
-    manifest_path
-    |> Plan.build!(opts)
-    |> Verifier.verify!()
+    plan = Plan.build!(manifest_path, opts)
+    Projector.with_output_lock(plan, fn -> Verifier.verify!(plan) end)
   end
 
   @spec release_prepare!(Path.t(), keyword()) :: map()
   def release_prepare!(manifest_path, opts \\ []) do
-    manifest_path
-    |> Plan.build!(opts)
-    |> Release.prepare!()
+    plan = Plan.build!(manifest_path, opts)
+    Projector.with_output_lock(plan, fn -> Release.prepare!(plan) end)
   end
 
   @spec release_bundle_path!(Path.t(), keyword()) :: Path.t()
@@ -164,16 +161,14 @@ defmodule Weld do
 
   @spec release_archive!(Path.t(), keyword()) :: map()
   def release_archive!(manifest_path, opts \\ []) do
-    manifest_path
-    |> Plan.build!(opts)
-    |> Release.archive!()
+    plan = Plan.build!(manifest_path, opts)
+    Projector.with_output_lock(plan, fn -> Release.archive!(plan) end)
   end
 
   @spec release_track!(Path.t(), keyword()) :: map()
   def release_track!(manifest_path, opts \\ []) do
-    manifest_path
-    |> Plan.build!(opts)
-    |> Release.track!(opts)
+    plan = Plan.build!(manifest_path, opts)
+    Projector.with_output_lock(plan, fn -> Release.track!(plan, opts) end)
   end
 
   defp classify(plan, classification) do

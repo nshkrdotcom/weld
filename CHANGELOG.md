@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-11-22
+
+- Reuse Mix dependency checkouts and compilation state across verification runs and report stage timings.
+- Serialize operations sharing a projection or prepared bundle.
+- Verify prepared release digests before tracking or archiving.
+- Reject invalid options in projection and release commands.
+- Support opt-in Mermaid rendering in generated HTML documentation.
+
 ## [0.12.0] - 2026-11-22
 
 Default `mix test` runs the fast checks. `mix ci` also runs the tests that

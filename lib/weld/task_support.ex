@@ -1,4 +1,11 @@
 defmodule Weld.TaskSupport do
+  @doc false
+  def reject_invalid!([]), do: :ok
+
+  def reject_invalid!(invalid) do
+    Mix.raise("Invalid options: #{inspect(invalid)}")
+  end
+
   @moduledoc false
 
   @default_manifest_paths [

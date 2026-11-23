@@ -35,7 +35,16 @@ defmodule Weld.FixtureCase do
     File.mkdir_p!(project)
     File.cp!(Path.join(repo_root, "README.md"), Path.join(project, "README.md"))
     revision = git_output!(repo_root, ["rev-parse", "HEAD"])
-    File.write!(Path.join(bundle, "release.json"), Jason.encode!(%{source_revision: revision}))
+
+    metadata = %{
+      source_revision: revision,
+      artifact: :fixture_bundle,
+      package: %{name: "fixture_bundle", version: "0.1.0"},
+      manifest_digest: Weld.Hash.sha256_file(manifest_path),
+      handoff: %{project_sha256: Weld.Hash.sha256_tree(project)}
+    }
+
+    File.write!(Path.join(bundle, "release.json"), Jason.encode!(metadata))
   end
 
   def init_git!(repo_root) do

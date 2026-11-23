@@ -5,6 +5,7 @@ defmodule Weld.Projector do
 
   @root_tooling_files [".formatter.exs", ".credo.exs", ".dialyzer_ignore.exs"]
 
+  alias Mix.Sync.Lock
   alias Weld.Config.Generator
   alias Weld.Error
   alias Weld.Git
@@ -35,6 +36,20 @@ defmodule Weld.Projector do
     File.write!(lockfile_path, Lockfile.encode!(lockfile))
 
     Map.put(projection, :lockfile_path, lockfile_path)
+  end
+
+  @doc false
+  def with_output_lock(%Plan{} = plan, fun) do
+    dist = Path.expand(plan.artifact.output.dist_root, plan.manifest.repo_root)
+    lock_path = Path.join([dist, ".weld", plan.artifact.package.name])
+
+    Lock.with_lock(lock_path, fun,
+      on_taken: fn pid ->
+        Mix.shell().info(
+          "Weld: waiting for #{plan.artifact.package.name} output lock held by #{pid}"
+        )
+      end
+    )
   end
 
   @spec build_path(Plan.t()) :: Path.t()
@@ -93,6 +108,35 @@ defmodule Weld.Projector do
     |> maybe_put_docs_option(:source_ref, docs.source_ref)
     |> maybe_put_docs_option(:assets, docs.assets)
     |> maybe_put_docs_option(:groups_for_extras, docs.groups_for_extras)
+  end
+
+  @doc false
+  def render_docs_options(%Plan{} = plan) do
+    options = inspect(docs_options(plan), pretty: true, limit: :infinity)
+
+    if plan.artifact.package.docs.mermaid do
+      hook = """
+      <script src="https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js"></script>
+      <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const diagrams = document.querySelectorAll("pre code.mermaid");
+        if (!diagrams.length || !window.mermaid) return;
+        mermaid.initialize({startOnLoad: false, securityLevel: "strict"});
+        for (const code of diagrams) {
+          const diagram = document.createElement("div");
+          diagram.className = "mermaid";
+          diagram.textContent = code.textContent;
+          code.parentElement.replaceWith(diagram);
+        }
+        mermaid.run();
+      });
+      </script>
+      """
+
+      "Keyword.put(#{options}, :before_closing_body_tag, fn :html -> #{inspect(hook)}; _ -> \"\" end)"
+    else
+      options
+    end
   end
 
   defp copy_project!(build_path, project) do
@@ -273,7 +317,7 @@ defmodule Weld.Projector do
     erlc_paths = component_paths(plan.selected_projects, & &1.erlc_paths)
     deps = render_deps(plan.external_deps, package.development_dependencies)
     files = package_files(plan, opts) |> Enum.map_join(",\n        ", &inspect/1)
-    docs = docs_options(plan) |> inspect(pretty: true, limit: :infinity)
+    docs = render_docs_options(plan)
     links = package.links |> fallback_links(plan.manifest.repo_root) |> inspect(pretty: true)
     application_config = application_config_literal(application)
 

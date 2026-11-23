@@ -49,7 +49,8 @@ defmodule Weld.Manifest do
       :source_ref,
       :assets,
       :extra_titles,
-      :groups_for_extras
+      :groups_for_extras,
+      :mermaid
     ]
     defstruct @enforce_keys
 
@@ -61,7 +62,8 @@ defmodule Weld.Manifest do
             source_ref: String.t() | nil,
             assets: %{optional(String.t()) => String.t()},
             extra_titles: %{optional(String.t()) => String.t()},
-            groups_for_extras: [{String.t(), [String.t()]}]
+            groups_for_extras: [{String.t(), [String.t()]}],
+            mermaid: boolean()
           }
   end
 
@@ -254,7 +256,8 @@ defmodule Weld.Manifest do
     source_ref: [type: :string],
     assets: [type: :any, default: %{}],
     extra_titles: [type: :any, default: %{}],
-    groups_for_extras: [type: :any, default: []]
+    groups_for_extras: [type: :any, default: []],
+    mermaid: [type: :boolean, default: false]
   ]
 
   @output_schema [
@@ -494,7 +497,8 @@ defmodule Weld.Manifest do
       source_ref: docs[:source_ref],
       assets: normalize_string_map!(docs[:assets], "package.docs.assets"),
       extra_titles: normalize_string_map!(docs[:extra_titles], "package.docs.extra_titles"),
-      groups_for_extras: normalize_extra_groups!(docs[:groups_for_extras])
+      groups_for_extras: normalize_extra_groups!(docs[:groups_for_extras]),
+      mermaid: docs[:mermaid]
     }
   end
 

@@ -18,6 +18,7 @@
           {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
         ],
         docs: [
+          mermaid: true,
           source_url: "https://example.test/fixture_bundle",
           source_ref: "v0.1.0",
           extra_titles: %{"README.md" => "Overview"},

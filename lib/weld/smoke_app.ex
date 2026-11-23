@@ -55,6 +55,7 @@ defmodule Weld.SmokeApp do
     smoke_source = Path.join(plan.manifest.repo_root, smoke.entry_file)
     File.cp!(smoke_source, Path.join([smoke_root, "lib", "smoke.ex"]))
 
+    Mix.shell().info("Weld: verifying the smoke application")
     run!(smoke_root, ["deps.get"])
     run!(smoke_root, ["compile"])
 

@@ -5,6 +5,15 @@ defmodule Weld.MixTasksTest do
 
   alias Weld.FixtureCase
 
+  test "release tasks reject unknown flags before resolving a manifest" do
+    for task <-
+          ~w(weld.project weld.verify weld.release.prepare weld.release.archive weld.release.track) do
+      assert_raise Mix.Error, ~r/Invalid options.*--unknown/, fn ->
+        Mix.Task.rerun(task, ["--unknown"])
+      end
+    end
+  end
+
   test "mix weld.inspect prints json output" do
     manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
 

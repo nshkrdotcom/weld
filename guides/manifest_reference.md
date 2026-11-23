@@ -236,3 +236,8 @@ the prepared bundle.
   ]
 ]
 ```
+
+Set `package: [docs: [mermaid: true]]` to render Mermaid fenced code blocks
+in generated HTML documentation. The browser loads the pinned Mermaid
+renderer from jsDelivr. When it is unavailable, the original code blocks
+remain visible.

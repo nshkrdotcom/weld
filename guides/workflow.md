@@ -74,3 +74,9 @@ Durable output:
 The projection is disposable during day-to-day development. The prepared and
 archived release bundle is the durable release record. Projection branches are
 the durable generated-source record when a repo chooses to track them.
+
+Verification keeps Mix dependency checkouts and compiler output beside the projection directories, under
+`dist/hex/.weld-build/` or `dist/monolith/.weld-build/` with the default output
+root. Weld regenerates source and runs the verification steps on each run. To
+reproduce a cold run, remove the matching cache directory while verification
+is idle. The prepared bundle excludes that directory.

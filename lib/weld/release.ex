@@ -49,6 +49,11 @@ defmodule Weld.Release do
         project_path: Path.basename(project_target),
         docs_path: Path.basename(docs_path),
         verification_results: verification.verification_results,
+        integrity: %{
+          project_sha256: Hash.sha256_tree(project_target),
+          docs_sha256: Hash.sha256_tree(docs_path),
+          archive_sha256: tarball_target && Hash.sha256_file(tarball_target)
+        },
         tarball_path: tarball_target && Path.basename(tarball_target),
         handoff:
           prepared_artifact_handoff(
@@ -92,6 +97,8 @@ defmodule Weld.Release do
       raise Error, "release bundle not prepared: #{prepared_bundle}"
     end
 
+    validate_bundle!(plan, prepared_bundle)
+
     archive_root =
       Path.expand(
         Path.join([plan.artifact.output.dist_root, "archive", plan.artifact.package.name]),
@@ -111,11 +118,9 @@ defmodule Weld.Release do
   def track!(%Plan{} = plan, opts \\ []) do
     prepared_bundle = bundle_path(plan)
     project_path = Path.join(prepared_bundle, "project")
-    metadata_path = Path.join(prepared_bundle, "release.json")
-
-    ensure_track_inputs!(prepared_bundle, project_path, metadata_path)
+    metadata = validate_bundle!(plan, prepared_bundle)
     track_opts = track_opts(plan, opts)
-    source_revision = source_revision!(metadata_path)
+    source_revision = metadata["source_revision"]
 
     {branch_created?, commit_sha, committed?} =
       track_projection!(plan, project_path, source_revision, track_opts)
@@ -240,21 +245,47 @@ defmodule Weld.Release do
     }
   end
 
-  defp ensure_track_inputs!(prepared_bundle, project_path, metadata_path) do
-    unless File.dir?(project_path) do
-      raise Error, "release bundle not prepared: #{prepared_bundle}"
-    end
+  defp validate_bundle!(plan, bundle) do
+    metadata_path = Path.join(bundle, "release.json")
 
-    unless File.regular?(metadata_path) do
-      raise Error, "release metadata not found: #{metadata_path}"
+    with {:ok, json} <- File.read(metadata_path),
+         {:ok, %{} = metadata} <- Jason.decode(json),
+         %{"name" => name, "version" => version} <- metadata["package"],
+         true <- {name, version} == {plan.artifact.package.name, plan.artifact.package.version},
+         true <- metadata["artifact"] == plan.artifact.id,
+         true <- metadata["manifest_digest"] == Hash.sha256_file(plan.manifest.manifest_path),
+         true <- valid_bundle_contents?(bundle, metadata, "#{name}-#{version}.tar") do
+      metadata
+    else
+      _ ->
+        raise Error,
+              "prepared release bundle is missing or failed integrity verification: #{bundle}"
     end
   end
 
-  defp source_revision!(metadata_path) do
-    metadata_path
-    |> File.read!()
-    |> Jason.decode!()
-    |> Map.get("source_revision", "unknown")
+  defp valid_bundle_contents?(bundle, metadata, archive_name) do
+    integrity = metadata["integrity"] || metadata["handoff"]
+    project = Path.join(bundle, "project")
+    docs = Path.join(bundle, "docs")
+    archive = Path.join(bundle, archive_name)
+
+    is_map(integrity) and
+      valid_archive?(archive, metadata["tarball_path"], archive_name, integrity["archive_sha256"]) and
+      File.dir?(project) and Hash.sha256_tree(project) == integrity["project_sha256"] and
+      valid_docs?(docs, metadata["integrity"])
+  end
+
+  defp valid_archive?(path, name, name, digest) do
+    File.regular?(path) and Hash.sha256_file(path) == digest
+  end
+
+  defp valid_archive?(path, nil, _name, nil), do: not File.exists?(path)
+  defp valid_archive?(_path, _recorded, _expected, _digest), do: false
+
+  defp valid_docs?(_path, nil), do: true
+
+  defp valid_docs?(path, integrity) do
+    File.dir?(path) and Hash.sha256_tree(path) == integrity["docs_sha256"]
   end
 
   defp unique_worktree_path(%Plan{} = plan) do
