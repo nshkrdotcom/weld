@@ -7,7 +7,15 @@ defmodule Weld.VerifierTest do
 
   @tag ci_build: "package"
   test "verifies a welded artifact end to end" do
-    result = Weld.verify!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
+    repo = FixtureCase.copy_fixture("library_bundle")
+    manifest = Path.join(repo, "packaging/weld/fixture_bundle.exs")
+    legacy_cache = Path.join(repo, "dist/hex/.weld-build/fixture_bundle")
+    File.mkdir_p!(legacy_cache)
+
+    result = Weld.verify!(manifest)
+
+    refute File.exists?(legacy_cache)
+    assert [_ | _] = Path.wildcard(Path.join(repo, "_build/weld/*/*/build/dev/lib/*/ebin"))
 
     assert File.regular?(result.lockfile_path)
     assert File.regular?(result.tarball_path)

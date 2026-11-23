@@ -75,8 +75,12 @@ The projection is disposable during day-to-day development. The prepared and
 archived release bundle is the durable release record. Projection branches are
 the durable generated-source record when a repo chooses to track them.
 
-Verification keeps Mix dependency checkouts and compiler output beside the projection directories, under
-`dist/hex/.weld-build/` or `dist/monolith/.weld-build/` with the default output
-root. Weld regenerates source and runs the verification steps on each run. To
-reproduce a cold run, remove the matching cache directory while verification
-is idle. The prepared bundle excludes that directory.
+Verification uses `_build/weld/` in the workspace root for downloaded
+dependencies and compiler output. Each projection destination and toolchain
+has its own cache. Weld regenerates sources and runs the full verification
+sequence each time. To reproduce a cold run, remove the matching cache
+directory while verification is idle.
+
+The first verification after upgrading from 0.13.0 clears that package's
+obsolete `.weld-build/` caches and populates the new cache. The projected
+project and prepared bundle retain their normal locations.

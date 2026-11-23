@@ -4,6 +4,7 @@ defmodule Weld.Verifier do
   """
 
   alias Weld.Error
+  alias Weld.Hash
   alias Weld.Lockfile
   alias Weld.Plan
   alias Weld.Projector
@@ -14,7 +15,9 @@ defmodule Weld.Verifier do
     projection = Projector.project!(plan)
     build_path = projection.build_path
 
-    verification_results = verify_by_mode!(plan, build_path)
+    clear_legacy_cache!(build_path)
+    workspace = {build_path, cache_root(plan, build_path)}
+    verification_results = verify_by_mode!(plan, workspace)
 
     lockfile =
       Lockfile.build(
@@ -31,7 +34,7 @@ defmodule Weld.Verifier do
 
     File.write!(projection.lockfile_path, Lockfile.encode!(lockfile))
 
-    hex_results = verify_hex!(plan, build_path)
+    hex_results = verify_hex!(plan, workspace)
     verification_results = verification_results ++ hex_results
     tarball_path = tarball_path_for(plan, build_path, hex_results)
 
@@ -44,15 +47,15 @@ defmodule Weld.Verifier do
     }
   end
 
-  defp verify_by_mode!(%Plan{artifact: %{mode: :monolith}} = plan, build_path) do
+  defp verify_by_mode!(%Plan{artifact: %{mode: :monolith}} = plan, workspace) do
     baseline = run_selected_project_tests!(plan)
 
     results = [
       baseline,
-      run_mix!(build_path, :dev, ["deps.get"]),
-      run_mix!(build_path, :dev, ["compile", "--warnings-as-errors"]),
-      run_mix!(build_path, :test, ["test"]),
-      run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"])
+      run_mix!(workspace, :dev, ["deps.get"]),
+      run_mix!(workspace, :dev, ["compile", "--warnings-as-errors"]),
+      run_mix!(workspace, :test, ["test"]),
+      run_mix!(workspace, :dev, ["docs", "--warnings-as-errors"])
     ]
 
     monolith_test_result = Enum.find(results, &(&1.task == "test"))
@@ -65,13 +68,13 @@ defmodule Weld.Verifier do
     results
   end
 
-  defp verify_by_mode!(%Plan{} = plan, build_path) do
+  defp verify_by_mode!(%Plan{} = plan, {build_path, _} = workspace) do
     results = [
-      run_mix!(build_path, :dev, ["deps.get"]),
-      run_mix!(build_path, :dev, ["deps.compile"]),
-      run_mix!(build_path, :dev, ["compile", "--warnings-as-errors", "--no-compile-deps"]),
-      run_mix!(build_path, :test, ["test"]),
-      run_mix!(build_path, :dev, ["docs", "--warnings-as-errors"])
+      run_mix!(workspace, :dev, ["deps.get"]),
+      run_mix!(workspace, :dev, ["deps.compile"]),
+      run_mix!(workspace, :dev, ["compile", "--warnings-as-errors", "--no-compile-deps"]),
+      run_mix!(workspace, :test, ["test"]),
+      run_mix!(workspace, :dev, ["docs", "--warnings-as-errors"])
     ]
 
     smoke_results =
@@ -84,23 +87,33 @@ defmodule Weld.Verifier do
     results ++ smoke_results
   end
 
-  defp verify_hex!(plan, build_path) do
+  defp verify_hex!(plan, workspace) do
     %{hex_build: build?, hex_publish: publish?} = plan.artifact.verify
 
     [
-      maybe_run_mix!(build_path, :dev, ["hex.build"], build?, reason: :artifact_opted_out),
-      maybe_run_mix!(build_path, :dev, ["hex.publish", "--dry-run", "--yes"], build? and publish?,
+      maybe_run_mix!(workspace, :dev, ["hex.build"], build?, reason: :artifact_opted_out),
+      maybe_run_mix!(workspace, :dev, ["hex.publish", "--dry-run", "--yes"], build? and publish?,
         reason: if(build?, do: :artifact_opted_out, else: :hex_build_disabled)
       )
     ]
   end
 
-  defp run_mix!(build_path, env, args) do
+  defp clear_legacy_cache!(build_path) do
+    dist = build_path |> Path.dirname() |> Path.dirname()
+    package = Path.basename(build_path)
+
+    for mode <- ~w(hex monolith) do
+      File.rm_rf!(Path.join([dist, mode, ".weld-build", package]))
+    end
+  end
+
+  defp cache_root(plan, build_path) do
     toolchain = "#{System.version()}-otp-#{:erlang.system_info(:otp_release)}"
+    projection_id = Hash.sha256_binary(build_path)
+    Path.join([plan.manifest.repo_root, "_build", "weld", projection_id, toolchain])
+  end
 
-    build_root =
-      Path.join([Path.dirname(build_path), ".weld-build", Path.basename(build_path), toolchain])
-
+  defp run_mix!({build_path, build_root}, env, args) do
     env_vars = [
       {"MIX_ENV", Atom.to_string(env)},
       {"MIX_BUILD_PATH", nil},

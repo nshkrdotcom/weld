@@ -8,7 +8,7 @@ multi-project Elixir repo.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.13.0", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.13.1", only: [:dev, :test], runtime: false}
   ]
 end
 ```
