@@ -13,11 +13,18 @@ the primary internal model.
 4. `Weld.Graph` stores project nodes, classified edges, publication roles,
    external deps, and violations.
 5. `Weld.Plan` resolves one artifact boundary and computes the selected closure.
-6. `Weld.Projector` generates the standalone Mix project (routing to
-   Weld.Projector.Monolith for monolith artifacts), merged application module
-   when needed, and lockfile.
-7. `Weld.Verifier` validates the generated project using a mode-specific gate.
-8. `Weld.Release` prepares and archives deterministic release bundles.
+6. `Weld.Output` serializes checkout-root `.weld/` mutations, enforces `.owner`
+   markers and `.gitignore` rules, rejects symlinks on managed roots, and swaps
+   staged directories into place atomically.
+7. `Weld.Projector` generates the standalone Mix project (routing to
+   the monolith projector for `:monolith` and `Weld.Projector.SourceProject`
+   for `:source_project`), provenance marker, merged application module when
+   needed, and `projection.lock.json`.
+8. `Weld.Verifier` validates the generated project using a mode-specific gate
+   with per-projection, per-toolchain build/dependency caches under `.weld/cache/`.
+9. `Weld.Release` prepares content-addressed release bundles under
+   `.weld/releases/<artifact>/<identity>/`, tracks orphan `projection/<package_name>`
+   branches, and archives released bundles under `.weld/archive/<artifact>/<identity>/`.
 
 ## Graph Model
 
@@ -133,6 +140,15 @@ Key behaviors in monolith mode:
   derived only from staged bootstrap sources.
 - **Test baseline gate**: verification runs each selected package's own test suite
   first, then asserts the monolith test count is at least the baseline sum.
+
+### Source-Project Mode
+
+Artifacts with `mode: :source_project` (`roots: ["."]`) materialize an authoritative root `mix.exs` that already owns its OTP application, compiler paths, dependencies, and Hex package metadata:
+
+- **Full projection (`.weld/full/<artifact>/project/`):** Copies the explicit `source_project[:files]` inventory as regular files, validates in a fresh Elixir process that the staged `mix.exs` matches the declared `{otp_app, version}` and keeps all compiler roots inside the staged tree, and records a SHA-256 `artifact_id` in `weld.provenance.json`.
+- **Live projection (`.weld/live/<artifact>/`):** Symlinks declared inventory entries (copying `mix.lock` when present) and wraps the root `Mix.Project` module so `elixirc_paths`, `erlc_paths`, `test_paths`, and `erlc_include_path` resolve directly into the source checkout while SHA-256 fingerprints guard `mix.exs`, `mix.lock`, the manifest, and `structural_inputs`.
+
+See [Source-Root Artifacts](source_projects.md) for inventory constraints and live refresh semantics.
 
 ## Constraints
 

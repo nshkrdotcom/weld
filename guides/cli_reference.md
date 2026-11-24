@@ -42,7 +42,11 @@ dependency traversal.
 
 ## Setup
 
-`mix weld.setup [manifest_path]` normalizes checkout-root ignore and initializes managed output.
+```bash
+mix weld.setup [manifest_path]
+```
+
+Initializes `<checkout_root>/.weld/`, writes its ownership marker, verifies `.weld` has no tracked Git files or conflicting `.gitignore` negations, and normalizes `.weld/` in the checkout-root `.gitignore`. Commit any `.gitignore` change before preparing clean-tree releases.
 
 ## Project
 
@@ -50,7 +54,7 @@ dependency traversal.
 mix weld.project [manifest_path] [--artifact name] [--live]
 ```
 
-Generates a full candidate under `.weld/full/<artifact>/project/`. A source-project artifact also supports `--live` under `.weld/live/<artifact>/`.
+Generates a standalone full candidate under `.weld/full/<artifact>/project/` (`weld.provenance.json` + `projection.lock.json`). For `mode: :source_project` artifacts, passing `--live` generates a symlinked development view under `.weld/live/<artifact>/` whose compiler paths point back to the source checkout.
 
 ## Verify
 
@@ -58,12 +62,12 @@ Generates a full candidate under `.weld/full/<artifact>/project/`. A source-proj
 mix weld.verify [manifest_path] [--artifact name]
 ```
 
-Runs package-level verification against the generated artifact.
+Regenerates `.weld/full/<artifact>/project/` and runs the mode-specific Mix verification gate using isolated dependency and build caches under `.weld/cache/`.
 
 ## Agents Verify
 
 ```bash
-mix weld.agents.verify [--repo-root path] [--format json]
+mix weld.agents.verify [--repo-root path] [-r path] [--format json]
 ```
 
 Verifies root and nested `AGENTS.md` files for runtime-environment guidance.

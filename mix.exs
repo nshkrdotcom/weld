@@ -72,7 +72,7 @@ defmodule Weld.MixProject do
         "guides/workflow.md": [title: "Workflow"],
         "guides/cli_reference.md": [title: "CLI Reference"],
         "guides/architecture.md": [title: "Architecture"],
-        "guides/source_projects.md": [title: "Source-root Artifacts"],
+        "guides/source_projects.md": [title: "Source-Root Artifacts"],
         "guides/manifest_reference.md": [title: "Manifest Reference"],
         "guides/testing_strategy.md": [title: "Testing Strategy"],
         "guides/release_process.md": [title: "Release Process"],

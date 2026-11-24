@@ -1,45 +1,43 @@
 # Consumer Repo Integration
 
-Consumer repos should keep repo-local policy in the manifest and keep release
-logic thin.
+`Weld` distinguishes two roles:
 
-## Recommended Layout
+1. **Source-repository maintainers** who configure a manifest and run `Weld` to project, verify, and prepare artifacts.
+2. **Downstream package consumers** who depend on a repository root, a generated projection, a `projection/<package_name>` branch, or a published Hex package using ordinary Mix—**without installing Weld**.
 
-- add `{:weld, "~> 0.15.0", only: [:dev, :test], runtime: false}` to the root project
-- store manifests under a stable repo-local path such as `packaging/weld/`
-- keep artifact-owned tests beside the manifest
-- declare canonical external package requirements in the manifest when source
-  projects use non-publishable `:path` or SCM transports
-- declare source-only monolith test support in
-  `monolith_opts[:test_support_projects]` instead of relying on implicit
-  projector behavior
-- call `weld` from CI or release automation rather than wrapping it in large
-  custom shell logic
+## Integrating Weld In A Source Repository (Maintainers)
 
-## Consumer Dependency Policy
+- **Workspace-root or isolated maintainer installation:**
+  - In workspaces whose root `mix.exs` already coordinates workspace tooling, add `{:weld, "~> 0.15.0", only: [:dev, :test], runtime: false}` to the root `mix.exs`.
+  - In `:source_project` repositories where the root `mix.exs` is itself the public library package, you can either add `weld` as a `runtime: false` `:dev/:test` dependency or place `{:weld, "~> 0.15.0", runtime: false}` in a dedicated project such as `tools/maintainer/mix.exs` so the public root `mix.exs` and `mix.lock` carry zero packaging dependencies.
+- **Standard manifest locations:** Store the manifest at `build_support/weld.exs`, `build_support/weld_contract.exs`, or a single `packaging/weld/*.exs` so CLI tasks auto-discover it from the checkout root.
+- **Initialize `.weld/` once:** Run `mix weld.setup` and commit the `.weld/` entry in `.gitignore` before running clean-tree `mix release.prepare`.
+- **Canonical external dependencies:** In `:package_projection` and `:monolith` modes, declare canonical external requirements in `dependencies` whenever workspace subprojects use `:path`, `:git`, or `:github` transports that must be rewritten for publication.
+- **Explicit monolith test support:** Declare any non-selected test support projects in `monolith_opts[:test_support_projects]` so `Weld` validates the boundary fail-closed.
 
-Consumer repos should keep the committed dependency line simple:
+### Maintainer Dependency Policy
 
-- committed steady state: Hex `{:weld, "~> 0.15.0", only: [:dev, :test], runtime: false}`
-- coordinated pre-release validation: bump to a Weld prerelease such as
-  `0.15.0-rc.1`
-- avoid baking repo-local path/git override logic into every consumer repo
+Keep the committed Weld dependency simple:
 
-That keeps `weld` responsible for projection and verification behavior without
-making every consumer repo carry custom dependency-resolution code.
+- **Steady state:** `{:weld, "~> 0.15.0", only: [:dev, :test], runtime: false}` from Hex.
+- **Coordinated pre-release validation:** Bump to a published prerelease such as `0.15.0-rc.1` rather than embedding ad hoc path/Git override logic in every repository.
 
-Consumer repos should also prefer the standard manifest locations:
+## Consuming Projections Without Installing Weld
 
-- `build_support/weld.exs`
-- `build_support/weld_contract.exs`
-- a single manifest under `packaging/weld/`
+Every projection `Weld` produces is a standard Mix project. Downstream consumers never add `weld` to their dependencies and never invoke `mix weld.*` tasks:
 
-With that layout, repos can call `mix weld.inspect`, `mix weld.verify`,
-`mix release.prepare`, `mix release.track`, and `mix release.archive` directly
-without maintaining a root alias block that only forwards the manifest path and
-artifact name.
+| Target Surface | Typical Use | Consumer Mix Dependency Shape |
+| --- | --- | --- |
+| Authoritative `:source_project` root | Local checkout or Git revision when the root `mix.exs` owns compilation directly | `{:my_pkg, "~> 0.1.0", path: "../my_pkg"}` or `{:my_pkg, "~> 0.1.0", github: "org/my_pkg", ref: "<sha>"}` |
+| Live projection (`.weld/live/<artifact>`) | Local `:source_project` iteration with symlinked source/assets and structural staleness checks | `{:my_pkg, "~> 0.1.0", path: "../my_pkg/.weld/live/my_pkg"}` |
+| Refreshable full projection (`.weld/full/<artifact>/project`) | Standalone local Mix verification of a projected package, monolith, or source-project copy | `{:my_pkg, "~> 0.1.0", path: "../my_pkg/.weld/full/my_pkg/project"}` |
+| Prepared release project (`.weld/releases/<artifact>/<identity>/project`) | Pinning an immutable, verified local candidate whose bytes will not change during concurrent rebuilds | `{:my_pkg, "~> 0.1.0", path: "../my_pkg/.weld/releases/my_pkg/<identity>/project"}` |
+| Tracked projection branch (`projection/<package_name>`) | Consuming a projected standalone package over Git (e.g., from a `:package_projection` workspace) | `{:my_pkg, "~> 0.1.0", github: "org/my_repo", ref: "<projection_sha>"}` |
+| Published Hex package | Released versions | `{:my_pkg, "~> 0.1.0"}` |
 
-## Suggested CI Shape
+Note on local path concurrency: plain Mix consumers do not participate in `.weld/.lock`. When multiple processes build against a local projection while maintainers might re-project, prefer an immutable `.weld/releases/<artifact>/<identity>/project` path over the refreshable `.weld/full/` or `.weld/live/` targets.
+
+## Suggested Maintainer CI Shape
 
 ```bash
 mix deps.get
@@ -51,7 +49,7 @@ mix weld.inspect
 mix weld.verify
 ```
 
-## Suggested Release Shape
+## Suggested Maintainer Release Shape
 
 ```bash
 mix test
@@ -59,24 +57,9 @@ mix credo --strict
 mix dialyzer
 mix release.prepare
 mix release.track
-mix hex.publish --yes
+# From .weld/releases/<artifact>/<identity>/project when publishing to Hex:
+# mix hex.publish --yes
 mix release.archive
 ```
 
-If you want tracked generated source before a release, push the default
-`projection/<package_name>` branch and consume a pinned commit or prerelease tag
-from there. Official release semantics should stay on tags, not on a separate
-`releases/*` branch.
-
-For internal-only artifacts, keep `verify.hex_build` and `verify.hex_publish`
-explicit in the manifest so CI and release automation skip Hex-only checks by
-policy instead of by ad hoc shell branching. `weld.release.prepare`,
-`weld.release.track`, and `weld.release.archive` still work without a tarball,
-and the plain `mix release.*` wrappers call into that same flow.
-
-## Integration Rule
-
-If a repo needs bespoke behavior that meaningfully changes how workspace
-discovery, selection, projection, or release bundling work, that behavior
-should usually be implemented in `weld` itself rather than in repo-local shell
-wrappers.
+For internal-only artifacts that intentionally use Git dependencies, set `verify: [hex_build: false]` (or `verify: [hex_publish: false]` when building internal tarballs). `mix release.prepare`, `mix release.track`, and `mix release.archive` work identically without a tarball.

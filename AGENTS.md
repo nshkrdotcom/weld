@@ -60,7 +60,13 @@ relevant guide in the same change.
 
 ## Required Validation Workflow
 
-Run these from the repo root:
+For documentation-only changes, including READMEs, guides, changelogs,
+docstrings, and settings that only affect ExDoc output, run
+`git diff --check` and `mix docs --warnings-as-errors`. Spot-check any changed
+commands or examples. Skip `mix ci` and the full code validation workflow.
+
+For changes to runtime behavior, Mix tasks, dependency declarations, or build
+behavior, run these from the repo root:
 
 ```bash
 mix format --check-formatted
@@ -72,7 +78,7 @@ mix docs --warnings-as-errors
 mix ci
 ```
 
-`mix ci` is the acceptance gate. If it fails, the repo is not done.
+`mix ci` is the acceptance gate for those code and build changes.
 
 ## Working Style
 

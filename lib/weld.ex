@@ -1,6 +1,15 @@
 defmodule Weld do
   @moduledoc """
-  Graph-native package publication tooling for Elixir monorepos.
+  Deterministic package projection, verification, and release-bundle tooling for
+  Elixir workspaces and source-root Mix projects.
+
+  `Weld` resolves a repo-local manifest (`build_support/weld.exs`,
+  `build_support/weld_contract.exs`, or `packaging/weld/*.exs`), builds the
+  workspace dependency graph, projects standalone Mix candidates under
+  `<checkout_root>/.weld/` (`:package_projection`, `:monolith`, or
+  `:source_project`), verifies generated packages with standard Mix gates, and
+  prepares content-addressed release bundles and optional `projection/*` branch
+  snapshots.
   """
 
   @version Mix.Project.config()[:version]

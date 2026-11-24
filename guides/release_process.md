@@ -48,11 +48,12 @@ not imply that a tracked projection commit was released.
 
 ## Publish
 
-Run `mix hex.publish` from the prepared bundle after inspection. In
-both projection modes, `weld.verify` exercises
-`mix hex.publish --dry-run --yes` unless `verify: [hex_publish: false]` is set.
+Run `mix hex.publish` from the prepared bundle's `project/` directory after
+inspection. Across all projection modes, `weld.verify` exercises
+`mix hex.publish --dry-run --yes` whenever both `verify.hex_build` and
+`verify.hex_publish` are enabled.
 
-Publish is the only release step that actually requires a tarball.
+Publish is the only release step that requires a tarball.
 
 ## Archive
 
@@ -72,8 +73,9 @@ The prepared bundle contains:
 
 - projected Mix project tree in `project/`
 - browser preview at `docs/index.html` beside the project, with generated Markdown when available
-- `project/projection.lock.json` for auditing the projection. It is also
-  retained in the tracked Git projection. Hex tarballs omit this file.
+- `project/weld.provenance.json` and `project/projection.lock.json` for auditing
+  the projection. Both are retained in the prepared project and tracked Git
+  projection; Hex tarballs omit `projection.lock.json`.
 - built tarball when `verify.hex_build` is enabled
 - `release.json` metadata
 
@@ -106,9 +108,9 @@ It is not intended to be an active generated development branch. The source
 monorepo remains the source of truth, and `projection/<package_name>` is the
 optional generated-source tracking surface when you need one.
 
-## Prepared identities in 0.15.0
+## Prepared Identities And Storage
 
-Preparation activates `.weld/releases/<artifact>/<identity>/` after verifying the staged tree. Its SHA-256 identity covers release metadata, the source revision when available, configuration digest, verified project/docs/archive checksums, resolved lock digest, toolchain and verification outcomes. The recorded timestamp is informational. Tracking reads the integrity-checked current prepared bundle and keeps the orphan projection history. Archives live at `.weld/archive/<artifact>/<identity>/`. See [Source-root artifacts](source_projects.md) for output ownership and migration.
+Preparation stages and verifies the bundle before activating `.weld/releases/<artifact>/<identity>/` and updating `.weld/releases/<artifact>/CURRENT`. Its SHA-256 `<identity>` covers release metadata, source revision (when in Git; required for `:source_project`), manifest digest, verified `project/`, `docs/`, and archive checksums, resolved `mix.lock` digest, Elixir/OTP toolchain, and verification outcomes. The recorded `prepared_at` timestamp is informational and excluded from `<identity>`. Repeating preparation with unchanged inputs reuses the verified bundle. Tracking reads the integrity-checked `CURRENT` bundle and creates no commit when the projected tree is unchanged. Archives live at `.weld/archive/<artifact>/<identity>/`. See [Source-Root Artifacts](source_projects.md) for `.weld/` lock ownership and migration details.
 
 For Weld itself, the checked-in `build_support/weld.exs` selects the root `:weld` project. Resolve and commit the reviewed lock, run `mix ci` on the supported Elixir toolchains, then prepare, archive and optionally track from the clean release revision.
 

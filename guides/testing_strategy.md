@@ -19,16 +19,16 @@ These tests cover:
 
 These tests cover:
 
-- projecting a standalone Mix artifact (package-projection and monolith modes)
+- projecting a standalone Mix artifact (`:package_projection`, `:monolith`, and `:source_project` modes, plus `--live` views for `:source_project`)
 - compiling the artifact
 - running welded artifact tests
 - building docs
 - building the Hex tarball when `verify.hex_build` is enabled
 - preparing and tracking bundles for internal-only artifacts even when no
   tarball is present
-- running `mix hex.publish --dry-run --yes` when `verify.hex_publish` is enabled
-  in package-projection mode
-- compiling the smoke app when configured (package-projection mode)
+- running `mix hex.publish --dry-run --yes` when both `verify.hex_build` and
+  `verify.hex_publish` are enabled
+- compiling the smoke app when configured
 - monolith test baseline gate: asserting the merged artifact runs at least as
   many tests as the sum of selected-package baselines
 - monolith source-only test support policy: asserting any non-selected support

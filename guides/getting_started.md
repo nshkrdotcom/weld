@@ -1,9 +1,8 @@
 # Getting Started
 
-`Weld` belongs in the root project that owns packaging and release work for a
-multi-project Elixir repo.
+`Weld` can be installed in the workspace root project or—when keeping a public `:source_project` root free of maintainer dependencies—in a dedicated maintainer project such as `tools/maintainer/mix.exs`. Consumers of your source root, generated projections, `projection/*` branches, or Hex packages never install `Weld`.
 
-## 1. Add The Dependency
+## 1. Add The Maintainer Dependency
 
 ```elixir
 def deps do
@@ -15,7 +14,9 @@ end
 
 ## 2. Add A Repo-Local Manifest
 
-Create a manifest such as `packaging/weld/my_bundle.exs`:
+Store your manifest in one of Weld's auto-discovered locations (`build_support/weld.exs`, `build_support/weld_contract.exs`, or a single `packaging/weld/*.exs`).
+
+For example, `packaging/weld/my_bundle.exs` in default package-projection mode:
 
 ```elixir
 [
@@ -61,100 +62,81 @@ Create a manifest such as `packaging/weld/my_bundle.exs`:
 ]
 ```
 
-`workspace.root` is resolved relative to the manifest file. In
-`packaging/weld/...`, `"../.."` points back to the repo root.
+Key manifest concepts:
 
-Every `output.docs` and `output.assets` entry is copied into the generated
-project and included in its Hex package allowlist. `package.docs` controls the
-generated ExDoc menu and presentation without requiring a consumer-specific
-post-generation edit.
+- `workspace.root` resolves relative to the manifest file (`"../.."` from `packaging/weld/my_bundle.exs`, or `".."` from `build_support/weld.exs`).
+- **Choose the composition mode that matches your repo:**
+  - `:package_projection` *(default)* stages selected workspace projects under `components/<project_id>/` and synthesizes a root `mix.exs` (and merged `Application` module when selected projects start OTP children).
+  - `:monolith` merges `lib/`, `priv/`, migrations, configs, and declared `:test_paths` into a single flat Mix project. Declare any non-selected test helpers explicitly in `monolith_opts[:test_support_projects]`.
+  - `:source_project` (`roots: ["."]`) preserves an existing root `mix.exs` and materializes its declared `source_project[:files]` inventory as either a full copy or a symlinked `--live` view. See [Source-Root Artifacts](source_projects.md).
+- Every `output.docs` and `output.assets` entry (in `:package_projection` and `:monolith` modes) is copied into the generated project and added to its Hex `package.files` allowlist.
+- Declare `dependencies` when a selected workspace project uses `:path`, `:git`, or `:github` for an external dependency that must be rewritten to a canonical Hex requirement (or canonical Git spec) in the projected package.
 
-Use `dependencies` when a selected workspace project depends on an external
-package through a local `:path`, `:git`, or `:github` declaration that cannot
-ship in the welded artifact as-is. `weld` will rewrite that dependency to the
-canonical requirement you declare here.
-
-## 3. Inspect Before You Project
+## 3. Initialize `.weld/` And Inspect The Graph
 
 ```bash
+mix weld.setup
 mix weld.inspect
 mix weld.graph --format dot
 ```
 
-Use these commands to confirm project discovery, classifications, and graph
-shape before generating output.
+`mix weld.setup` initializes `<checkout_root>/.weld/` and ensures `.weld/` is present in `.gitignore`. Commit any `.gitignore` change before preparing releases from a clean Git working tree.
 
-If the repo uses one of Weld's standard manifest locations, you can omit the
-manifest path entirely. Explicit paths are still useful when a repo carries
-more than one manifest.
+Use `weld.inspect` and `weld.graph` to confirm project discovery, classifications, selected closures, and zero boundary violations before projecting.
 
-## 4. Generate The Welded Package
+## 4. Generate Projections
 
 ```bash
+# Portable full projection under .weld/full/<artifact>/project/
 mix weld.project
+
+# Symlinked live view under .weld/live/<artifact>/ (:source_project mode only)
+mix weld.project --live
 ```
 
-Package-projection mode (the default, `mode: :package_projection`) creates a
-standalone Mix project under `.weld/full/<artifact>/project/` with a component-preserving
-layout.
+Full projections contain regular files only, `weld.provenance.json` (`kind: "full"` and content-addressed `artifact_id`), and `projection.lock.json`. Live projections symlink a `:source_project` inventory back to the checkout so local path consumers see source edits immediately without installing Weld.
 
-Monolith mode (`mode: :monolith`) creates a merged flat project under
-`.weld/full/<artifact>/project/`, combining sources, tests, config, migrations, and
-priv from all selected packages into a single project tree.
-
-If selected projects publish OTP application modules, the generated package also
-gets a merged `lib/<otp_app>/application.ex`. In monolith mode this module also
-bootstraps per-package config at startup via `Config.Reader`.
-
-If monolith tests need source-only support from non-selected workspace
-projects, keep that policy explicit with
-`monolith_opts[:test_support_projects]`.
-
-## 5. Verify The Welded Package
+## 5. Verify The Projected Artifact
 
 ```bash
 mix weld.verify
 ```
 
-**Package-projection mode** runs:
+**Package-projection and source-project modes** run:
 
+- `mix deps.get`
 - `mix deps.compile`
 - `mix compile --warnings-as-errors --no-compile-deps`
 - `mix test`
 - `mix docs --warnings-as-errors`
-- `mix hex.build`
-- `mix hex.publish --dry-run --yes`
-- optional smoke verification when configured
-
-Set `verify: [hex_build: false]` for internal artifacts that intentionally
-depend on non-Hex git dependencies, and `verify: [hex_publish: false]` when
-you want package verification without the dry-run publish step.
+- optional consumer smoke-app compilation when `verify.smoke.enabled` is `true`
+- `mix hex.build` (when `verify.hex_build` is `true`)
+- `mix hex.publish --dry-run --yes` (when both `hex_build` and `hex_publish` are `true`)
 
 **Monolith mode** runs:
 
-- per-package test baseline (each selected package's own test suite)
+- per-package test baseline across each selected workspace project
 - `mix deps.get`
 - `mix compile --warnings-as-errors`
-- `mix test` (asserts test count is not lower than the baseline sum)
+- `mix test` (asserting the merged test count is at least the baseline sum)
 - `mix docs --warnings-as-errors`
-- `mix hex.build`
+- `mix hex.build` (when `verify.hex_build` is `true`)
+- `mix hex.publish --dry-run --yes` (when both `hex_build` and `hex_publish` are `true`)
 
-Monolith artifacts can also disable `hex.build` with
-`verify: [hex_build: false]` when they are intentionally not Hex-packagable.
+Set `verify: [hex_build: false]` for internal artifacts with non-Hex Git dependencies, or `verify: [hex_publish: false]` to verify tarball creation without running the dry-run publish check.
 
-## 6. Prepare, Track, And Archive Releases
+## 6. Prepare, Track, Publish, And Archive
+
+From a clean committed Git tree:
 
 ```bash
 mix release.prepare
 mix release.track
-mix hex.publish --yes
+# Optional: cd into the prepared project printed by release.prepare and run:
+# mix hex.publish --yes
 mix release.archive
 ```
 
-The prepared bundle always contains the projected project tree, lockfile, and
-release metadata. It also contains the tarball when `verify.hex_build` is
-enabled. That means internal-only artifacts can still use prepare, track, and
-archive without pretending they are Hex-buildable.
+`mix release.prepare` writes an immutable, integrity-checked bundle to `.weld/releases/<artifact>/<identity>/` (with `project/`, rendered HTML/Markdown `docs/`, `release.json`, and optional tarball) and updates `.weld/releases/<artifact>/CURRENT`.
 
-`mix release.track` updates `projection/<package_name>` from the prepared
-bundle and creates the first projection branch as an orphan by default.
+`mix release.track` syncs the prepared `project/` onto an orphan `projection/<package_name>` branch so Git consumers can pin projected snapshots without touching `main`. `mix release.archive` copies the verified bundle to `.weld/archive/<artifact>/<identity>/`.

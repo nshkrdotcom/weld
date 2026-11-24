@@ -52,15 +52,24 @@ contains:
 
 - `mode` — `:package_projection` (default), `:monolith`, or `:source_project`. The alias
   `:components` is accepted as a synonym for `:package_projection`.
-- `source_project` — explicit root inventory and structural fingerprint inputs. See [Source-root artifacts](source_projects.md).
+- `source_project` — keyword list of source-root options (required when `mode: :source_project`; rejected in other modes).
 - `monolith_opts` — keyword list of monolith-specific options (see below).
-  Ignored in package-projection mode.
-- `roots`
-- `include`
-- `optional_features`
+  Ignored outside monolith mode.
+- `roots` — list of root project IDs (`["."]` is required for `:source_project`).
+- `include` — additional project IDs to include (`[]` required for `:source_project`).
+- `optional_features` — optional publication features to enable (`[]` required for `:source_project`).
 - `package`
 - `output`
 - `verify`
+
+## Source-Project Options (`source_project`)
+
+Required when `mode: :source_project` (which also requires `roots: ["."]`, `include: []`, and `optional_features: []`):
+
+- `files` — required list of disjoint relative file/directory paths from the repository root. Must cover `mix.exs`, `mix.lock` (when present), all existing `elixirc_paths`, `erlc_paths`, and `test_paths` of the root Mix project, plus `priv`, `config`, and `include` when present. In `:source_project` mode, the root `mix.exs` directly owns its dependencies, `docs`, `test_paths`, and Hex `package.files`.
+- `structural_inputs` — optional list of relative file paths (default `[]`) hashed alongside `mix.exs`, `mix.lock`, and the manifest to invalidate `--live` projections when structural metadata changes.
+
+See [Source-Root Artifacts](source_projects.md) for complete inventory validation rules.
 
 ## Monolith Options (`monolith_opts`)
 
