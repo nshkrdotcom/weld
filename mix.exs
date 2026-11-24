@@ -161,7 +161,6 @@ defmodule Weld.MixProject do
   defp dialyzer do
     [
       plt_add_apps: [:mix, :credo],
-      plt_local_path: "priv/plts",
       flags: [:error_handling, :missing_return, :underspecs, :unknown]
     ]
   end

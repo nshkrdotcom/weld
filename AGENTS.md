@@ -20,7 +20,6 @@ weld/
   test/          # fixture-backed tests and support helpers
   guides/        # user-facing guides and reference docs
   assets/        # docs/logo assets
-  priv/          # persistent tool data such as PLTs
 ```
 
 Important subtrees:
