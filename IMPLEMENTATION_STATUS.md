@@ -1,13 +1,21 @@
-# Implementation status — November 24, 2026
+# Weld 0.15.0 implementation status
 
-The 0.15.0 source implements checkout-owned `.weld/` output management, canonical ignore normalization, live/source and full/portable projections, immutable prepared release identities, source-consumption fixtures and updated release documentation. Main-tree development remains authoritative; projection branches remain snapshots. Existing flattened projection modes and data-only compatibility metadata remain supported.
+Weld 0.15.0 provides checkout-owned `.weld/` output management, live source
+views, portable full projections, and immutable prepared release identities.
+The main tree owns development. Projection branches retain generated source
+snapshots.
 
-The independently reviewed changes include smoke consumer isolation from inherited Mix path overrides. Permanent regression coverage lives in `test/weld/{output,source_project,source_consumption,smoke_app}_test.exs`, the release tests and the neutral `test/fixtures/source_project` fixture. See `guides/source_projects.md` for the exact new manifest and paths.
+`mix ci` passed all 11 lanes on Elixir 1.18.0 / OTP 27.1.2 and Elixir 1.20.5 /
+OTP 29.1.2, including legacy projection modes, real consumers, strict Credo,
+Dialyzer and ExDoc. The prepared browser preview excludes the variable EPUB
+while ExDoc continues to validate the configured documentation formats.
+Dialyzer uses the Mix build directory for its local state.
 
-## Evidence boundary
+Tag `v0.15.0` names source commit
+`1f695bf29d540bdf9957109090900e6f5b126024`. The prepared package and the public
+Hex tarball share SHA-256
+`82eb1d9c5500acdc29645dc69b4d945acc6482c0acebe91ea3efa692f047d1be`.
+MedEx verified adoption of the published tool through its maintainer project.
 
-Git whitespace checks and inspected filesystem/Git primitives passed. Approximate lexical inspection found no Elixir delimiter issues. These are not compilation or ExUnit results. No Elixir/OTP runtime was available during implementation; `mix ci`, all Mix/Hex consumer operations, formatter/lint/type checks, documentation generation and release preparation require execution on the target toolchains.
-
-Run the full `AGENTS.md` acceptance gate, including `mix ci` and the source-consumption lane. Verify the next minor against actual history, prepare from a clean committed revision, inspect the exact archive, and let the user perform publication. Verify the published Hex version afterward. No source status document substitutes for the release receipt or recorded prepared identity.
-
-The fixtures, consumer tests and smoke isolation regression are permanent. No temporary Python inspection scripts were added to Weld. Historical generated directories require an ownership check before deletion; the migration does not authorize deleting unknown local content.
+See the [release process](guides/release_process.md) and
+[source-root artifacts](guides/source_projects.md) guides for the workflow.
