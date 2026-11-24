@@ -119,7 +119,10 @@ defmodule Weld.GraphLiveTest do
     bytes = "defmodule Fixture.ReservedPath, do: def(value, do: :source)\n"
     File.write!(source, bytes)
 
-    assert_raise File.Error, fn -> Weld.project!(manifest, live: true) end
+    assert_raise Weld.Error, ~r/projection path collision/, fn ->
+      Weld.project!(manifest, live: true)
+    end
+
     assert File.read!(source) == bytes
   end
 
@@ -138,6 +141,7 @@ defmodule Weld.GraphLiveTest do
   test "ordinary consumers compile graph live edits and detached full projects without Weld" do
     root = FixtureCase.copy_fixture("source_project")
     manifest = Path.join(root, "build_support/graph.exs")
+
     File.write!(manifest, """
     [workspace: [root: "..", project_globs: ["components/*", "extensions/*"]],
      artifacts: [sprout: [roots: ["components/runtime"],
@@ -145,28 +149,43 @@ defmodule Weld.GraphLiveTest do
        output: [docs: ["README.md"], assets: ["priv"]],
        verify: [hex_publish: false]]]]
     """)
+
     scratch = FixtureCase.unique_tmp_dir("graph_consumers")
     live = Weld.project!(manifest, live: true)
     full = Weld.project!(manifest)
     detached = Path.join(scratch, "full")
     File.cp_r!(full.build_path, detached)
 
-    consumers = for {name, source} <- [{"live", live.build_path}, {"full", detached}] do
-      consumer = Path.join(scratch, name <> "_consumer")
-      File.mkdir!(consumer)
-      File.write!(Path.join(consumer, "mix.exs"), """
-      defmodule GraphConsumer.MixProject do
-        use Mix.Project
-        def project, do: [app: :graph_consumer, version: "0.1.0",
-          deps: [{:sprout, path: #{inspect(source)}}]]
-      end
-      """)
-      mix!(consumer, ["deps.get"])
-      mix!(consumer, ["run", "-e", ":seed = Sprout.Runtime.value(); \"sage\\n\" = Sprout.Runtime.asset(); false = Code.ensure_loaded?(Weld)"])
-      {name, consumer}
-    end
+    consumers =
+      for {name, source} <- [{"live", live.build_path}, {"full", detached}] do
+        consumer = Path.join(scratch, name <> "_consumer")
+        File.mkdir!(consumer)
 
-    live_consumer = Keyword.fetch!(Enum.map(consumers, fn {name, path} -> {String.to_atom(name), path} end), :live)
+        File.write!(Path.join(consumer, "mix.exs"), """
+        defmodule GraphConsumer.MixProject do
+          use Mix.Project
+          def project, do: [app: :graph_consumer, version: "0.1.0",
+            deps: [{:sprout, path: #{inspect(source)}}]]
+        end
+        """)
+
+        mix!(consumer, ["deps.get"])
+
+        mix!(consumer, [
+          "run",
+          "-e",
+          ":seed = Sprout.Runtime.value(); \"sage\\n\" = Sprout.Runtime.asset(); false = Code.ensure_loaded?(Weld)"
+        ])
+
+        {name, consumer}
+      end
+
+    live_consumer =
+      Keyword.fetch!(
+        Enum.map(consumers, fn {name, path} -> {String.to_atom(name), path} end),
+        :live
+      )
+
     addition = Path.join(root, "components/pure/lib/extra.ex")
     File.write!(addition, "defmodule Sprout.Extra, do: def(value, do: :visible)\n")
     mix!(live_consumer, ["run", "-e", ":visible = Sprout.Extra.value()"])
@@ -177,12 +196,27 @@ defmodule Weld.GraphLiveTest do
     on_exit(fn -> File.rm_rf!(root <> "-offline") end)
     {"full", full_consumer} = List.keyfind(consumers, "full", 0)
     File.rm_rf!(Path.join(full_consumer, "_build"))
-    mix!(full_consumer, ["run", "-e", ":seed = Sprout.Runtime.value(); \"sage\\n\" = Sprout.Runtime.asset()"])
+
+    mix!(full_consumer, [
+      "run",
+      "-e",
+      ":seed = Sprout.Runtime.value(); \"sage\\n\" = Sprout.Runtime.asset()"
+    ])
   end
 
   defp mix!(root, args) do
-    {output, status} = System.cmd("mix", args, cd: root, stderr_to_stdout: true,
-      env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_BUILD_ROOT", nil}, {"MIX_DEPS_PATH", nil}])
+    {output, status} =
+      System.cmd("mix", args,
+        cd: root,
+        stderr_to_stdout: true,
+        env: [
+          {"MIX_ENV", "test"},
+          {"MIX_BUILD_PATH", nil},
+          {"MIX_BUILD_ROOT", nil},
+          {"MIX_DEPS_PATH", nil}
+        ]
+      )
+
     assert status == 0, output
   end
 

@@ -39,7 +39,9 @@ defmodule Weld.Projector.Live do
             do: [],
             else: project.test_paths ++ ["config", "test"]
 
-        (project.elixirc_paths ++ project.erlc_paths ++ [project.erlc_include_path] ++
+        (project.elixirc_paths ++
+           project.erlc_paths ++
+           [project.erlc_include_path] ++
            ~w(lib src c_src include priv) ++ test_roots)
         |> Enum.uniq()
         |> Enum.map(&Path.expand(&1, project.abs_path))
@@ -78,10 +80,14 @@ defmodule Weld.Projector.Live do
 
       weld_digest = fn path ->
         case File.lstat(path) do
-          {:ok, %{type: :regular}} ->
+          {:ok, %{type: :regular, mode: mode}} ->
             case File.read(path) do
-              {:ok, bytes} -> Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
-              _ -> :unreadable
+              {:ok, bytes} ->
+                {Base.encode16(:crypto.hash(:sha256, bytes), case: :lower),
+                 Bitwise.band(mode, 0o111)}
+
+              _ ->
+                :unreadable
             end
 
           {:error, :enoent} ->
@@ -102,6 +108,7 @@ defmodule Weld.Projector.Live do
 
       weld_walk = fn walk, path ->
         type = weld_type.(path)
+
         children =
           if type == :directory do
             case File.ls(path) do
@@ -111,6 +118,7 @@ defmodule Weld.Projector.Live do
           else
             []
           end
+
         [{path, type} | children]
       end
 
@@ -192,14 +200,23 @@ defmodule Weld.Projector.Live do
 
   defp walk(path) do
     type = path_type(path)
-    children = if type == :directory,
-      do: path |> File.ls!() |> Enum.flat_map(&walk(Path.join(path, &1))), else: []
+
+    children =
+      if type == :directory,
+        do: path |> File.ls!() |> Enum.flat_map(&walk(Path.join(path, &1))),
+        else: []
+
     [{path, type} | children]
   end
 
   defp fingerprint(path) do
     Output.reject_link!(path)
-    if File.regular?(path), do: Hash.sha256_file(path), else: :missing
+
+    case File.lstat(path) do
+      {:ok, %{type: :regular, mode: mode}} -> {Hash.sha256_file(path), Bitwise.band(mode, 0o111)}
+      {:error, :enoent} -> :missing
+      _ -> raise Weld.Error, "invalid live input: #{path}"
+    end
   end
 
   defp path_type(path) do

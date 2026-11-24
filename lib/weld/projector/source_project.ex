@@ -45,8 +45,15 @@ defmodule Weld.Projector.SourceProject do
         source_paths = Enum.map(roots, &Path.join(plan.manifest.repo_root, &1.source))
 
         guard = Live.guard_ast(plan, directories: source_paths)
-        write_live_mix!(Path.join(root, "mix.exs"), Path.join(stage, "mix.exs"), root, guard,
-          linked_roots(stage, stage))
+
+        write_live_mix!(
+          Path.join(root, "mix.exs"),
+          Path.join(stage, "mix.exs"),
+          root,
+          guard,
+          linked_roots(stage, stage)
+        )
+
         validate_staging!(stage, root, root, [project])
 
         verification_files -- live_copies
@@ -68,6 +75,7 @@ defmodule Weld.Projector.SourceProject do
 
     for entry <- roots do
       relative = entry.target
+
       if hd(Path.split(relative)) in @reserved,
         do: raise(Error, "reserved source inventory path: #{relative}")
 
@@ -278,6 +286,7 @@ defmodule Weld.Projector.SourceProject do
 
   defp package_files!(project, root, stage) do
     files = project.package_files || @hex_default_files
+
     files
     |> Enum.flat_map(fn pattern ->
       if Path.type(pattern) != :relative or ".." in Path.split(pattern),
@@ -331,9 +340,14 @@ defmodule Weld.Projector.SourceProject do
       Path.wildcard(Path.join([path, "**", "*.ex"]))
     end)
     |> Enum.uniq()
-    |> Enum.reduce(%{}, fn path, seen ->
-      declarations = path |> File.read!() |> Code.string_to_quoted!(file: path) |> modules([])
+    |> Enum.map(&{&1, File.read!(&1)})
+    |> validate_module_sources!()
+  end
 
+  @doc false
+  def validate_module_sources!(sources) do
+    Enum.reduce(sources, %{}, fn {path, contents}, seen ->
+      declarations = contents |> Code.string_to_quoted!(file: path) |> modules([])
       Enum.reduce(declarations, seen, &register_module!(&2, &1, path))
     end)
   end
@@ -393,6 +407,7 @@ defmodule Weld.Projector.SourceProject do
           generated_root = __DIR__
 
           docs = config[:docs] || []
+
           mutable_paths = [
             config[:build_path] || "_build",
             config[:deps_path] || "deps",
@@ -404,7 +419,8 @@ defmodule Weld.Projector.SourceProject do
             absolute = Path.expand(path, generated_root)
 
             unless String.starts_with?(absolute, generated_root <> "/"),
-              do: Mix.raise("live source project mutable path escapes its generated root: " <> path)
+              do:
+                Mix.raise("live source project mutable path escapes its generated root: " <> path)
 
             absolute
             |> Path.relative_to(generated_root)
@@ -420,6 +436,7 @@ defmodule Weld.Projector.SourceProject do
 
             for relative <- unquote(links) do
               linked = Path.expand(relative, generated_root)
+
               if linked == absolute or String.starts_with?(linked, absolute <> "/") or
                    String.starts_with?(absolute, linked <> "/") do
                 Mix.raise("live source project mutable path contains linked source: " <> path)

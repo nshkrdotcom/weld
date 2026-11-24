@@ -66,6 +66,7 @@ defmodule Weld do
         externalized_edges: Enum.map(plan.externalized_edges, &report_edge(plan, &1)),
         structural_inputs: plan.structural_inputs,
         source_inventory: plan.source_inventory,
+        output_inventory: plan.output_inventory,
         source_target_basis: source_target_basis(plan),
         external_deps: Enum.map(plan.external_deps, &Atom.to_string(&1.app))
       },
@@ -238,7 +239,9 @@ defmodule Weld do
         do: relationship
   end
 
-  defp source_target_basis(%Plan{artifact: %{mode: :monolith}}), do: :before_merge
+  defp source_target_basis(%Plan{artifact: %{mode: :monolith}, monolith_plan: nil}),
+    do: :unresolved
+
   defp source_target_basis(_plan), do: :projection
 
   defp serialize_violation(violation) do

@@ -2,6 +2,7 @@ defmodule Weld.Projector.Monolith.Migrations do
   @moduledoc false
 
   alias Weld.{Error, Hash}
+  alias Weld.Projector.Monolith.FilePlan
 
   @spec merge!([Weld.Workspace.Project.t()], Path.t()) :: %{
           copied_files: [String.t()],
@@ -9,6 +10,12 @@ defmodule Weld.Projector.Monolith.Migrations do
           layout: map()
         }
   def merge!(projects, build_path) do
+    result = plan!(projects)
+    FilePlan.materialize!(result.operations, build_path, :full)
+    result
+  end
+
+  def plan!(projects) do
     migrating_projects =
       projects
       |> Enum.filter(&File.dir?(Path.join(&1.abs_path, "priv/repo/migrations")))
@@ -49,15 +56,23 @@ defmodule Weld.Projector.Monolith.Migrations do
 
     groups = Enum.group_by(files, &timestamp_prefix(&1.filename))
 
-    {copied_files, remaps} =
-      Enum.flat_map_reduce(groups, [], fn {_timestamp, entries}, acc ->
-        copy_group!(entries, layout, build_path, acc)
+    # Reserve every original timestamp first. Offset collisions (including
+    # offsets hitting another original group) advance deterministically.
+    reserved = MapSet.new(Map.keys(groups))
+
+    {operations, {remaps, _used}} =
+      groups
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.flat_map_reduce({[], reserved}, fn {_timestamp, entries}, acc ->
+        plan_group!(entries, layout, acc)
       end)
 
-    maybe_write_remap!(build_path, remaps, layout)
+    remaps = Enum.reverse(remaps)
+    operations = operations ++ remap_operations(remaps, layout, Enum.map(files, & &1.source))
 
     %{
-      copied_files: copied_files |> Enum.uniq() |> Enum.sort(),
+      operations: operations,
+      copied_files: Enum.map(operations, & &1.target) |> Enum.sort(),
       remaps: remaps,
       layout: layout
     }
@@ -65,41 +80,32 @@ defmodule Weld.Projector.Monolith.Migrations do
 
   defp multi_repo_paths(projects) do
     Map.new(projects, fn project ->
-      slug =
-        project.id
-        |> String.replace(~r/[^a-zA-Z0-9]+/, "_")
-        |> String.trim("_")
-        |> String.downcase()
+      slug = FilePlan.slug(project.id)
 
       {project.id, Path.join("priv/weld_repos", slug)}
     end)
   end
 
-  defp copy_group!(entries, layout, build_path, acc) do
+  defp plan_group!(entries, layout, acc) do
     multiple? = length(entries) > 1
 
     entries
     |> Enum.sort_by(fn entry -> {entry.project_id, entry.filename} end)
     |> Enum.with_index()
-    |> Enum.map_reduce(acc, fn {entry, index}, remaps ->
-      filename =
+    |> Enum.map_reduce(acc, fn {entry, index}, {remaps, used} ->
+      {filename, used} =
         if multiple? do
-          restamp_filename(entry.filename, entry.project_id, index)
+          restamp_filename(entry.filename, entry.project_id, index, used)
         else
-          entry.filename
+          {entry.filename, used}
         end
 
       target =
         Path.join([
-          build_path,
           Map.fetch!(layout.repo_paths, entry.project_id),
           "migrations",
           filename
         ])
-
-      ensure_new_target!(target)
-      File.mkdir_p!(Path.dirname(target))
-      File.cp!(entry.source, target)
 
       remaps =
         if filename == entry.filename do
@@ -115,11 +121,14 @@ defmodule Weld.Projector.Monolith.Migrations do
           ]
         end
 
-      {Path.relative_to(target, build_path), remaps}
+      {FilePlan.copy(entry.source, target, :runtime, :copy), {remaps, used}}
     end)
   end
 
-  defp restamp_filename(filename, project_id, index) do
+  defp restamp_filename(filename, project_id, index, used) do
+    unless Regex.match?(~r/^[0-9]{14}_/, filename),
+      do: raise(Error, "invalid colliding migration filename: #{filename}")
+
     <<timestamp::binary-size(14), "_", rest::binary>> = filename
     base = String.to_integer(timestamp)
 
@@ -127,7 +136,14 @@ defmodule Weld.Projector.Monolith.Migrations do
       :erlang.phash2({project_id, filename, index}, 89_999)
       |> Kernel.+(1)
 
-    "#{base + offset}_#{rest}"
+    stamp = unused_timestamp(base + offset, used)
+    {"#{stamp}_#{rest}", MapSet.put(used, stamp)}
+  end
+
+  defp unused_timestamp(value, used) do
+    stamp = Integer.to_string(value) |> String.pad_leading(14, "0")
+    if byte_size(stamp) != 14, do: raise(Error, "migration restamp exceeds 14 digits")
+    if MapSet.member?(used, stamp), do: unused_timestamp(value + 1, used), else: stamp
   end
 
   defp timestamp_prefix(filename) do
@@ -137,25 +153,14 @@ defmodule Weld.Projector.Monolith.Migrations do
     end
   end
 
-  defp maybe_write_remap!(_build_path, [], _layout), do: :ok
+  defp remap_operations([], _layout, _sources), do: []
 
-  defp maybe_write_remap!(build_path, remaps, layout) do
+  defp remap_operations(remaps, layout, sources) do
     target =
-      case layout.case do
-        :single -> Path.join([build_path, "priv/repo/migrations", ".weld_remap.json"])
-        :multi -> Path.join([build_path, "priv", ".weld_remap.json"])
-        :none -> Path.join([build_path, "priv", ".weld_remap.json"])
-      end
+      if layout.case == :single,
+        do: "priv/repo/migrations/.weld_remap.json",
+        else: "priv/.weld_remap.json"
 
-    File.mkdir_p!(Path.dirname(target))
-    ensure_new_target!(target)
-    File.write!(target, Jason.encode_to_iodata!(remaps, pretty: true), [:exclusive])
-  end
-
-  defp ensure_new_target!(target) do
-    case File.lstat(target) do
-      {:error, :enoent} -> :ok
-      _ -> raise Error, "migration path collision: #{target}"
-    end
+    [FilePlan.generated(target, Jason.encode!(remaps, pretty: true), :runtime, sources)]
   end
 end

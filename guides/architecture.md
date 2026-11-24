@@ -80,11 +80,20 @@ compiling its modules. The inventory records linked files as well as
 generated or copied files, and affected analysis uses ownership to attribute
 Git paths even when files have moved or been removed.
 
-Monolith planning labels its inventory targets `before_merge`. Final source
-placement is recorded after materialization in `source_mappings`, `file_remaps`,
-migration layout/remaps and helper transformations. Verification preserves those
-records in the projection lock. Pre-materialization inspection does not expose
-a complete final map for transformed files.
+Monolith planning resolves the final layout before creating an output tree.
+`source_inventory` maps each source to its final destination(s), including
+multiple owners of deduplicated files and inputs to transformed/generated files.
+`output_inventory` lists each actual project file once, with its input owners,
+operation, publication membership, and a generated-content digest (full form).
+`source_target_basis: :projection` denotes a valid final layout; an invalid
+artifact with graph violations uses `:unresolved`. Live and full use the same
+paths and operations; live links ordinary files and writes transformed files.
+The materializer verifies the planned input snapshot, bytes, executable flags,
+links and exact file inventory before activating the output. Live guards detect
+topology, metadata, deduplicated and transformed-input changes. The lock preserves
+the same final inventory; Weld bookkeeping and the later resolved Mix lock are
+outside the initial output inventory. Affected analysis uses final destinations
+for existing inputs and directory membership for deleted or renamed inputs.
 
 ## Projection Modes
 

@@ -72,12 +72,21 @@ defmodule Weld.Affected do
   end
 
   defp matching_inventory(plan, paths) do
-    for path <- paths,
-        entry <- plan.source_roots,
-        path == entry.source or (entry.directory and Inventory.covered?(path, entry.source)) do
-      %{path: path, owner: source_owner(plan, path), kind: entry.kind}
-    end
-    |> Enum.uniq()
+    exact =
+      for path <- paths, entry <- plan.source_inventory, path == entry.source do
+        %{path: path, owner: source_owner(plan, path), kind: entry.kind, target: entry.target}
+      end
+
+    # Directory membership covers paths absent in the current tree (add/delete/rename).
+    roots =
+      for path <- paths,
+          not Enum.any?(exact, &(&1.path == path)),
+          entry <- plan.source_roots,
+          path == entry.source or (entry.directory and Inventory.covered?(path, entry.source)) do
+        %{path: path, owner: source_owner(plan, path), kind: entry.kind}
+      end
+
+    Enum.uniq(exact ++ roots)
   end
 
   defp source_owner(plan, path) do

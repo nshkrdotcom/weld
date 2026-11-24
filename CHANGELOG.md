@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Plan monolith collisions, migration layouts, configuration, helpers and
+  generated project files before writing outputs. Inspection, affected analysis,
+  projection locks and both projection kinds use the final inventory. Reject
+  stale plans, ambiguous slugs, and file/directory collisions before activation.
+
 - Report the actual projects that own compiled sources and inventory, including
   sources linked into live projects. Use the same ownership to detect affected
   artifacts when Git paths are added, changed, renamed, or deleted.

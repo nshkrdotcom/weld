@@ -36,7 +36,9 @@ defmodule Weld.Plan do
                 source_root: nil,
                 source_roots: [],
                 source_inventory: [],
-                structural_inputs: []
+                structural_inputs: [],
+                monolith_plan: nil,
+                output_inventory: []
               ]
 
   @type external_dep :: Graph.external_dep()
@@ -56,6 +58,8 @@ defmodule Weld.Plan do
           source_roots: [Inventory.entry()],
           source_inventory: [Inventory.entry()],
           structural_inputs: [Path.t()],
+          monolith_plan: map() | nil,
+          output_inventory: [map()],
           selected_ids: [String.t()],
           excluded_ids: [String.t()],
           selected_projects: [Project.t()],
@@ -151,18 +155,23 @@ defmodule Weld.Plan do
       |> Kernel.++(selection_violations)
       |> Kernel.++(boundary_violations)
       |> Kernel.++(
-        copied_boundary_violations(artifact, selected_ids ++ verification_ids ++ inventory_member_ids)
+        copied_boundary_violations(
+          artifact,
+          selected_ids ++ verification_ids ++ inventory_member_ids
+        )
       )
       |> Kernel.++(merge_result.violations)
       |> Kernel.++(verification_violations(artifact, test_graph, test_ids))
       |> Kernel.++(source_dependency_violations(artifact, artifact_graph, known_seeds))
-      |> Kernel.++(selection_policy_violations(workspace.projects, dependency_ids, artifact_graph))
+      |> Kernel.++(
+        selection_policy_violations(workspace.projects, dependency_ids, artifact_graph)
+      )
       |> Enum.uniq()
       |> Enum.sort_by(fn violation ->
         {violation.code, violation.project || "", violation.dependency || :none}
       end)
 
-    %__MODULE__{
+    plan = %__MODULE__{
       manifest: manifest,
       artifact: artifact,
       workspace: workspace,
@@ -177,7 +186,10 @@ defmodule Weld.Plan do
       source_roots: source_roots,
       source_inventory: source_inventory,
       structural_inputs:
-        structural_inputs!(manifest, artifact, source_projects,
+        structural_inputs!(
+          manifest,
+          artifact,
+          source_projects,
           selected_ids ++ verification_ids ++ artifact.external_projects
         ),
       selected_ids: selected_ids,
@@ -186,7 +198,17 @@ defmodule Weld.Plan do
       external_deps: merge_result.external_deps,
       violations: violations
     }
+
+    finalize_layout!(plan)
   end
+
+  defp finalize_layout!(%__MODULE__{artifact: %{mode: :monolith}, violations: []} = plan) do
+    layout = Weld.Projector.Monolith.plan!(plan)
+    {sources, outputs} = Inventory.monolith_inventory(plan, layout)
+    %{plan | monolith_plan: layout, source_inventory: sources, output_inventory: outputs}
+  end
+
+  defp finalize_layout!(plan), do: plan
 
   defp source_projects!(%{mode: :source_project, roots: [root], package: package}, projects) do
     case Map.get(projects, root) do
@@ -198,7 +220,8 @@ defmodule Weld.Plan do
         raise Error, "source_project root was not discovered: #{root}"
 
       _ ->
-        raise Error, "source project app, version and package name must match the artifact package"
+        raise Error,
+              "source project app, version and package name must match the artifact package"
     end
   end
 
@@ -253,7 +276,12 @@ defmodule Weld.Plan do
 
   # Each selected component runs as a test owner. Its test-only dependencies
   # contribute their package dependencies, without recursively selecting their suites.
-  defp graph_for_view(graph, %{mode: :package_projection, verify: %{component_tests: true}}, ids, :test) do
+  defp graph_for_view(
+         graph,
+         %{mode: :package_projection, verify: %{component_tests: true}},
+         ids,
+         :test
+       ) do
     owners = MapSet.new(ids)
     keep? = fn id, kind -> MapSet.member?(owners, id) or View.allowed?(kind, :package) end
 
@@ -299,7 +327,9 @@ defmodule Weld.Plan do
   defp source_dependency_violations(%{mode: :source_project}, graph, seeds) do
     included = Graph.reachable_from(graph, seeds, :all)
 
-    for edge <- Graph.edges(graph), edge.from in included, not Keyword.has_key?(edge.opts, :path) do
+    for edge <- Graph.edges(graph),
+        edge.from in included,
+        not Keyword.has_key?(edge.opts, :path) do
       Violation.new(
         :source_package_requires_boundary,
         "source_project preserves this versioned dependency as a package; declare the target in external_projects",

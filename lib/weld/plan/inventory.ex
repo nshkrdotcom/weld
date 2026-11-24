@@ -78,6 +78,43 @@ defmodule Weld.Plan.Inventory do
     {roots, workspace |> expand(roots) |> order()}
   end
 
+  def monolith_inventory(plan, layout) do
+    root = plan.manifest.repo_root
+
+    outputs =
+      Enum.map(layout.full, fn op ->
+        inputs =
+          Enum.map(op.sources, fn source ->
+            %{source: Path.relative_to(source, root), owner: owner(plan.workspace, source)}
+          end)
+          |> Enum.sort_by(& &1.source)
+
+        %{
+          target: op.target,
+          inputs: inputs,
+          kind: op.kind,
+          operation: op.operation,
+          publish: Enum.any?(layout.package_files, &covered?(op.target, &1)),
+          generated_digest: if(op.content, do: Weld.Hash.sha256_binary(op.content), else: nil)
+        }
+      end)
+
+    sources =
+      for output <- outputs, input <- output.inputs do
+        %{
+          source: input.source,
+          owner: input.owner,
+          target: output.target,
+          kind: output.kind,
+          directory: false,
+          operation: output.operation,
+          publish: output.publish
+        }
+      end
+
+    {order(sources), outputs}
+  end
+
   def covered?(path, root),
     do: root == "." or path == root or String.starts_with?(path, root <> "/")
 
@@ -90,7 +127,8 @@ defmodule Weld.Plan.Inventory do
       absolute = Path.expand(path, project.abs_path)
 
       unless absolute != project.abs_path and covered?(absolute, project.abs_path) do
-        raise Error, "project #{project.id} source path escapes its project root: #{inspect(path)}"
+        raise Error,
+              "project #{project.id} source path escapes its project root: #{inspect(path)}"
       end
 
       relative = Path.relative_to(absolute, project.abs_path)
@@ -109,7 +147,8 @@ defmodule Weld.Plan.Inventory do
 
     test_compile =
       if include_suite? do
-        normalize_paths(project, project.test_elixirc_paths ++ project.test_erlc_paths) -- compiled
+        normalize_paths(project, project.test_elixirc_paths ++ project.test_erlc_paths) --
+          compiled
       else
         []
       end
@@ -141,16 +180,14 @@ defmodule Weld.Plan.Inventory do
   end
 
   defp component_roots(workspace, :monolith, project, _tests?, verification_only?) do
-    slug =
-      project.id
-      |> String.replace(~r/[^a-zA-Z0-9]+/, "_")
-      |> String.trim("_")
-      |> String.downcase()
+    slug = Weld.Projector.Monolith.FilePlan.slug(project.id)
 
     sources =
-      for path <- project.copy_dirs do
+      for path <- Enum.uniq(project.copy_dirs ++ ["config"]),
+          File.dir?(Path.join(project.abs_path, path)) do
         {target, kind} =
           cond do
+            path == "config" -> {Path.join(["config/sources", slug]), :metadata}
             verification_only? -> {Path.join(["test/support/weld_projects", slug, path]), :test}
             path in ["lib", "src"] -> {path, :compiled}
             true -> {path, :runtime}
@@ -160,7 +197,12 @@ defmodule Weld.Plan.Inventory do
       end
 
     tests =
-      for path <- normalize_paths(project, project.test_paths),
+      for path <-
+            normalize_paths(
+              project,
+              project.test_paths ++
+                Enum.filter(project.test_elixirc_paths, &(&1 == "test/support"))
+            ),
           not verification_only?,
           File.dir?(Path.join(project.abs_path, path)) do
         entry!(workspace, checkout_path(project, path), Path.join("test", slug), :test)
@@ -171,11 +213,14 @@ defmodule Weld.Plan.Inventory do
 
   defp present_component_path?(project, path, declared_paths) do
     cond do
-      File.dir?(Path.join(project.abs_path, path)) -> true
+      File.dir?(Path.join(project.abs_path, path)) ->
+        true
+
       path in declared_paths and path not in ~w(lib src include test) ->
         raise Error, "project #{project.id} declared source path not found: #{path}"
 
-      true -> false
+      true ->
+        false
     end
   end
 

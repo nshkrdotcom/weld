@@ -44,7 +44,12 @@ defmodule Weld.Lockfile do
       source: %{
         inventory: plan.source_inventory,
         structural_inputs: plan.structural_inputs,
-        target_basis: if(plan.artifact.mode == :monolith, do: :before_merge, else: :projection)
+        target_basis:
+          if(plan.artifact.mode == :monolith and is_nil(plan.monolith_plan),
+            do: :unresolved,
+            else: :projection
+          ),
+        output_inventory: plan.output_inventory
       },
       projection: portable_projection(projection, root),
       verification: portable_value(verification_results, root)
@@ -84,6 +89,7 @@ defmodule Weld.Lockfile do
       plan.artifact.external_projects,
       dependencies,
       plan.source_inventory,
+      plan.output_inventory,
       plan.structural_inputs
     }
 
