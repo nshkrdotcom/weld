@@ -19,6 +19,25 @@ defmodule Weld.Projector.SourceProject do
     directories =
       Enum.filter(inputs ++ ["priv", "config", "include"], &File.exists?(Path.expand(&1, root)))
 
+    validate_inventory!(root, files, ["mix.exs" | lock] ++ directories)
+    for file <- structural, do: require_file!(Output.source!(root, file))
+    check_modules!(root, project.elixirc_paths)
+
+    metadata = [plan.manifest.manifest_path | Enum.map(structural, &Path.join(root, &1))]
+    live = {root, Enum.uniq(metadata), directories, plan.artifact.id}
+
+    copied =
+      for relative <- files do
+        target = Path.join(stage, relative)
+        File.mkdir_p!(Path.dirname(target))
+        materialize!(kind, relative, Output.source!(root, relative), target, live)
+      end
+
+    validate_staging!(stage, if(kind == :live, do: root, else: stage), plan.artifact.package)
+    %{copied_files: copied |> List.flatten() |> Enum.sort(), package_files: files}
+  end
+
+  defp validate_inventory!(root, files, required) do
     Enum.each(files, fn file ->
       if file in ~w(weld.provenance.json projection.lock.json .mix_sources.json),
         do: raise(Error, "reserved source inventory path: #{file}")
@@ -32,62 +51,37 @@ defmodule Weld.Projector.SourceProject do
 
     unless Enum.uniq(files) == files, do: raise(Error, "duplicate source inventory path")
 
-    for file <- ["mix.exs" | lock] ++ directories do
+    for file <- required do
       relative = Path.relative_to(Path.expand(file, root), root)
 
       unless Enum.any?(files, &covered?(relative, &1)),
         do: raise(Error, "source inventory missing #{relative}")
     end
+  end
 
-    for file <- structural, do: require_file!(Output.source!(root, file))
-    check_modules!(root, project.elixirc_paths)
+  defp materialize!(:full, _relative, source, target, _live) do
+    File.cp_r!(source, target)
+    if File.dir?(target), do: Hash.list_files(target), else: [target]
+  end
 
-    copied =
-      for relative <- files, reduce: [] do
-        acc ->
-          source = Output.source!(root, relative)
-          target = Path.join(stage, relative)
-          File.mkdir_p!(Path.dirname(target))
+  defp materialize!(:live, "mix.exs", source, target, {root, metadata, directories, artifact}) do
+    write_live_mix!(source, target, root, metadata, directories, artifact)
+    [target]
+  end
 
-          cond do
-            kind == :full ->
-              File.cp_r!(source, target)
-              if File.dir?(target), do: Hash.list_files(target) ++ acc, else: [target | acc]
+  defp materialize!(:live, "mix.lock", source, target, _live) do
+    File.cp!(source, target)
+    [target]
+  end
 
-            relative == "mix.exs" ->
-              metadata = [
-                plan.manifest.manifest_path | Enum.map(structural, &Path.join(root, &1))
-              ]
+  defp materialize!(:live, relative, source, target, _live) do
+    case File.ln_s(source, target) do
+      :ok ->
+        []
 
-              write_live_mix!(
-                source,
-                target,
-                root,
-                Enum.uniq(metadata),
-                directories,
-                plan.artifact.id
-              )
-
-              [target | acc]
-
-            relative == "mix.lock" ->
-              File.cp!(source, target)
-              [target | acc]
-
-            true ->
-              case File.ln_s(source, target) do
-                :ok ->
-                  acc
-
-                {:error, reason} ->
-                  raise Error,
-                        "live projection needs a working symlink for #{relative}: #{reason}"
-              end
-          end
-      end
-
-    validate_staging!(stage, if(kind == :live, do: root, else: stage), plan.artifact.package)
-    %{copied_files: Enum.sort(copied), package_files: files}
+      {:error, reason} ->
+        raise Error, "live projection needs a working symlink for #{relative}: #{reason}"
+    end
   end
 
   # Load the staged Mix file in a fresh VM. A process already running inside
@@ -147,16 +141,18 @@ defmodule Weld.Projector.SourceProject do
         :ok
 
       {:ok, %{type: :directory}} ->
-        Enum.each(File.ls!(path), fn entry ->
-          if entry in ~w(.weld .git deps _build .mix_sources.json),
-            do: raise(Error, "local state in source inventory: #{path}/#{entry}")
-
-          check_tree!(Path.join(path, entry))
-        end)
+        Enum.each(File.ls!(path), &check_entry!(path, &1))
 
       _ ->
         raise Error, "source inventory requires existing regular files and directories: #{path}"
     end
+  end
+
+  defp check_entry!(path, entry) do
+    if entry in ~w(.weld .git deps _build .mix_sources.json),
+      do: raise(Error, "local state in source inventory: #{path}/#{entry}")
+
+    check_tree!(Path.join(path, entry))
   end
 
   defp check_modules!(root, paths) do
@@ -167,13 +163,15 @@ defmodule Weld.Projector.SourceProject do
     |> Enum.reduce(%{}, fn path, seen ->
       declarations = path |> File.read!() |> Code.string_to_quoted!(file: path) |> modules([])
 
-      Enum.reduce(declarations, seen, fn name, acc ->
-        if prior = acc[name],
-          do: raise(Error, "duplicate module #{inspect(name)} in #{prior} and #{path}")
-
-        Map.put(acc, name, path)
-      end)
+      Enum.reduce(declarations, seen, &register_module!(&2, &1, path))
     end)
+  end
+
+  defp register_module!(seen, name, path) do
+    if prior = seen[name],
+      do: raise(Error, "duplicate module #{inspect(name)} in #{prior} and #{path}")
+
+    Map.put(seen, name, path)
   end
 
   defp modules({:defmodule, _, [{:__aliases__, _, parts}, [do: body]]}, parent) do

@@ -102,24 +102,28 @@ defmodule Weld.Output do
         :ok
 
       {:error, :eexist} ->
-        case File.lstat(lock) do
-          {:ok, %{type: :directory}} ->
-            if System.monotonic_time(:millisecond) >= deadline do
-              raise Error, "Weld lock busy at #{lock}; inspect its owner"
-            end
-
-            Process.sleep(40)
-            acquire!(lock, deadline)
-
-          {:error, :enoent} ->
-            acquire!(lock, deadline)
-
-          _ ->
-            raise Error, "unmanaged mutation lock: #{lock}"
-        end
+        retry_acquire!(lock, deadline)
 
       {:error, reason} ->
         raise Error, "cannot acquire #{lock}: #{reason}"
+    end
+  end
+
+  defp retry_acquire!(lock, deadline) do
+    case File.lstat(lock) do
+      {:ok, %{type: :directory}} ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          raise Error, "Weld lock busy at #{lock}; inspect its owner"
+        end
+
+        Process.sleep(40)
+        acquire!(lock, deadline)
+
+      {:error, :enoent} ->
+        acquire!(lock, deadline)
+
+      _ ->
+        raise Error, "unmanaged mutation lock: #{lock}"
     end
   end
 
@@ -127,9 +131,20 @@ defmodule Weld.Output do
     target = Path.join(checkout, ".gitignore")
     before = read_regular!(target)
     old = if before, do: elem(before, 0), else: ""
+    updated = normalize_ignore!(old, base)
+
+    if updated != old, do: replace_ignore!(target, base, before, updated)
+
+    if Git.root(checkout) do
+      for path <- ~w(.weld/live/probe .weld/full/probe/project .weld/cache/probe) do
+        Git.run!(checkout, ["check-ignore", "--quiet", "--no-index", "--", path])
+      end
+    end
+  end
+
+  defp normalize_ignore!(old, base) do
     newline = if String.contains?(old, "\r\n"), do: "\r\n", else: "\n"
     lines = String.split(old, ~r/(?<=\n)/, trim: true)
-
     check_negations!(lines, base)
 
     {lines, found?} =
@@ -146,30 +161,23 @@ defmodule Weld.Output do
 
     contents = IO.iodata_to_binary(lines)
 
-    updated =
-      cond do
-        found? -> contents
-        contents == "" or String.ends_with?(contents, "\n") -> contents <> ".weld/" <> newline
-        true -> contents <> newline <> ".weld/" <> newline
-      end
-
-    if updated != old do
-      temp = Path.join(base, "ignore-" <> nonce())
-
-      try do
-        File.write!(temp, updated, [:exclusive])
-        if before, do: File.chmod!(temp, elem(before, 1))
-        if read_regular!(target) != before, do: raise(Error, ".gitignore changed during setup")
-        File.rename!(temp, target)
-      after
-        File.rm(temp)
-      end
+    cond do
+      found? -> contents
+      contents == "" or String.ends_with?(contents, "\n") -> contents <> ".weld/" <> newline
+      true -> contents <> newline <> ".weld/" <> newline
     end
+  end
 
-    if Git.root(checkout) do
-      for path <- ~w(.weld/live/probe .weld/full/probe/project .weld/cache/probe) do
-        Git.run!(checkout, ["check-ignore", "--quiet", "--no-index", "--", path])
-      end
+  defp replace_ignore!(target, base, before, updated) do
+    temp = Path.join(base, "ignore-" <> nonce())
+
+    try do
+      File.write!(temp, updated, [:exclusive])
+      if before, do: File.chmod!(temp, elem(before, 1))
+      if read_regular!(target) != before, do: raise(Error, ".gitignore changed during setup")
+      File.rename!(temp, target)
+    after
+      File.rm(temp)
     end
   end
 

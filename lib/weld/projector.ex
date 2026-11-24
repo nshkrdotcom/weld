@@ -42,13 +42,7 @@ defmodule Weld.Projector do
         end
 
       files = Enum.map(projection.copied_files, &Path.relative_to(&1, stage))
-      if kind == :full, do: Output.reject_tree_links!(stage)
-      digest = if kind == :full, do: Hash.content_identity(stage)
-      tree_digest = if kind == :full, do: Hash.sha256_tree(stage)
-      marker = %{schema: "weld.projection/v1", artifact: plan.artifact.id, kind: kind}
-      marker = if digest, do: Map.put(marker, :artifact_id, digest), else: marker
-      marker_path = Path.join(stage, "weld.provenance.json")
-      File.write!(marker_path, Jason.encode!(marker, pretty: true), [:exclusive])
+      tree_digest = write_marker!(stage, plan.artifact.id, kind)
 
       projection =
         Map.merge(projection, %{
@@ -68,6 +62,24 @@ defmodule Weld.Projector do
     end
   end
 
+  defp write_marker!(stage, artifact, kind) do
+    marker = %{schema: "weld.projection/v1", artifact: artifact, kind: kind}
+    {marker, digest} = projection_digests!(stage, kind, marker)
+
+    File.write!(Path.join(stage, "weld.provenance.json"), Jason.encode!(marker, pretty: true), [
+      :exclusive
+    ])
+
+    digest
+  end
+
+  defp projection_digests!(stage, :full, marker) do
+    Output.reject_tree_links!(stage)
+    {Map.put(marker, :artifact_id, Hash.content_identity(stage)), Hash.sha256_tree(stage)}
+  end
+
+  defp projection_digests!(_stage, :live, marker), do: {marker, nil}
+
   defp validate_inputs!(plan) do
     root = plan.manifest.repo_root
     artifact = plan.artifact
@@ -81,14 +93,16 @@ defmodule Weld.Projector do
     end
 
     if artifact.mode != :source_project do
-      for project <- Plan.projects_for_view(plan, :test) do
-        if project.id != ".", do: Output.source!(root, project.id)
+      Enum.each(Plan.projects_for_view(plan, :test), &validate_project_inputs!(root, &1))
+    end
+  end
 
-        for dir <- Enum.uniq(project.copy_dirs ++ project.test_paths ++ ["config", "test"]) do
-          relative = Path.relative_to(Path.expand(dir, project.abs_path), project.abs_path)
-          project.abs_path |> Output.source!(relative) |> Output.reject_tree_links!()
-        end
-      end
+  defp validate_project_inputs!(root, project) do
+    if project.id != ".", do: Output.source!(root, project.id)
+
+    for dir <- Enum.uniq(project.copy_dirs ++ project.test_paths ++ ["config", "test"]) do
+      relative = Path.relative_to(Path.expand(dir, project.abs_path), project.abs_path)
+      project.abs_path |> Output.source!(relative) |> Output.reject_tree_links!()
     end
   end
 

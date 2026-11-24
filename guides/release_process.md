@@ -71,11 +71,14 @@ This copies the prepared release bundle into the archive surface.
 The prepared bundle contains:
 
 - projected Mix project tree in `project/`
-- browser preview at `docs/index.html` beside the project
+- browser preview at `docs/index.html` beside the project, with generated Markdown when available
 - `project/projection.lock.json` for auditing the projection. It is also
   retained in the tracked Git projection. Hex tarballs omit this file.
 - built tarball when `verify.hex_build` is enabled
 - `release.json` metadata
+
+Weld verifies the configured ExDoc formats. The prepared browser preview omits
+EPUB output because ExDoc embeds a random identifier and build timestamps.
 
 `release.json` records the manifest path relative to the repo root and the
 Weld version used to prepare the bundle, which keeps release metadata portable

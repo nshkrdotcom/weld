@@ -45,7 +45,7 @@ defmodule Weld.Release do
 
     tarball_target = maybe_copy_tarball(stage, verification.tarball_path)
     docs_path = Path.join(stage, "docs")
-    File.cp_r!(Path.join(verification.build_path, "doc"), docs_path)
+    copy_docs_preview!(Path.join(verification.build_path, "doc"), docs_path)
 
     release_json =
       %{
@@ -120,6 +120,15 @@ defmodule Weld.Release do
       release_metadata_path: Path.join(bundle, "release.json"),
       build_path: verification.build_path
     }
+  end
+
+  defp copy_docs_preview!(source, target) do
+    File.mkdir!(target)
+
+    # ExDoc's EPUB includes a random UUID, wall-clock time and ZIP timestamps.
+    for entry <- File.ls!(source), Path.extname(entry) != ".epub" do
+      File.cp_r!(Path.join(source, entry), Path.join(target, entry))
+    end
   end
 
   defp optional_digest(path), do: if(File.regular?(path), do: Hash.sha256_file(path))
