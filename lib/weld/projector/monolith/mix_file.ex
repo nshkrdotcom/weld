@@ -5,8 +5,8 @@ defmodule Weld.Projector.Monolith.MixFile do
   alias Weld.Plan
   alias Weld.Projector
   alias Weld.Projector.Live
-  alias Weld.SourceFormatter
   alias Weld.Projector.Monolith.FilePlan
+  alias Weld.SourceFormatter
 
   def plan!(%Plan{} = plan, operations, opts) do
     application = generated_application(plan, opts)
@@ -130,11 +130,8 @@ defmodule Weld.Projector.Monolith.MixFile do
     """
   end
 
-  defp render_paths(paths, opts) do
-    if opts[:live?],
-      do: "Enum.map(#{inspect(paths)}, &Path.expand(&1, __DIR__))",
-      else: inspect(paths)
-  end
+  # Mix compiler roots inside the project must remain relative.
+  defp render_paths(paths, _opts), do: inspect(paths)
 
   defp generated_application(%Plan{} = plan, opts) do
     children =

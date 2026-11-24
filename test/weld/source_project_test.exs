@@ -106,10 +106,12 @@ defmodule Weld.SourceProjectTest do
     )
 
     text = File.read!(manifest)
+
     File.write!(
       manifest,
       String.replace(text, "components/pure/lib components/runtime/lib", "components lib")
     )
+
     File.mkdir!(Path.join(root, "lib"))
     File.write!(Path.join(root, "lib/sprout.ex"), "defmodule Sprout do\nend\n")
     source_lock = Path.join(root, "components/pure/mix.lock")
@@ -139,7 +141,7 @@ defmodule Weld.SourceProjectTest do
       String.replace(
         text,
         "components/pure/lib components/runtime/lib",
-        "components/pure/mix.exs components/runtime lib"
+        "components/pure/mix.exs components/pure/mix.lock components/runtime lib"
       )
     )
 
@@ -158,7 +160,7 @@ defmodule Weld.SourceProjectTest do
 
     File.write!(
       pure_mixfile,
-      ~s(Code.require_file("../../private_metadata.exs", __DIR__)\n) <>
+      ~s|Code.require_file("../../private_metadata.exs", __DIR__)\n| <>
         File.read!(pure_mixfile)
     )
 
@@ -207,6 +209,7 @@ defmodule Weld.SourceProjectTest do
       manifest,
       String.replace(File.read!(manifest), "mix.exs VERSION", "mix.exs mix.lock VERSION")
     )
+
     refreshed = Weld.project!(manifest, live: true)
     projected_lock = Path.join(refreshed.build_path, "mix.lock")
     assert File.lstat!(projected_lock).type == :regular

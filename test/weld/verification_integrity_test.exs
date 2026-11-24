@@ -23,7 +23,14 @@ defmodule Weld.VerificationIntegrityTest do
       artifact = if fixture == "library_bundle", do: :fixture_bundle, else: :monolith_bundle
       manifest = Path.join(root, "packaging/weld/#{artifact}.exs")
       {raw, _} = Code.eval_file(manifest)
-      raw = put_in(raw, [:artifacts, artifact, :output, :assets], [path])
+
+      raw =
+        update_in(
+          raw,
+          [:artifacts, artifact, :output, :assets],
+          &Enum.uniq([path | List.wrap(&1)])
+        )
+
       File.write!(manifest, inspect(raw, pretty: true, limit: :infinity))
       File.write!(Path.join(root, path), "source must remain untouched\n")
 
@@ -70,11 +77,25 @@ defmodule Weld.VerificationIntegrityTest do
     File.write!(Path.join(source, "guides/a.md"), "included\n")
     File.write!(Path.join(source, "guides/b.md"), "also native package content\n")
     mixfile = Path.join(source, "mix.exs")
-    File.write!(mixfile, String.replace(File.read!(mixfile),
-      "files: Workshop.Palette.Package.files()",
-      "files: [\"guides\" | Workshop.Palette.Package.files()]"))
+
+    File.write!(
+      mixfile,
+      String.replace(
+        File.read!(mixfile),
+        "files: Workshop.Palette.Package.files()",
+        "files: [\"guides\" | Workshop.Palette.Package.files()]"
+      )
+    )
+
     {raw, _} = Code.eval_file(manifest)
-    raw = update_in(raw, [:artifacts, :workshop_palette, :source_project, :files], &["guides/a.md" | &1])
+
+    raw =
+      update_in(
+        raw,
+        [:artifacts, :workshop_palette, :source_project, :files],
+        &["guides/a.md" | &1]
+      )
+
     File.write!(manifest, inspect(raw, pretty: true, limit: :infinity))
 
     assert_raise Error, ~r/source inventory missing native package path guides\/b.md/, fn ->
@@ -89,8 +110,15 @@ defmodule Weld.VerificationIntegrityTest do
       manifest = Path.join(root, "build_support/weld.exs")
       mixfile = Path.join(source, "mix.exs")
       original = File.read!(mixfile)
-      File.write!(mixfile, String.replace(original, "app: :workshop_palette,",
-        "app: :workshop_palette, #{field}: Path.join(__DIR__, \"mutable\"),"))
+
+      File.write!(
+        mixfile,
+        String.replace(
+          original,
+          "app: :workshop_palette,",
+          "app: :workshop_palette, #{field}: Path.join(__DIR__, \"mutable\"),"
+        )
+      )
 
       assert_raise Error, ~r/mutable path escapes/, fn ->
         Weld.project!(manifest, live: true)
@@ -103,8 +131,15 @@ defmodule Weld.VerificationIntegrityTest do
   test "native publication wildcards cannot include generated provenance" do
     root = FixtureCase.copy_fixture("nested_source_project")
     mixfile = Path.join(root, "extensions/palette/mix.exs")
-    File.write!(mixfile, String.replace(File.read!(mixfile),
-      "files: Workshop.Palette.Package.files()", "files: [\"*\"]"))
+
+    File.write!(
+      mixfile,
+      String.replace(
+        File.read!(mixfile),
+        "files: Workshop.Palette.Package.files()",
+        "files: [\"*\"]"
+      )
+    )
 
     assert_raise Error, ~r/allowlist includes generated publication metadata/, fn ->
       Weld.project!(Path.join(root, "build_support/weld.exs"))

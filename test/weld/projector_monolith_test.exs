@@ -99,6 +99,28 @@ defmodule Weld.ProjectorMonolithTest do
     assert format_status == 0, format_output
   end
 
+  @tag integration: true, ci_build: "monolith_tests", timeout: 600_000
+  test "the live monolith compiles and runs its selected test suites" do
+    manifest = FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
+    result = Weld.project!(manifest, live: true)
+
+    {output, status} =
+      System.cmd("mix", ["test"],
+        cd: result.build_path,
+        stderr_to_stdout: true,
+        env: [
+          {"MIX_ENV", "test"},
+          {"MIX_BUILD_PATH", nil},
+          {"MIX_BUILD_ROOT", nil},
+          {"MIX_DEPS_PATH", nil}
+        ]
+      )
+
+    assert status == 0, output
+    refute output =~ "configured but not available", output
+    assert output =~ ~r/(?:2 tests, 0 failures|Result: 2 passed)/
+  end
+
   test "allows explicit non-selected monolith test support projects" do
     manifest_path = explicit_test_support_manifest_path!(["tooling/test_support"])
     result = Weld.project!(manifest_path)

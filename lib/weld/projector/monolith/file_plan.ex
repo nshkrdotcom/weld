@@ -21,21 +21,29 @@ defmodule Weld.Projector.Monolith.FilePlan do
   # Identical files share one physical output and all source owners.
   def merge!(operations, source, target, slug, kind) do
     case Enum.find(operations, &(&1.target == target)) do
-      nil ->
-        {operations ++ [copy(source, target, kind)], target, []}
-
-      existing ->
-        if existing.operation == :link_or_copy and
-             fingerprint(hd(existing.sources)) == fingerprint(source) do
-          updated = %{existing | sources: Enum.uniq(existing.sources ++ [source])}
-
-          {Enum.map(operations, fn op -> if op.target == target, do: updated, else: op end),
-           target, existing.sources ++ [source]}
-        else
-          {destination, collisions} = remap_target(target, slug, operations, existing.sources)
-          {operations ++ [copy(source, destination, kind)], destination, collisions ++ [source]}
-        end
+      nil -> {operations ++ [copy(source, target, kind)], target, []}
+      existing -> merge_existing!(operations, existing, source, slug, kind)
     end
+  end
+
+  defp merge_existing!(operations, existing, source, slug, kind) do
+    target = existing.target
+
+    if existing.operation == :link_or_copy and
+         fingerprint(hd(existing.sources)) == fingerprint(source) do
+      participants = existing.sources ++ [source]
+      updated = %{existing | sources: Enum.uniq(participants)}
+      {replace_target(operations, updated), target, participants}
+    else
+      {destination, collisions} = remap_target(target, slug, operations, existing.sources)
+      {operations ++ [copy(source, destination, kind)], destination, collisions ++ [source]}
+    end
+  end
+
+  defp replace_target(operations, replacement) do
+    Enum.map(operations, fn op ->
+      if op.target == replacement.target, do: replacement, else: op
+    end)
   end
 
   defp remap_target(target, slug, operations, collisions) do
@@ -66,10 +74,7 @@ defmodule Weld.Projector.Monolith.FilePlan do
     if duplicates != [] do
       [{target, _} | _] = Enum.sort(duplicates)
 
-      if String.starts_with?(target, "priv/"),
-        do: raise(Error, "priv path collision at #{target}")
-
-      raise Error, "projection path collision: #{target}"
+      raise Error, duplicate_target_message(target, operations)
     end
 
     target_set = MapSet.new(targets)
@@ -79,6 +84,18 @@ defmodule Weld.Projector.Monolith.FilePlan do
     end
 
     Enum.sort_by(operations, & &1.target)
+  end
+
+  defp duplicate_target_message(target, operations) do
+    migration? =
+      String.starts_with?(target, "priv/") and
+        Enum.any?(operations, &(&1.target == target and &1.operation == :copy))
+
+    cond do
+      migration? -> "migration path collision: #{target}"
+      String.starts_with?(target, "priv/") -> "priv path collision at #{target}"
+      true -> "projection path collision: #{target}"
+    end
   end
 
   defp parents(path) do
@@ -118,25 +135,45 @@ defmodule Weld.Projector.Monolith.FilePlan do
   end
 
   def validate_materialized!(operations, build_path, kind, fingerprints) do
-    for op <- operations do
-      target = Path.join(build_path, op.target)
-
-      case op do
-        %{content: content} when is_binary(content) ->
-          unless File.regular?(target) and File.read!(target) == content,
-            do: raise(Error, "generated output differs from plan: #{op.target}")
-
-        %{operation: :link_or_copy, sources: [source | _]} when kind == :live ->
-          unless File.read_link(target) == {:ok, source},
-            do: raise(Error, "live link differs from plan: #{op.target}")
-
-        %{sources: [source | _]} ->
-          unless fingerprint(target) == Map.fetch!(fingerprints, source),
-            do: raise(Error, "copied output differs from plan: #{op.target}")
-      end
-    end
-
+    Enum.each(operations, &validate_materialized_operation!(&1, build_path, kind, fingerprints))
     :ok
+  end
+
+  defp validate_materialized_operation!(
+         %{content: content} = op,
+         build_path,
+         _kind,
+         _fingerprints
+       )
+       when is_binary(content) do
+    target = Path.join(build_path, op.target)
+
+    unless File.regular?(target) and File.read!(target) == content,
+      do: raise(Error, "generated output differs from plan: #{op.target}")
+  end
+
+  defp validate_materialized_operation!(
+         %{operation: :link_or_copy, sources: [source | _]} = op,
+         build_path,
+         :live,
+         _fingerprints
+       ) do
+    target = Path.join(build_path, op.target)
+
+    unless File.read_link(target) == {:ok, source},
+      do: raise(Error, "live link differs from plan: #{op.target}")
+  end
+
+  defp validate_materialized_operation!(
+         %{sources: [source | _]} = op,
+         build_path,
+         _kind,
+         fingerprints
+       ) do
+    target = Path.join(build_path, op.target)
+
+    unless fingerprint(target) == Map.fetch!(fingerprints, source),
+      do: raise(Error, "copied output differs from plan: #{op.target}")
   end
 
   def fingerprint(path) do

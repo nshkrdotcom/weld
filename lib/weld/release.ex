@@ -278,8 +278,11 @@ defmodule Weld.Release do
   end
 
   defp copy_prepared_project!(source, target, project_files) do
-    optional = for file <- ["mix.lock", "weld.provenance.json", "projection.lock.json"],
-      File.exists?(Path.join(source, file)), do: file
+    optional =
+      for file <- ["mix.lock", "weld.provenance.json", "projection.lock.json"],
+          File.exists?(Path.join(source, file)),
+          do: file
+
     File.mkdir_p!(target)
 
     (project_files ++ optional)
@@ -287,8 +290,10 @@ defmodule Weld.Release do
     |> Enum.sort()
     |> Enum.each(fn relative ->
       source_path = Output.source!(source, relative)
+
       unless match?({:ok, %{type: :regular}}, File.lstat(source_path)),
         do: raise(Error, "verified project file missing or unsafe: #{relative}")
+
       target_path = Path.join(target, relative)
       File.mkdir_p!(Path.dirname(target_path))
       File.cp!(source_path, target_path)
@@ -299,7 +304,11 @@ defmodule Weld.Release do
   defp finalize_project_identity!(project) do
     path = Path.join(project, "weld.provenance.json")
     marker = path |> File.read!() |> Jason.decode!()
-    File.write!(path, Jason.encode!(Map.put(marker, "artifact_id", Hash.project_identity(project)), pretty: true))
+
+    File.write!(
+      path,
+      Jason.encode!(Map.put(marker, "artifact_id", Hash.project_identity(project)), pretty: true)
+    )
   end
 
   defp prepared_artifact_handoff(

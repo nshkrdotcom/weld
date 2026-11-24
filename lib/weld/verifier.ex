@@ -58,24 +58,39 @@ defmodule Weld.Verifier do
     actual = Hash.verification_identity(projection.build_path, projection.verification_files)
 
     unless actual == expected,
-      do: raise(Error, "verification modified projected source or test inputs; refresh and fix the mutating task")
+      do:
+        raise(
+          Error,
+          "verification modified projected source or test inputs; refresh and fix the mutating task"
+        )
 
-    unless Hash.package_identity(projection.build_path, package_patterns(projection)) == package_identity,
-      do: raise(Error, "verification changed the publication inventory; generated files cannot enter a prepared tarball")
+    unless Hash.package_identity(projection.build_path, package_patterns(projection)) ==
+             package_identity,
+           do:
+             raise(
+               Error,
+               "verification changed the publication inventory; generated files cannot enter a prepared tarball"
+             )
   end
 
   defp package_patterns(projection),
     do: Map.get(projection, :package_patterns, projection.package_files)
 
   defp finalize_projection_identity!(projection) do
-    identity = Hash.portable_project_identity(projection.build_path, projection.verification_files)
+    identity =
+      Hash.portable_project_identity(projection.build_path, projection.verification_files)
+
     path = Weld.Output.source!(projection.build_path, "weld.provenance.json")
     marker = path |> File.read!() |> Jason.decode!()
     temporary = path <> "-" <> Weld.Output.nonce()
 
     try do
-      File.write!(temporary, Jason.encode!(Map.put(marker, "artifact_id", identity), pretty: true),
-        [:exclusive])
+      File.write!(
+        temporary,
+        Jason.encode!(Map.put(marker, "artifact_id", identity), pretty: true),
+        [:exclusive]
+      )
+
       File.chmod!(temporary, Bitwise.band(File.stat!(path).mode, 0o777))
       File.rename!(temporary, path)
     after
@@ -108,7 +123,9 @@ defmodule Weld.Verifier do
   end
 
   defp verify_by_mode!(%Plan{} = plan, {build_path, _} = workspace) do
-    baseline = if plan.artifact.verify.component_tests, do: [run_selected_project_tests!(plan)], else: []
+    baseline =
+      if plan.artifact.verify.component_tests, do: [run_selected_project_tests!(plan)], else: []
+
     results = [
       run_mix!(workspace, :dev, ["deps.get"]),
       run_mix!(workspace, :dev, ["deps.compile"]),
@@ -120,6 +137,7 @@ defmodule Weld.Verifier do
 
     if baseline != [] do
       projected = Enum.find(results, &(&1.task == "test"))
+
       if Map.get(projected, :test_count, -1) < hd(baseline).test_count,
         do: raise(Error, "component test surface regressed in the projected package")
     end

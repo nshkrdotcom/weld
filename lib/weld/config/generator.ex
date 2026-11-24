@@ -2,12 +2,13 @@ defmodule Weld.Config.Generator do
   @moduledoc false
 
   alias Weld.Error
-  alias Weld.SourceFormatter
   alias Weld.Projector.Monolith.FilePlan
+  alias Weld.SourceFormatter
 
   @spec generate!([Weld.Workspace.Project.t()], Path.t(), [map()], map(), keyword()) :: %{
           bootstrapped_apps: [atom()],
           bootstrapped_sources: [map()],
+          operations: [map()],
           copied_files: [String.t()],
           warnings: [map()],
           staged: [map()]

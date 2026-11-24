@@ -13,23 +13,17 @@ defmodule Weld.Projector.Monolith do
   alias Weld.Projector.Monolith.Migrations
   alias Weld.Projector.Monolith.MixFile
   alias Weld.Projector.Monolith.TestHelper
+  alias Weld.Projector.SourceProject
 
   @source_dirs ~w(lib src c_src include)
 
   # All layout decisions are made before the output directory exists. The
   # materializer consumes this value, including the already-rendered Mix files.
   def plan!(%Plan{} = plan) do
-    Projector.validate_inputs!(plan)
-    validate_source_assumptions!(plan)
-
-    if plan.artifact.verify.smoke.enabled or plan.artifact.verify.artifact_tests != [] do
-      raise Error, "monolith verification does not support smoke or artifact_tests"
-    end
-
+    validate_planning_inputs!(plan)
     support = resolve_test_support_projects!(plan)
     projects = plan.selected_projects ++ support
-    slugs = Enum.map(projects, &project_slug(&1.id))
-    unless Enum.uniq(slugs) == slugs, do: raise(Error, "monolith project slug collision")
+    ensure_unique_slugs!(projects)
     root = plan.manifest.repo_root
     roots = live_roots(plan, projects)
 
@@ -44,41 +38,7 @@ defmodule Weld.Projector.Monolith do
 
     snapshot = snapshot(roots, metadata)
 
-    initial =
-      (Enum.map(plan.artifact.output.docs, &{&1, :docs}) ++
-         Enum.map(plan.artifact.output.assets, &{&1, :runtime}) ++
-         Enum.map(Projector.root_tooling_files(plan), &{&1, :metadata}))
-      |> Enum.flat_map(fn {path, kind} -> tree_operations(Path.join(root, path), path, kind) end)
-
-    {operations, remaps, collisions, mappings} =
-      Enum.reduce(plan.selected_projects, {initial, [], [], []}, fn project, state ->
-        Enum.reduce(@source_dirs, state, fn dir, {ops, remaps, collisions, mappings} ->
-          source_root = Path.join(project.abs_path, dir)
-
-          Enum.reduce(
-            tree_operations(source_root, dir, source_kind(dir)),
-            {ops, remaps, collisions, mappings},
-            fn op, {acc, remaps, collisions, mappings} ->
-              source = hd(op.sources)
-
-              {acc, target, participants} =
-                FilePlan.merge!(acc, source, op.target, project_slug(project.id), op.kind)
-
-              remaps =
-                if target == op.target,
-                  do: remaps,
-                  else:
-                    remaps ++
-                      [
-                        %{source: source, original_relative: op.target, remapped_relative: target}
-                      ]
-
-              {acc, remaps, collisions ++ participants,
-               mappings ++ [%{source: source, target: target}]}
-            end
-          )
-        end)
-      end)
+    {operations, remaps, collisions, mappings} = merge_source_operations(plan, root)
 
     tests = Enum.flat_map(plan.selected_projects, &test_operations/1)
     support_ops = Enum.flat_map(support, &support_operations/1)
@@ -104,12 +64,7 @@ defmodule Weld.Projector.Monolith do
         private ++
         helpers.operations ++ config.operations
 
-    operations =
-      if Enum.any?(operations, &(&1.target == "README.md")),
-        do: operations,
-        else:
-          operations ++
-            [FilePlan.generated("README.md", "# #{plan.artifact.package.name}\n", :docs)]
+    operations = ensure_readme(operations, plan.artifact.package.name)
 
     # A migration or configuration input affects generated configuration and the
     # Mix application even when it is not itself copied to those destinations.
@@ -148,8 +103,7 @@ defmodule Weld.Projector.Monolith do
     live_mix = MixFile.plan!(plan, operations, opts ++ [live?: true, live_guard: guard])
     live = FilePlan.validate!(operations ++ live_mix.operations)
 
-    unless Enum.map(full, & &1.target) == Enum.map(live, & &1.target),
-      do: raise(Error, "live and full monolith layouts diverge")
+    ensure_equal_layouts!(full, live)
 
     validate_modules!(full)
     assert_snapshot!(snapshot, roots, metadata)
@@ -170,6 +124,69 @@ defmodule Weld.Projector.Monolith do
       repo_infos: repos,
       test_support_projects: Enum.map(support, & &1.id)
     }
+  end
+
+  defp validate_planning_inputs!(plan) do
+    Projector.validate_inputs!(plan)
+    validate_source_assumptions!(plan)
+
+    if plan.artifact.verify.smoke.enabled or plan.artifact.verify.artifact_tests != [] do
+      raise Error, "monolith verification does not support smoke or artifact_tests"
+    end
+  end
+
+  defp ensure_unique_slugs!(projects) do
+    slugs = Enum.map(projects, &project_slug(&1.id))
+    unless Enum.uniq(slugs) == slugs, do: raise(Error, "monolith project slug collision")
+  end
+
+  defp merge_source_operations(plan, root) do
+    initial =
+      (Enum.map(plan.artifact.output.docs, &{&1, :docs}) ++
+         Enum.map(plan.artifact.output.assets, &{&1, :runtime}) ++
+         Enum.map(Projector.root_tooling_files(plan), &{&1, :metadata}))
+      |> Enum.flat_map(fn {path, kind} -> tree_operations(Path.join(root, path), path, kind) end)
+
+    Enum.reduce(plan.selected_projects, {initial, [], [], []}, &merge_project_sources/2)
+  end
+
+  defp merge_project_sources(project, state) do
+    slug = project_slug(project.id)
+    Enum.reduce(@source_dirs, state, &merge_source_directory(project, slug, &1, &2))
+  end
+
+  defp merge_source_directory(project, slug, dir, state) do
+    source_root = Path.join(project.abs_path, dir)
+
+    tree_operations(source_root, dir, source_kind(dir))
+    |> Enum.reduce(state, &merge_source_operation(&1, &2, slug))
+  end
+
+  defp merge_source_operation(op, {acc, remaps, collisions, mappings}, slug) do
+    source = hd(op.sources)
+    {acc, target, participants} = FilePlan.merge!(acc, source, op.target, slug, op.kind)
+
+    remaps =
+      if target == op.target,
+        do: remaps,
+        else:
+          remaps ++
+            [
+              %{source: source, original_relative: op.target, remapped_relative: target}
+            ]
+
+    {acc, remaps, collisions ++ participants, mappings ++ [%{source: source, target: target}]}
+  end
+
+  defp ensure_readme(operations, name) do
+    if Enum.any?(operations, &(&1.target == "README.md")),
+      do: operations,
+      else: operations ++ [FilePlan.generated("README.md", "# #{name}\n", :docs)]
+  end
+
+  defp ensure_equal_layouts!(full, live) do
+    unless Enum.map(full, & &1.target) == Enum.map(live, & &1.target),
+      do: raise(Error, "live and full monolith layouts diverge")
   end
 
   @spec project!(Plan.t(), Path.t(), keyword()) :: map()
@@ -227,7 +244,7 @@ defmodule Weld.Projector.Monolith do
     operations
     |> Enum.filter(&(String.starts_with?(&1.target, "lib/") and Path.extname(&1.target) == ".ex"))
     |> Enum.map(fn op -> {op.target, op.content || File.read!(hd(op.sources))} end)
-    |> Weld.Projector.SourceProject.validate_module_sources!()
+    |> SourceProject.validate_module_sources!()
   end
 
   defp source_kind(dir) when dir in ["lib", "src"], do: :compiled
@@ -353,33 +370,7 @@ defmodule Weld.Projector.Monolith do
   end
 
   defp validate_source_assumptions!(plan) do
-    for project <- Plan.projects_for_view(plan, :test) do
-      unless Enum.all?(
-               project.elixirc_paths ++ project.test_elixirc_paths,
-               &(&1 in ["lib", "test/support"])
-             ) and
-               Enum.all?(project.erlc_paths ++ project.test_erlc_paths, &(&1 == "src")) and
-               project.erlc_include_path == "include" do
-        raise Error,
-              "monolith compiler roots must use lib/src/include (project #{project.id}); " <>
-                "use package_projection for custom compiler roots"
-      end
-
-      unless Enum.all?(project.test_paths, &(&1 == "test" or String.starts_with?(&1, "test/"))) do
-        raise Error,
-              "monolith test roots must be within test (project #{project.id}); " <>
-                "use package_projection for independent test helpers"
-      end
-
-      for path <- project.test_paths, path != "test" do
-        helper = Path.join([project.abs_path, path, "test_helper.exs"])
-
-        if File.regular?(helper) and not canonical_helper_delegate?(project, helper) do
-          raise Error, "monolith only transforms test/test_helper.exs (project #{project.id})"
-        end
-      end
-    end
-
+    Enum.each(Plan.projects_for_view(plan, :test), &validate_project_roots!/1)
     selected_apps = MapSet.new(Enum.map(plan.selected_projects, &Atom.to_string(&1.app)))
 
     issues =
@@ -396,6 +387,37 @@ defmodule Weld.Projector.Monolith do
       raise Error,
             "unsupported selected-package OTP app assumptions detected for monolith mode:\n" <>
               Enum.map_join(issues, "\n", &"- #{&1}")
+    end
+  end
+
+  defp validate_project_roots!(project) do
+    unless Enum.all?(
+             project.elixirc_paths ++ project.test_elixirc_paths,
+             &(&1 in ["lib", "test/support"])
+           ) and
+             Enum.all?(project.erlc_paths ++ project.test_erlc_paths, &(&1 == "src")) and
+             project.erlc_include_path == "include" do
+      raise Error,
+            "monolith compiler roots must use lib/src/include (project #{project.id}); " <>
+              "use package_projection for custom compiler roots"
+    end
+
+    unless Enum.all?(project.test_paths, &(&1 == "test" or String.starts_with?(&1, "test/"))) do
+      raise Error,
+            "monolith test roots must be within test (project #{project.id}); " <>
+              "use package_projection for independent test helpers"
+    end
+
+    project.test_paths
+    |> Enum.reject(&(&1 == "test"))
+    |> Enum.each(&validate_helper_delegate!(project, &1))
+  end
+
+  defp validate_helper_delegate!(project, path) do
+    helper = Path.join([project.abs_path, path, "test_helper.exs"])
+
+    if File.regular?(helper) and not canonical_helper_delegate?(project, helper) do
+      raise Error, "monolith only transforms test/test_helper.exs (project #{project.id})"
     end
   end
 

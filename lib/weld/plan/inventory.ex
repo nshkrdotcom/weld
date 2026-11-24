@@ -2,18 +2,13 @@ defmodule Weld.Plan.Inventory do
   @moduledoc false
 
   alias Weld.{Error, Output, Workspace}
+  alias Weld.Projector.Monolith.FilePlan
   alias Weld.Workspace.Project
 
   @tooling_files ~w(.formatter.exs .credo.exs .dialyzer_ignore.exs)
   @local_state ~w(.git .weld deps _build .mix_sources.json)
 
-  @type entry :: %{
-          source: String.t(),
-          target: String.t(),
-          owner: String.t() | nil,
-          kind: :compiled | :runtime | :test | :docs | :metadata | :artifact_test,
-          directory: boolean()
-        }
+  @type entry :: Weld.Plan.inventory_entry()
 
   def build(workspace, %{mode: :source_project} = artifact, [project], selected, verification) do
     compiled =
@@ -142,45 +137,20 @@ defmodule Weld.Plan.Inventory do
   defp component_roots(workspace, :package_projection, project, tests?, verification_only?) do
     compiled = normalize_paths(project, project.elixirc_paths ++ project.erlc_paths)
     includes = normalize_paths(project, [project.erlc_include_path])
-
-    include_suite? = tests? and not verification_only?
-
-    test_compile =
-      if include_suite? do
-        normalize_paths(project, project.test_elixirc_paths ++ project.test_erlc_paths) --
-          compiled
-      else
-        []
-      end
-
-    tests = if include_suite?, do: normalize_paths(project, project.test_paths), else: []
-
-    roots =
-      Enum.uniq(project.copy_dirs ++ compiled ++ includes ++ test_compile ++ tests)
-      |> Enum.sort()
-      |> Enum.reduce([], fn path, current ->
-        if Enum.any?(current, &covered?(path, &1)), do: current, else: [path | current]
-      end)
-
+    {test_compile, tests} = suite_roots(project, compiled, tests? and not verification_only?)
+    roots = collapse_roots(project.copy_dirs ++ compiled ++ includes ++ test_compile ++ tests)
     component = if project.id == ".", do: "root", else: project.id
     declared = compiled ++ includes ++ test_compile ++ tests
 
     for path <- roots, present_component_path?(project, path, declared) do
-      kind =
-        cond do
-          verification_only? -> :test
-          path in compiled -> :compiled
-          path in tests or path in test_compile -> :test
-          true -> :runtime
-        end
-
+      kind = component_kind(path, compiled, tests ++ test_compile, verification_only?)
       target = Path.join(["components", component, path])
       entry!(workspace, checkout_path(project, path), target, kind)
     end
   end
 
   defp component_roots(workspace, :monolith, project, _tests?, verification_only?) do
-    slug = Weld.Projector.Monolith.FilePlan.slug(project.id)
+    slug = FilePlan.slug(project.id)
 
     sources =
       for path <- Enum.uniq(project.copy_dirs ++ ["config"]),
@@ -209,6 +179,34 @@ defmodule Weld.Plan.Inventory do
       end
 
     sources ++ tests
+  end
+
+  defp suite_roots(_project, _compiled, false), do: {[], []}
+
+  defp suite_roots(project, compiled, true) do
+    test_compile =
+      normalize_paths(project, project.test_elixirc_paths ++ project.test_erlc_paths) -- compiled
+
+    {test_compile, normalize_paths(project, project.test_paths)}
+  end
+
+  defp collapse_roots(paths) do
+    paths
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.reduce([], fn path, current ->
+      if Enum.any?(current, &covered?(path, &1)), do: current, else: [path | current]
+    end)
+  end
+
+  defp component_kind(_path, _compiled, _tests, true), do: :test
+
+  defp component_kind(path, compiled, tests, false) do
+    cond do
+      path in compiled -> :compiled
+      path in tests -> :test
+      true -> :runtime
+    end
   end
 
   defp present_component_path?(project, path, declared_paths) do
@@ -257,27 +255,25 @@ defmodule Weld.Plan.Inventory do
     end
   end
 
-  defp expand(workspace, roots) do
-    Enum.flat_map(roots, fn entry ->
-      if entry.directory do
-        absolute = Path.join(workspace.manifest.repo_root, entry.source)
+  defp expand(workspace, roots), do: Enum.flat_map(roots, &expand_entry(workspace, &1))
 
-        for source <- regular_files!(absolute) do
-          relative = Path.relative_to(source, absolute)
+  defp expand_entry(workspace, %{directory: true} = entry) do
+    absolute = Path.join(workspace.manifest.repo_root, entry.source)
 
-          %{
-            entry
-            | source: Path.join(entry.source, relative),
-              target: Path.join(entry.target, relative),
-              owner: owner(workspace, source),
-              directory: false
-          }
-        end
-      else
-        [entry]
-      end
-    end)
+    for source <- regular_files!(absolute) do
+      relative = Path.relative_to(source, absolute)
+
+      %{
+        entry
+        | source: Path.join(entry.source, relative),
+          target: Path.join(entry.target, relative),
+          owner: owner(workspace, source),
+          directory: false
+      }
+    end
   end
+
+  defp expand_entry(_workspace, entry), do: [entry]
 
   defp regular_files!(path) do
     path

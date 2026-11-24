@@ -58,11 +58,19 @@ defmodule Weld.MonolithPlanTest do
   end
 
   test "deduplication and repeated remaps have exact source relationships", c do
-    put(c.root, "core/store/lib/same.txt", "same")
-    put(c.root, "runtime/api/lib/same.txt", "same")
-    put(c.root, "core/store/lib/collision.txt", "first")
-    put(c.root, "core/store/lib/runtime_api__collision.txt", "occupied")
-    put(c.root, "runtime/api/lib/collision.txt", "second")
+    [first, second] = Enum.map(Plan.build!(c.manifest).selected_projects, & &1.id)
+    slugs = %{"core/store" => "core_store", "runtime/api" => "runtime_api"}
+    slug = Map.fetch!(slugs, second)
+    occupied = "#{slug}__collision.txt"
+    remapped = "lib/#{slug}__#{slug}__collision.txt"
+    source = "#{second}/lib/collision.txt"
+
+    put(c.root, "#{first}/lib/same.txt", "same")
+    put(c.root, "#{second}/lib/same.txt", "same")
+    put(c.root, "#{first}/lib/collision.txt", "first")
+    put(c.root, "#{first}/lib/#{occupied}", "occupied")
+    put(c.root, source, "second")
+
     plan = Plan.build!(c.manifest)
     same = Enum.find(plan.output_inventory, &(&1.target == "lib/same.txt"))
 
@@ -70,14 +78,15 @@ defmodule Weld.MonolithPlanTest do
              ["core/store/lib/same.txt", "runtime/api/lib/same.txt"]
 
     assert Enum.any?(plan.source_inventory, fn entry ->
-             entry.source == "runtime/api/lib/collision.txt" and
-               entry.target == "lib/runtime_api__runtime_api__collision.txt"
+             entry.source == source and entry.target == remapped
            end)
 
-    result = Projector.project!(plan)
-
-    assert File.read!(Path.join(result.build_path, "lib/runtime_api__runtime_api__collision.txt")) ==
-             "second"
+    for live <- [false, true] do
+      result = Projector.project!(plan, live: live)
+      assert File.read!(Path.join(result.build_path, "lib/collision.txt")) == "first"
+      assert File.read!(Path.join(result.build_path, "lib/#{occupied}")) == "occupied"
+      assert File.read!(Path.join(result.build_path, remapped)) == "second"
+    end
 
     assert Plan.build!(c.manifest).output_inventory == plan.output_inventory
   end

@@ -5,6 +5,7 @@ defmodule Weld.Projector.Monolith.Migrations do
   alias Weld.Projector.Monolith.FilePlan
 
   @spec merge!([Weld.Workspace.Project.t()], Path.t()) :: %{
+          operations: [map()],
           copied_files: [String.t()],
           remaps: [map()],
           layout: map()

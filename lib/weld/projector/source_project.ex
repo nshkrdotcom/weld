@@ -261,19 +261,7 @@ defmodule Weld.Projector.SourceProject do
     if Map.has_key?(projects, project.id) do
       collect_path_projects!(rest, by_path, root, projects)
     else
-      dependencies =
-        for dependency <- project.deps, path = dependency.opts[:path] do
-          absolute = Path.expand(path, project.abs_path)
-
-          with true <- Path.type(path) == :relative and covered?(absolute, root),
-               %{app: app} = member when app == dependency.app <- Map.get(by_path, absolute) do
-            member
-          else
-            _ ->
-              app = inspect(dependency.app)
-              raise Error, "source-project dependency #{app} needs portable source in inventory"
-          end
-        end
+      dependencies = portable_path_dependencies!(project, by_path, root)
 
       collect_path_projects!(
         rest ++ dependencies,
@@ -284,31 +272,54 @@ defmodule Weld.Projector.SourceProject do
     end
   end
 
+  defp portable_path_dependencies!(project, by_path, root) do
+    for dependency <- project.deps, path = dependency.opts[:path] do
+      portable_path_dependency!(dependency, path, project, by_path, root)
+    end
+  end
+
+  defp portable_path_dependency!(dependency, path, project, by_path, root) do
+    absolute = Path.expand(path, project.abs_path)
+
+    with true <- Path.type(path) == :relative and covered?(absolute, root),
+         %{app: app} = member when app == dependency.app <- Map.get(by_path, absolute) do
+      member
+    else
+      _ ->
+        raise Error,
+              "source-project dependency #{inspect(dependency.app)} needs portable source in inventory"
+    end
+  end
+
   defp package_files!(project, root, stage) do
-    files = project.package_files || @hex_default_files
-
-    files
-    |> Enum.flat_map(fn pattern ->
-      if Path.type(pattern) != :relative or ".." in Path.split(pattern),
-        do: raise(Error, "unsafe native package path: #{pattern}")
-
-      for source <- Path.wildcard(Path.join(root, pattern), match_dot: true) do
-        check_tree!(source)
-        members = if File.dir?(source), do: Hash.list_files(source), else: [source]
-
-        for member <- members do
-          relative = Path.relative_to(member, root)
-          target = Path.join(stage, relative)
-
-          unless File.regular?(target) and Hash.sha256_file(member) == Hash.sha256_file(target),
-            do: raise(Error, "source inventory missing native package path #{relative}")
-        end
-
-        Path.relative_to(source, root)
-      end
-    end)
+    (project.package_files || @hex_default_files)
+    |> Enum.flat_map(&native_package_pattern!(&1, root, stage))
     |> Enum.uniq()
     |> Enum.sort()
+  end
+
+  defp native_package_pattern!(pattern, root, stage) do
+    if Path.type(pattern) != :relative or ".." in Path.split(pattern),
+      do: raise(Error, "unsafe native package path: #{pattern}")
+
+    for source <- Path.wildcard(Path.join(root, pattern), match_dot: true) do
+      validate_native_package_source!(source, root, stage)
+      Path.relative_to(source, root)
+    end
+  end
+
+  defp validate_native_package_source!(source, root, stage) do
+    check_tree!(source)
+    members = if File.dir?(source), do: Hash.list_files(source), else: [source]
+    Enum.each(members, &validate_native_package_member!(&1, root, stage))
+  end
+
+  defp validate_native_package_member!(member, root, stage) do
+    relative = Path.relative_to(member, root)
+    target = Path.join(stage, relative)
+
+    unless File.regular?(target) and Hash.sha256_file(member) == Hash.sha256_file(target),
+      do: raise(Error, "source inventory missing native package path #{relative}")
   end
 
   defp covered?(file, dir), do: file == dir or String.starts_with?(file, dir <> "/")
@@ -392,88 +403,7 @@ defmodule Weld.Projector.SourceProject do
   end
 
   defp write_live_mix!(source, target, root, guard, links) do
-    # Append an override inside the original Mix project module. This keeps
-    # lexical helpers, application/0, functions in docs options and Mix.env()
-    # branches intact, without loading the Weld library in the consumer.
-    override =
-      quote do
-        defoverridable project: 0
-
-        def project do
-          unquote(guard)
-
-          config = super()
-          root = unquote(root)
-          generated_root = __DIR__
-
-          docs = config[:docs] || []
-
-          mutable_paths = [
-            config[:build_path] || "_build",
-            config[:deps_path] || "deps",
-            config[:lockfile] || "mix.lock",
-            if(is_list(docs), do: docs[:output] || "doc", else: "doc")
-          ]
-
-          for path <- mutable_paths do
-            absolute = Path.expand(path, generated_root)
-
-            unless String.starts_with?(absolute, generated_root <> "/"),
-              do:
-                Mix.raise("live source project mutable path escapes its generated root: " <> path)
-
-            absolute
-            |> Path.relative_to(generated_root)
-            |> Path.split()
-            |> Enum.reduce(generated_root, fn part, parent ->
-              child = Path.join(parent, part)
-
-              if match?({:ok, %{type: :symlink}}, File.lstat(child)),
-                do: Mix.raise("live source project mutable path overlaps linked source: " <> path)
-
-              child
-            end)
-
-            for relative <- unquote(links) do
-              linked = Path.expand(relative, generated_root)
-
-              if linked == absolute or String.starts_with?(linked, absolute <> "/") or
-                   String.starts_with?(absolute, linked <> "/") do
-                Mix.raise("live source project mutable path contains linked source: " <> path)
-              end
-            end
-          end
-
-          config =
-            Enum.reduce(
-              [elixirc_paths: ["lib"], erlc_paths: ["src"], test_paths: ["test"]],
-              config,
-              fn {key, default}, current ->
-                paths =
-                  current
-                  |> Keyword.get(key, default)
-                  |> List.wrap()
-                  |> Enum.map(&Path.expand(&1, root))
-
-                Keyword.put(current, key, paths)
-              end
-            )
-
-          reject = fn _args ->
-            Mix.raise("live projections cannot be packaged; generate a full candidate")
-          end
-
-          aliases =
-            Keyword.merge(config[:aliases] || [], "hex.build": reject, "hex.publish": reject)
-
-          config
-          |> Keyword.put(
-            :erlc_include_path,
-            Path.expand(config[:erlc_include_path] || "include", root)
-          )
-          |> Keyword.put(:aliases, aliases)
-        end
-      end
+    override = live_override_ast(root, guard, links)
 
     ast =
       source
@@ -484,22 +414,139 @@ defmodule Weld.Projector.SourceProject do
         node -> node
       end)
 
-    {ast, count} =
-      Macro.postwalk(ast, 0, fn
-        {:defmodule, meta, [name, [do: body]]} = node, count ->
-          if uses_mix_project?(body) do
-            wrapped = {:__block__, [], [body, override]}
-            {{:defmodule, meta, [name, [do: wrapped]]}, count + 1}
-          else
-            {node, count}
-          end
-
-        node, count ->
-          {node, count}
-      end)
-
+    {ast, count} = Macro.postwalk(ast, 0, &append_live_override(&1, &2, override))
     unless count == 1, do: raise(Error, "live mode requires exactly one module using Mix.Project")
     File.write!(target, Macro.to_string(ast) <> "\n")
+  end
+
+  defp append_live_override({:defmodule, meta, [name, [do: body]]} = node, count, override) do
+    if uses_mix_project?(body) do
+      wrapped = {:__block__, [], [body, override]}
+      {{:defmodule, meta, [name, [do: wrapped]]}, count + 1}
+    else
+      {node, count}
+    end
+  end
+
+  defp append_live_override(node, count, _override), do: {node, count}
+
+  defp live_override_ast(root, guard, links) do
+    quote do
+      defoverridable project: 0
+
+      def project do
+        unquote(guard)
+        config = super()
+        root = unquote(root)
+        generated_root = __DIR__
+        mutable_paths = unquote(mutable_paths_ast()).(config)
+        validate_mutable = unquote(mutable_validator_ast(links))
+        Enum.each(mutable_paths, &validate_mutable.(&1, generated_root))
+        rewrite_paths = unquote(compiler_paths_ast())
+        config = rewrite_paths.(config, root)
+
+        reject = fn _args ->
+          Mix.raise("live projections cannot be packaged; generate a full candidate")
+        end
+
+        aliases =
+          Keyword.merge(config[:aliases] || [], "hex.build": reject, "hex.publish": reject)
+
+        config
+        |> Keyword.put(
+          :erlc_include_path,
+          Path.expand(config[:erlc_include_path] || "include", root)
+        )
+        |> Keyword.put(:aliases, aliases)
+      end
+    end
+  end
+
+  defp mutable_paths_ast do
+    quote do
+      fn config ->
+        docs = config[:docs] || []
+
+        [
+          config[:build_path] || "_build",
+          config[:deps_path] || "deps",
+          config[:lockfile] || "mix.lock",
+          if(is_list(docs), do: docs[:output] || "doc", else: "doc")
+        ]
+      end
+    end
+  end
+
+  defp mutable_validator_ast(links) do
+    quote do
+      fn path, generated_root ->
+        absolute = Path.expand(path, generated_root)
+
+        unless String.starts_with?(absolute, generated_root <> "/"),
+          do: Mix.raise("live source project mutable path escapes its generated root: " <> path)
+
+        validate_ancestors = unquote(mutable_ancestors_ast())
+        validate_ancestors.(absolute, generated_root, path)
+        overlaps = unquote(link_overlap_ast())
+
+        if Enum.any?(unquote(links), &overlaps.(&1, absolute, generated_root)),
+          do: Mix.raise("live source project mutable path contains linked source: " <> path)
+      end
+    end
+  end
+
+  defp mutable_ancestors_ast do
+    quote do
+      fn absolute, generated_root, path ->
+        validate_link = unquote(mutable_link_ast())
+
+        absolute
+        |> Path.relative_to(generated_root)
+        |> Path.split()
+        |> Enum.scan(generated_root, &Path.join(&2, &1))
+        |> Enum.each(&validate_link.(&1, path))
+      end
+    end
+  end
+
+  defp mutable_link_ast do
+    quote do
+      fn child, path ->
+        if match?({:ok, %{type: :symlink}}, File.lstat(child)),
+          do: Mix.raise("live source project mutable path overlaps linked source: " <> path)
+      end
+    end
+  end
+
+  defp link_overlap_ast do
+    quote do
+      fn relative, absolute, generated_root ->
+        linked = Path.expand(relative, generated_root)
+
+        linked == absolute or String.starts_with?(linked, absolute <> "/") or
+          String.starts_with?(absolute, linked <> "/")
+      end
+    end
+  end
+
+  defp compiler_paths_ast do
+    quote do
+      fn config, root ->
+        Enum.reduce(
+          [elixirc_paths: ["lib"], erlc_paths: ["src"], test_paths: ["test"]],
+          config,
+          fn {key, default}, current ->
+            paths =
+              current
+              |> Keyword.get(key, default)
+              |> List.wrap()
+              |> Enum.map(&Path.expand(&1, root))
+
+            Keyword.put(current, key, paths)
+          end
+        )
+      end
+    end
   end
 
   defp uses_mix_project?({:__block__, _, entries}), do: Enum.any?(entries, &uses_mix_project?/1)

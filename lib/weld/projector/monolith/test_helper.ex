@@ -5,6 +5,7 @@ defmodule Weld.Projector.Monolith.TestHelper do
   alias Weld.Projector.Monolith.FilePlan
 
   @spec generate!([Weld.Workspace.Project.t()], Path.t(), keyword()) :: %{
+          operations: [map()],
           copied_files: [String.t()],
           transformations: [map()]
         }
@@ -95,28 +96,34 @@ defmodule Weld.Projector.Monolith.TestHelper do
   end
 
   defp extract_forms(forms, slug, helper_path) do
-    Enum.reduce(forms, {[], []}, fn form, {options, kept} ->
-      cond do
-        exunit_start?(form) ->
-          additions = exunit_options(form)
+    Enum.reduce(forms, {[], []}, &extract_form(&1, &2, slug, helper_path))
+  end
 
-          unless Keyword.keyword?(additions) and Macro.quoted_literal?(additions),
-            do: raise(Error, "unsupported dynamic ExUnit options in #{helper_path}")
+  defp extract_form(form, {options, kept}, slug, helper_path) do
+    cond do
+      exunit_start?(form) ->
+        {options ++ literal_exunit_options!(form, helper_path), kept}
 
-          {options ++ additions, kept}
+      unsupported_helper_side_effect?(form) ->
+        raise Error,
+              "unsupported helper side effect in #{helper_path}: " <>
+                "move repo/database setup into explicit package test support or case modules before welding"
 
-        unsupported_helper_side_effect?(form) ->
-          raise Error,
-                "unsupported helper side effect in #{helper_path}: " <>
-                  "move repo/database setup into explicit package test support or case modules before welding"
+      normalized_alias?(form) ->
+        {options, kept}
 
-        normalized_alias?(form) ->
-          {options, kept}
+      true ->
+        {options, kept ++ [rewrite_require_file(form, slug)]}
+    end
+  end
 
-        true ->
-          {options, kept ++ [rewrite_require_file(form, slug)]}
-      end
-    end)
+  defp literal_exunit_options!(form, helper_path) do
+    additions = exunit_options(form)
+
+    unless Keyword.keyword?(additions) and Macro.quoted_literal?(additions),
+      do: raise(Error, "unsupported dynamic ExUnit options in #{helper_path}")
+
+    additions
   end
 
   defp exunit_start?({{:., _, [{:__aliases__, _, [:ExUnit]}, :start]}, _, _args}), do: true

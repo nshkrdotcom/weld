@@ -10,6 +10,7 @@ defmodule Weld.Plan do
   alias Weld.Output
   alias Weld.Plan.Boundary
   alias Weld.Plan.Inventory
+  alias Weld.Projector.Monolith
   alias Weld.Violation
   alias Weld.Workspace
   alias Weld.Workspace.Project
@@ -43,6 +44,22 @@ defmodule Weld.Plan do
 
   @type external_dep :: Graph.external_dep()
 
+  @typedoc """
+  A source-to-target inventory relationship within an artifact plan.
+
+  Monolith entries also describe the materialization operation and
+  whether the destination belongs to the publication inventory.
+  """
+  @type inventory_entry :: %{
+          optional(:operation) => :link_or_copy | :copy | :transform | :generate,
+          optional(:publish) => boolean(),
+          source: String.t(),
+          target: String.t(),
+          owner: String.t() | nil,
+          kind: :compiled | :runtime | :test | :docs | :metadata | :artifact_test,
+          directory: boolean()
+        }
+
   @type t :: %__MODULE__{
           manifest: Manifest.t(),
           artifact: Manifest.Artifact.t(),
@@ -55,8 +72,8 @@ defmodule Weld.Plan do
           verification_ids: [String.t()],
           externalized_edges: [Weld.Graph.Edge.t()],
           source_root: Path.t() | nil,
-          source_roots: [Inventory.entry()],
-          source_inventory: [Inventory.entry()],
+          source_roots: [inventory_entry()],
+          source_inventory: [inventory_entry()],
           structural_inputs: [Path.t()],
           monolith_plan: map() | nil,
           output_inventory: [map()],
@@ -203,7 +220,7 @@ defmodule Weld.Plan do
   end
 
   defp finalize_layout!(%__MODULE__{artifact: %{mode: :monolith}, violations: []} = plan) do
-    layout = Weld.Projector.Monolith.plan!(plan)
+    layout = Monolith.plan!(plan)
     {sources, outputs} = Inventory.monolith_inventory(plan, layout)
     %{plan | monolith_plan: layout, source_inventory: sources, output_inventory: outputs}
   end

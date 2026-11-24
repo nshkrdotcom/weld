@@ -13,8 +13,8 @@ defmodule Weld.Projector do
   alias Weld.Output
   alias Weld.Plan
   alias Weld.Plan.Inventory
-  alias Weld.Projector.Monolith
   alias Weld.Projector.Live
+  alias Weld.Projector.Monolith
   alias Weld.Projector.SourceProject
   alias Weld.SourceFormatter
 
@@ -80,13 +80,7 @@ defmodule Weld.Projector do
   end
 
   defp reject_published_reports!(stage, %{package_patterns: patterns}) do
-    paths =
-      Enum.flat_map(patterns, fn pattern ->
-        Path.wildcard(Path.join(stage, pattern), match_dot: true)
-        |> Enum.flat_map(fn path ->
-          if File.dir?(path), do: Hash.list_files(path), else: [path]
-        end)
-      end)
+    paths = Enum.flat_map(patterns, &expand_report_pattern(stage, &1))
 
     for report <- ~w(weld.provenance.json projection.lock.json),
         Path.join(stage, report) in paths do
@@ -95,6 +89,13 @@ defmodule Weld.Projector do
   end
 
   defp reject_published_reports!(_stage, _projection), do: :ok
+
+  defp expand_report_pattern(stage, pattern) do
+    Path.wildcard(Path.join(stage, pattern), match_dot: true)
+    |> Enum.flat_map(&expand_report_path/1)
+  end
+
+  defp expand_report_path(path), do: if(File.dir?(path), do: Hash.list_files(path), else: [path])
 
   defp write_marker!(stage, artifact, kind) do
     marker = %{schema: "weld.projection/v1", artifact: artifact, kind: kind}
@@ -118,14 +119,9 @@ defmodule Weld.Projector do
   def validate_inputs!(plan) do
     root = plan.manifest.repo_root
     artifact = plan.artifact
+    graph? = artifact.mode != :source_project
 
-    if artifact.mode != :source_project do
-      for path <- artifact.output.docs ++ artifact.output.assets do
-        if hd(Path.split(path)) in ~w(mix.exs mix.lock doc config components test lib src c_src include weld.provenance.json projection.lock.json) do
-          raise Error, "output path overlaps generated project files: #{path}"
-        end
-      end
-    end
+    if graph?, do: validate_output_paths!(artifact)
 
     for path <-
           artifact.output.docs ++
@@ -135,11 +131,21 @@ defmodule Weld.Projector do
       root |> Output.source!(path) |> Output.reject_tree_links!()
     end
 
-    if artifact.mode != :source_project do
-      for project <- Plan.projects_for_view(plan, :test) do
-        include_suite? = artifact.mode == :monolith or Plan.selected?(plan, project.id)
-        validate_project_inputs!(root, project, include_suite?)
+    if graph?, do: validate_graph_projects!(plan, root)
+  end
+
+  defp validate_output_paths!(artifact) do
+    for path <- artifact.output.docs ++ artifact.output.assets do
+      if hd(Path.split(path)) in ~w(mix.exs mix.lock doc config components test lib src c_src include weld.provenance.json projection.lock.json) do
+        raise Error, "output path overlaps generated project files: #{path}"
       end
+    end
+  end
+
+  defp validate_graph_projects!(plan, root) do
+    for project <- Plan.projects_for_view(plan, :test) do
+      include_suite? = plan.artifact.mode == :monolith or Plan.selected?(plan, project.id)
+      validate_project_inputs!(root, project, include_suite?)
     end
   end
 
@@ -562,13 +568,8 @@ defmodule Weld.Projector do
     end
   end
 
-  defp render_paths(paths, opts) do
-    if opts[:live?] do
-      "Enum.map(#{inspect(paths)}, &Path.expand(&1, __DIR__))"
-    else
-      inspect(paths)
-    end
-  end
+  # Mix compiler roots inside the project must remain relative.
+  defp render_paths(paths, _opts), do: inspect(paths)
 
   defp render_generated_files!(plan, build_path, opts) do
     case generated_application(plan, opts) do
@@ -659,7 +660,7 @@ defmodule Weld.Projector do
         base = #{render_paths(test_elixirc_paths, opts)}
 
         if File.dir?(Path.expand("test/support", __DIR__)) do
-          base ++ [#{if(opts[:live?], do: "Path.expand(\"test/support\", __DIR__)", else: "\"test/support\"")}]
+          base ++ ["test/support"]
         else
           base
         end

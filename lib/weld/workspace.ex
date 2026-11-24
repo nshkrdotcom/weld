@@ -90,7 +90,9 @@ defmodule Weld.Workspace do
       raise Error, "project #{project_id} is missing mix.exs"
     end
 
-    {config, application, test_config} = load_project_config(abs_path, project_id, component_tests?)
+    {config, application, test_config} =
+      load_project_config(abs_path, project_id, component_tests?)
+
     package = Keyword.get(config, :package) || []
     app = Keyword.fetch!(config, :app)
 
@@ -488,11 +490,15 @@ defmodule Weld.Workspace do
       project_config(component_tests?)
     else
       without_module_conflicts(fn ->
-        Mix.Project.in_project(unique_probe(project_id), abs_path, [], fn _module ->
-          project_config(component_tests?)
-        end)
+        probe_project_config(abs_path, project_id, component_tests?)
       end)
     end
+  end
+
+  defp probe_project_config(abs_path, project_id, component_tests?) do
+    Mix.Project.in_project(unique_probe(project_id), abs_path, [], fn _module ->
+      project_config(component_tests?)
+    end)
   end
 
   defp project_config(component_tests?) do

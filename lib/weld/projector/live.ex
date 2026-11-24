@@ -12,6 +12,25 @@ defmodule Weld.Projector.Live do
     root = plan.manifest.repo_root
     projects = Plan.projects_for_view(plan, :test)
 
+    config_projects =
+      if plan.artifact.mode == :package_projection, do: plan.selected_projects, else: projects
+
+    config_roots = Enum.map(config_projects, &Path.join(&1.abs_path, "config"))
+    patterns = discovery_patterns(plan)
+
+    guard_code(%{
+      checks: metadata_checks(plan, config_roots, opts, root),
+      slots: slot_checks(plan, projects, opts, root),
+      topology: topology_checks(config_roots, opts),
+      safe_roots: opts |> Keyword.get(:directories, []) |> Enum.uniq() |> Enum.sort(),
+      patterns: patterns,
+      discovered: discover(patterns, root),
+      root: root,
+      refresh: refresh_command(plan)
+    })
+  end
+
+  defp metadata_checks(plan, config_roots, opts, root) do
     metadata =
       [plan.manifest.manifest_path, Path.join(root, "mix.lock")] ++
         Enum.map(~w(.formatter.exs .credo.exs .dialyzer_ignore.exs), &Path.join(root, &1)) ++
@@ -19,130 +38,160 @@ defmodule Weld.Projector.Live do
           [Path.join(project.abs_path, "mix.exs"), Path.join(project.abs_path, "mix.lock")]
         end) ++
         Enum.map(plan.structural_inputs, &Path.join(root, &1)) ++
-        Keyword.get(opts, :metadata, []) ++ Keyword.get(opts, :digests, [])
+        Keyword.get(opts, :metadata, []) ++
+        Keyword.get(opts, :digests, []) ++
+        Enum.flat_map(config_roots, &regular_files/1)
 
-    config_projects =
-      if plan.artifact.mode == :package_projection, do: plan.selected_projects, else: projects
+    metadata |> Enum.uniq() |> Enum.sort() |> Enum.map(&{&1, fingerprint(&1)})
+  end
 
-    config_roots = Enum.map(config_projects, &Path.join(&1.abs_path, "config"))
+  defp slot_checks(plan, projects, opts, root) do
+    projects
+    |> Enum.flat_map(&project_slots(plan, &1))
+    |> Kernel.++(Keyword.get(opts, :directories, []))
+    |> Enum.flat_map(&ancestors(&1, root))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(&{&1, path_type(&1)})
+  end
 
-    metadata =
-      metadata ++ Enum.flat_map(config_roots, &regular_files/1)
+  defp project_slots(plan, project) do
+    test_roots =
+      if plan.artifact.mode == :package_projection and not Plan.selected?(plan, project.id),
+        do: [],
+        else: project.test_paths ++ ["config", "test"]
 
-    checks = metadata |> Enum.uniq() |> Enum.sort() |> Enum.map(&{&1, fingerprint(&1)})
+    (project.elixirc_paths ++
+       project.erlc_paths ++
+       [project.erlc_include_path] ++
+       ~w(lib src c_src include priv) ++ test_roots)
+    |> Enum.uniq()
+    |> Enum.map(&Path.expand(&1, project.abs_path))
+  end
 
-    slots =
-      projects
-      |> Enum.flat_map(fn project ->
-        test_roots =
-          if plan.artifact.mode == :package_projection and not Plan.selected?(plan, project.id),
-            do: [],
-            else: project.test_paths ++ ["config", "test"]
+  defp topology_checks(config_roots, opts) do
+    (config_roots ++ Keyword.get(opts, :topology, []))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(&{&1, topology(&1)})
+  end
 
-        (project.elixirc_paths ++
-           project.erlc_paths ++
-           [project.erlc_include_path] ++
-           ~w(lib src c_src include priv) ++ test_roots)
-        |> Enum.uniq()
-        |> Enum.map(&Path.expand(&1, project.abs_path))
-      end)
-      |> Kernel.++(Keyword.get(opts, :directories, []))
-      |> Enum.flat_map(&ancestors(&1, root))
-      |> Enum.uniq()
-      |> Enum.sort()
-      |> Enum.map(&{&1, path_type(&1)})
-
-    topology =
-      (config_roots ++ Keyword.get(opts, :topology, []))
-      |> Enum.uniq()
-      |> Enum.sort()
-      |> Enum.map(&{&1, topology(&1)})
-
-    safe_roots =
-      Keyword.get(opts, :directories, [])
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    patterns = discovery_patterns(plan)
-    discovered = discover(patterns, root)
-    refresh = refresh_command(plan)
-
+  defp guard_code(inputs) do
     quote do
-      weld_refresh = unquote(refresh)
+      weld_refresh = unquote(inputs.refresh)
+      weld_type = unquote(path_type_fn())
+      weld_read_digest = unquote(read_digest_fn())
+      weld_digest = unquote(digest_fn())
+      weld_children = unquote(children_fn())
+      weld_walk = unquote(walk_fn())
+      weld_topology = unquote(topology_fn())
+      unquote(check_inputs_ast(inputs))
+      unquote(check_safe_roots_ast(inputs))
+      unquote(check_discovery_ast(inputs))
+    end
+  end
 
-      weld_type = fn path ->
+  defp path_type_fn do
+    quote do
+      fn path ->
         case File.lstat(path) do
           {:ok, %{type: type}} -> type
           {:error, :enoent} -> :missing
           _ -> :unreadable
         end
       end
+    end
+  end
 
-      weld_digest = fn path ->
-        case File.lstat(path) do
-          {:ok, %{type: :regular, mode: mode}} ->
-            case File.read(path) do
-              {:ok, bytes} ->
-                {Base.encode16(:crypto.hash(:sha256, bytes), case: :lower),
-                 Bitwise.band(mode, 0o111)}
-
-              _ ->
-                :unreadable
-            end
-
-          {:error, :enoent} ->
-            :missing
+  defp read_digest_fn do
+    quote do
+      fn path, mode ->
+        case File.read(path) do
+          {:ok, bytes} ->
+            {Base.encode16(:crypto.hash(:sha256, bytes), case: :lower), Bitwise.band(mode, 0o111)}
 
           _ ->
-            :unsafe
+            :unreadable
         end
       end
+    end
+  end
 
-      for {path, expected} <- unquote(Macro.escape(checks)) do
-        unless weld_digest.(path) == expected, do: Mix.raise(weld_refresh)
+  defp digest_fn do
+    quote do
+      fn path ->
+        case File.lstat(path) do
+          {:ok, %{type: :regular, mode: mode}} -> weld_read_digest.(path, mode)
+          {:error, :enoent} -> :missing
+          _ -> :unsafe
+        end
       end
+    end
+  end
 
-      for {path, expected} <- unquote(Macro.escape(slots)) do
-        unless weld_type.(path) == expected, do: Mix.raise(weld_refresh)
+  defp children_fn do
+    quote do
+      fn walk, path ->
+        case File.ls(path) do
+          {:ok, names} -> Enum.flat_map(names, &walk.(walk, Path.join(path, &1)))
+          _ -> [{path, :unreadable}]
+        end
       end
+    end
+  end
 
-      weld_walk = fn walk, path ->
+  defp walk_fn do
+    quote do
+      fn walk, path ->
         type = weld_type.(path)
-
-        children =
-          if type == :directory do
-            case File.ls(path) do
-              {:ok, names} -> Enum.flat_map(names, &walk.(walk, Path.join(path, &1)))
-              _ -> [{path, :unreadable}]
-            end
-          else
-            []
-          end
-
+        children = if type == :directory, do: weld_children.(walk, path), else: []
         [{path, type} | children]
       end
+    end
+  end
 
-      weld_topology = fn path ->
+  defp topology_fn do
+    quote do
+      fn path ->
         weld_walk.(weld_walk, path)
         |> Enum.map(fn {entry, type} -> {Path.relative_to(entry, path), type} end)
         |> Enum.sort()
       end
+    end
+  end
 
-      for {path, expected} <- unquote(Macro.escape(topology)) do
+  defp check_inputs_ast(inputs) do
+    quote do
+      for {path, expected} <- unquote(Macro.escape(inputs.checks)) do
+        unless weld_digest.(path) == expected, do: Mix.raise(weld_refresh)
+      end
+
+      for {path, expected} <- unquote(Macro.escape(inputs.slots)) do
+        unless weld_type.(path) == expected, do: Mix.raise(weld_refresh)
+      end
+
+      for {path, expected} <- unquote(Macro.escape(inputs.topology)) do
         unless weld_topology.(path) == expected, do: Mix.raise(weld_refresh)
       end
+    end
+  end
 
-      # New files are welcome in directory-linked views; new symlinks are not.
-      for root <- unquote(safe_roots), {_path, type} <- weld_topology.(root) do
+  defp check_safe_roots_ast(inputs) do
+    quote do
+      for root <- unquote(inputs.safe_roots), {_path, type} <- weld_topology.(root) do
         unless type in [:regular, :directory], do: Mix.raise(weld_refresh)
       end
+    end
+  end
 
+  defp check_discovery_ast(inputs) do
+    quote do
       weld_projects =
-        unquote(patterns)
+        unquote(inputs.patterns)
         |> Enum.flat_map(&Path.wildcard(&1, match_dot: false))
         |> Enum.reject(fn path ->
           path
-          |> Path.relative_to(unquote(root))
+          |> Path.relative_to(unquote(inputs.root))
           |> Path.split()
           |> Enum.any?(&(&1 in unquote(@ignored)))
         end)
@@ -150,7 +199,7 @@ defmodule Weld.Projector.Live do
         |> Enum.uniq()
         |> Enum.sort()
 
-      unless weld_projects == unquote(discovered), do: Mix.raise(weld_refresh)
+      unless weld_projects == unquote(inputs.discovered), do: Mix.raise(weld_refresh)
     end
   end
 
@@ -165,6 +214,7 @@ defmodule Weld.Projector.Live do
       "hex.publish": fn _ -> Mix.raise("live projections cannot be packaged; generate a full candidate") end
     ]
     """
+    |> String.trim_trailing()
   end
 
   defp refresh_command(plan) do

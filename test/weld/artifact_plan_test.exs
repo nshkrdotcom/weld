@@ -44,6 +44,7 @@ defmodule Weld.ArtifactPlanTest do
     plan = manifest |> Plan.build!() |> Plan.ensure_valid!()
     assert plan.dependency_ids == [".", "components/pure"]
     assert plan.source_member_ids == ["components/runtime"]
+
     assert Enum.any?(plan.source_inventory, fn entry ->
              entry.source == "components/pure/lib/pure.ex" and entry.kind == :compiled
            end)
@@ -61,6 +62,7 @@ defmodule Weld.ArtifactPlanTest do
       Path.join(root, "components/runtime/lib/added.ex"),
       "defmodule Sprout.Added do\nend\n"
     )
+
     FixtureCase.commit_all!(root, "change embedded sources")
 
     plan = Plan.build!(manifest)
@@ -90,6 +92,7 @@ defmodule Weld.ArtifactPlanTest do
     assert Enum.map(plan.source_inventory, & &1.target) == ["VERSION", "lib/color.ex", "mix.exs"]
     assert [%{app: :sprout, requirement: "~> 0.1.0"}] = plan.external_deps
     assert [%{from: "extensions/color", to: ".", app: :sprout}] = plan.externalized_edges
+
     assert Graph.path(plan.graph, "extensions/color", ".", :package) ==
              {:ok, ["extensions/color", "."]}
 
@@ -97,13 +100,22 @@ defmodule Weld.ArtifactPlanTest do
   end
 
   test "a source artifact cannot externalize its native sibling path dependency", %{
+    root: root,
     manifest: manifest
   } do
+    File.write!(Path.join(root, "extensions/color/VERSION"), "0.1.0\n")
+    mixfile = Path.join(root, "extensions/color/mix.exs")
+    original = File.read!(mixfile)
+    packaged = ~s|@packaged File.regular?(Path.join(__DIR__, "VERSION"))|
+    assert original =~ packaged
+    File.write!(mixfile, String.replace(original, packaged, "@packaged false"))
     write_color_artifact!(manifest, external_projects: ["."])
 
-    assert_raise Weld.Error, ~r/portable|versioned|external/, fn ->
-      manifest |> Plan.build!(artifact: :sprout_color) |> Plan.ensure_valid!()
-    end
+    assert_raise Weld.Error,
+                 ~r/source_project external boundary requires its native versioned Hex dependency/,
+                 fn ->
+                   manifest |> Plan.build!(artifact: :sprout_color) |> Plan.ensure_valid!()
+                 end
   end
 
   test "graph artifacts require a canonical version when cutting local edges", %{

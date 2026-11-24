@@ -11,6 +11,7 @@ defmodule Weld.ComponentTestsTest do
       File.mkdir_p!(Path.join(test, "fixtures"))
       File.write!(Path.join(test, "test_helper.exs"), "ExUnit.start()\n")
       File.write!(Path.join(test, "fixtures/expected.txt"), "seed\n")
+
       File.write!(Path.join(test, "value_test.exs"), """
       defmodule #{module}ValueTest do
         use ExUnit.Case
@@ -23,6 +24,7 @@ defmodule Weld.ComponentTestsTest do
     end
 
     manifest = Path.join(root, "build_support/components.exs")
+
     File.write!(manifest, """
     [workspace: [root: "..", project_globs: ["components/*", "extensions/*"]],
      artifacts: [sprout: [roots: ["components/runtime"],
@@ -46,19 +48,26 @@ defmodule Weld.ComponentTestsTest do
         refute prefix in result.package_files
         refute "#{prefix}/test" in result.package_files
         assert "#{prefix}/test/value_test.exs" in result.verification_files
-        assert File.read!(Path.join(result.build_path, "#{prefix}/test/fixtures/expected.txt")) == "seed\n"
+
+        assert File.read!(Path.join(result.build_path, "#{prefix}/test/fixtures/expected.txt")) ==
+                 "seed\n"
       end
 
-      {output, status} = System.cmd("mix", ["test"], cd: result.build_path,
-        env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_DEPS_PATH", nil}],
-        stderr_to_stdout: true)
-      assert status == 0, output
+      {output, status} =
+        System.cmd("mix", ["test"],
+          cd: result.build_path,
+          env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_DEPS_PATH", nil}],
+          stderr_to_stdout: true
+        )
+
+      assert status == 0, "projection #{inspect(kind)} at #{result.build_path}:\n#{output}"
       assert output =~ "2 tests, 0 failures" or output =~ "Result: 2 passed"
     end
   end
 
   @tag integration: true, ci_build: "component_prepare", timeout: 600_000
-  test "selected suites use a configured test dependency without adopting its private suite", ctx do
+  test "selected suites use a configured test dependency without adopting its private suite",
+       ctx do
     owner = Path.join(ctx.root, "components/runtime")
     probe = Path.join(ctx.root, "components/probe")
     File.cp_r!(FixtureCase.fixture_path("component_test_dependency"), probe)
@@ -66,7 +75,10 @@ defmodule Weld.ComponentTestsTest do
     mixfile = Path.join(owner, "mix.exs")
     original = File.read!(mixfile)
     runtime_deps = ~s([{:sprout_pure, path: "../pure"}])
-    test_deps = ~s([{:sprout_pure, path: "../pure"}, {:sprout_probe, path: "../probe", only: :test}])
+
+    test_deps =
+      ~s([{:sprout_pure, path: "../pure"}, {:sprout_probe, path: "../probe", only: :test}])
+
     assert original =~ runtime_deps
     File.write!(mixfile, String.replace(original, runtime_deps, test_deps))
 
@@ -86,11 +98,14 @@ defmodule Weld.ComponentTestsTest do
     projected = Enum.find(verified.verification_results, &(&1.task == "test"))
     assert baseline.test_count == 3
     assert projected.test_count == baseline.test_count
+
     assert Enum.sort(Enum.map(baseline.project_test_counts, & &1.project_id)) ==
              ["components/pure", "components/runtime"]
 
     prefix = "components/components/probe/"
-    for path <- ~w(lib/probe.ex src/sprout_probe_native.erl include/sprout_probe.hrl priv/probe.txt) do
+
+    for path <-
+          ~w(lib/probe.ex src/sprout_probe_native.erl include/sprout_probe.hrl priv/probe.txt) do
       assert (prefix <> path) in verified.verification_files
     end
 
@@ -101,15 +116,27 @@ defmodule Weld.ComponentTestsTest do
     {:ok, outer} = :erl_tar.extract(String.to_charlist(verified.tarball_path), [:memory])
     {~c"contents.tar.gz", contents} = List.keyfind(outer, ~c"contents.tar.gz", 0)
     {:ok, files} = :erl_tar.extract({:binary, contents}, [:compressed, :memory])
+
     refute Enum.any?(files, fn {path, bytes} ->
              String.starts_with?(to_string(path), prefix) or
-               (String.starts_with?(to_string(path), "config/") and bytes =~ "private_suite_config")
+               (String.starts_with?(to_string(path), "config/") and
+                  bytes =~ "private_suite_config")
            end)
 
     live = Weld.project!(ctx.manifest, live: true)
-    {output, status} = System.cmd("mix", ["test"], cd: live.build_path,
-      env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_BUILD_ROOT", nil}, {"MIX_DEPS_PATH", nil}],
-      stderr_to_stdout: true)
+
+    {output, status} =
+      System.cmd("mix", ["test"],
+        cd: live.build_path,
+        env: [
+          {"MIX_ENV", "test"},
+          {"MIX_BUILD_PATH", nil},
+          {"MIX_BUILD_ROOT", nil},
+          {"MIX_DEPS_PATH", nil}
+        ],
+        stderr_to_stdout: true
+      )
+
     assert status == 0, output
     assert output =~ "3 tests, 0 failures" or output =~ "Result: 3 passed"
   end
@@ -118,8 +145,15 @@ defmodule Weld.ComponentTestsTest do
     project = Path.join(ctx.root, "components/pure")
     File.rename!(Path.join(project, "test"), Path.join(project, "lib/verification"))
     mixfile = Path.join(project, "mix.exs")
-    File.write!(mixfile, String.replace(File.read!(mixfile), "deps: []",
-      "test_paths: [\"lib/verification\"], deps: []"))
+
+    File.write!(
+      mixfile,
+      String.replace(
+        File.read!(mixfile),
+        "deps: []",
+        "test_paths: [\"lib/verification\"], deps: []"
+      )
+    )
 
     assert_raise Weld.Error, ~r/test input overlaps a published runtime root/, fn ->
       Weld.project!(ctx.manifest)
@@ -130,8 +164,12 @@ defmodule Weld.ComponentTestsTest do
   test "component baseline dependency resolution never writes source locks", ctx do
     mixfile = Path.join(ctx.root, "components/pure/mix.exs")
     original = File.read!(mixfile)
-    File.write!(mixfile, String.replace(original, "deps: []",
-      "deps: [{:jason, \"~> 1.4\", only: :test}]"))
+
+    File.write!(
+      mixfile,
+      String.replace(original, "deps: []", "deps: [{:jason, \"~> 1.4\", only: :test}]")
+    )
+
     source_lock = Path.join(ctx.root, "components/pure/mix.lock")
     refute File.exists?(source_lock)
 
@@ -147,13 +185,25 @@ defmodule Weld.ComponentTestsTest do
     prepared = Weld.release_prepare!(ctx.manifest)
 
     for component <- ~w(pure runtime) do
-      assert File.regular?(Path.join(prepared.project_path,
-        "components/components/#{component}/test/value_test.exs"))
+      assert File.regular?(
+               Path.join(
+                 prepared.project_path,
+                 "components/components/#{component}/test/value_test.exs"
+               )
+             )
     end
 
-    marker = prepared.project_path |> Path.join("weld.provenance.json") |> File.read!() |> Jason.decode!()
+    marker =
+      prepared.project_path
+      |> Path.join("weld.provenance.json")
+      |> File.read!()
+      |> Jason.decode!()
+
     assert marker["artifact_id"] == Weld.Hash.project_identity(prepared.project_path)
-    verified_marker = prepared.build_path |> Path.join("weld.provenance.json") |> File.read!() |> Jason.decode!()
+
+    verified_marker =
+      prepared.build_path |> Path.join("weld.provenance.json") |> File.read!() |> Jason.decode!()
+
     assert verified_marker["artifact_id"] == marker["artifact_id"]
     assert Weld.release_prepare!(ctx.manifest).identity == prepared.identity
   end

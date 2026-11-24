@@ -450,7 +450,8 @@ defmodule Weld.Manifest do
     if options[:mode] == :source_project do
       unless length(options[:roots]) == 1 and options[:include] == [] and
                options[:optional_features] == [] do
-        raise Error, "source_project requires exactly one root and empty include and optional_features"
+        raise Error,
+              "source_project requires exactly one root and empty include and optional_features"
       end
 
       NimbleOptions.validate!(options[:source_project],

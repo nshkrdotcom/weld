@@ -17,6 +17,7 @@ defmodule Weld.Plan.Boundary do
       |> Enum.sort_by(&{&1.from, &1.to, &1.kind, &1.app})
 
     violations = declaration_violations(workspace, targets, seed_ids, edges)
+
     {graph, violations} =
       Enum.reduce(edges, {graph, violations}, &add_dependency(&1, &2, workspace, artifact))
 
@@ -53,7 +54,13 @@ defmodule Weld.Plan.Boundary do
     Enum.flat_map(targets, fn id ->
       cond do
         not Map.has_key?(workspace.projects, id) ->
-          [violation(:unknown_external_project, id, "external_projects project was not discovered")]
+          [
+            violation(
+              :unknown_external_project,
+              id,
+              "external_projects project was not discovered"
+            )
+          ]
 
         id in seed_ids ->
           [
@@ -69,7 +76,11 @@ defmodule Weld.Plan.Boundary do
 
         true ->
           [
-            violation(:unused_external_project, id, "external_projects has no applicable dependency edge")
+            violation(
+              :unused_external_project,
+              id,
+              "external_projects has no applicable dependency edge"
+            )
           ]
       end
     end)
@@ -85,11 +96,12 @@ defmodule Weld.Plan.Boundary do
       {Graph.add_external_dep(graph, edge.from, Workspace.external_dependency(dep)), violations}
     else
       {:error, message} ->
-        error = Violation.new(:incompatible_external_project, message,
-          project: edge.from,
-          dependency: edge.app,
-          details: %{target: edge.to}
-        )
+        error =
+          Violation.new(:incompatible_external_project, message,
+            project: edge.from,
+            dependency: edge.app,
+            details: %{target: edge.to}
+          )
 
         {graph, [error | violations]}
     end
@@ -141,29 +153,44 @@ defmodule Weld.Plan.Boundary do
     do: Enum.sort(List.wrap(source[:only])) != Enum.sort(List.wrap(canonical[:only]))
 
   defp validate_package(edge, project, requirement, opts, policy) do
-    native_package = to_string(edge.opts[:hex] || edge.app)
-    package = to_string(opts[:hex] || edge.app)
-    policy_requirement = if policy, do: policy.requirement
-    policy_package = if policy, do: policy.opts[:hex]
-
     cond do
-      edge.app != project.app or package != project.package_name ->
+      not external_identity_matches?(edge, project, opts) ->
         {:error, "external dependency identity does not match the discovered package"}
 
-      not transport?(edge.opts) and native_package != project.package_name ->
+      not native_identity_matches?(edge, project) ->
         {:error, "native dependency identity does not match the discovered package"}
 
-      policy_package && to_string(policy_package) != project.package_name ->
+      not canonical_identity_matches?(project, policy) ->
         {:error, "canonical dependency identity does not match the discovered package"}
 
-      Enum.any?([edge.requirement, requirement, policy_requirement], fn requirement ->
-        not version_matches?(project.version, requirement)
-      end) ->
+      not requirements_match?(edge, project, requirement, policy) ->
         {:error, "external dependency requirement conflicts with the discovered package version"}
 
       true ->
         :ok
     end
+  end
+
+  defp external_identity_matches?(edge, project, opts) do
+    edge.app == project.app and to_string(opts[:hex] || edge.app) == project.package_name
+  end
+
+  defp native_identity_matches?(edge, project) do
+    transport?(edge.opts) or to_string(edge.opts[:hex] || edge.app) == project.package_name
+  end
+
+  defp canonical_identity_matches?(project, policy) do
+    policy_package = if policy, do: policy.opts[:hex]
+    if policy_package, do: to_string(policy_package) == project.package_name, else: true
+  end
+
+  defp requirements_match?(edge, project, requirement, policy) do
+    policy_requirement = if policy, do: policy.requirement
+
+    Enum.all?(
+      [edge.requirement, requirement, policy_requirement],
+      &version_matches?(project.version, &1)
+    )
   end
 
   defp dependency(edge, requirement, opts) do
@@ -179,7 +206,8 @@ defmodule Weld.Plan.Boundary do
 
   defp version_matches?(_version, nil), do: true
 
-  defp version_matches?(version, requirement) when is_binary(version) and is_binary(requirement) do
+  defp version_matches?(version, requirement)
+       when is_binary(version) and is_binary(requirement) do
     with {:ok, version} <- Version.parse(version),
          {:ok, requirement} <- Version.parse_requirement(requirement) do
       Version.match?(version, requirement)
