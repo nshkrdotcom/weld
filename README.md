@@ -1,0 +1,293 @@
+<p align="center">
+  <img src="assets/weld.svg" alt="Weld logo" width="200" />
+</p>
+
+<h1 align="center">Weld</h1>
+
+<p align="center">
+  <a href="https://github.com/nshkrdotcom/weld"><img src="https://img.shields.io/badge/github-nshkrdotcom/weld-8da0cb?style=flat&logo=github" alt="GitHub" /></a>
+  <a href="https://github.com/nshkrdotcom/weld/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-4c9f70.svg" alt="MIT License" /></a>
+</p>
+
+`Weld` is a graph-native publication system for Elixir monorepos.
+
+It keeps the source repo as a normal multi-project workspace, builds a
+workspace graph, resolves one artifact boundary from a repo-local manifest,
+projects a standalone Mix package, verifies that generated package with normal
+Mix tooling, and prepares an archiveable release bundle for publication.
+
+## What It Does
+
+- discovers workspace projects from manifest globs, `blitz_workspace`, or filesystem fallback
+- classifies projects as runtime, tooling, proof, or ignored
+- separates publication role from project classification
+- classifies internal edges by execution meaning
+- exposes inspect, graph, query, affected, project, verify, and release tasks
+- emits a deterministic `projection.lock.json`
+- generates a standalone Mix package under `.weld/full/<artifact>/project/`
+- canonicalizes external workspace path or git deps into manifest-owned Hex deps
+- synthesizes a merged application module when selected projects publish OTP children
+- merges sources, tests, config, migrations, and priv from all selected projects in monolith mode
+- supports explicit manifest-owned source-only monolith test support projects
+- prepares a deterministic release bundle under `.weld/releases/<artifact>/<identity>/`
+- keeps the prepared bundle model valid for both publishable and internal-only artifacts
+- archives released bundles without turning generated output into a long-lived source tree
+
+## Installation
+
+Add `weld` to the root project that owns the repo's packaging and release flow.
+
+```elixir
+def deps do
+  [
+    {:weld, "~> 0.15.0", only: [:dev, :test], runtime: false}
+  ]
+end
+```
+
+## Release Lifecycle
+
+The intended lifecycle is:
+
+1. run the normal source-repo checks
+2. run `mix release.prepare`
+3. optionally run `mix release.track` to update a durable projection
+4. run `mix hex.publish` from the prepared bundle when you are doing a release
+5. run `mix release.archive`
+
+`weld` owns create, welded-package verification, prepared bundle creation,
+projection tracking, and archive preparation. Hex publish remains external.
+
+`mix weld.release.track` is for tracked projected source, including unreleased
+or pre-release snapshots. It updates `projection/<package_name>` by default and
+creates that branch as an orphan on first use so the projection history stays
+isolated from the source repo history.
+
+For coordinated pre-release validation across consumer repos, prefer normal
+version bumps to a prerelease Weld package such as `0.15.0-rc.1` rather than
+embedding repo-local path or git override logic in every consumer.
+
+## Example Manifest
+
+Package-projection mode (default):
+
+```elixir
+[
+  workspace: [
+    root: "../..",
+    project_globs: ["core/*", "runtime/*"]
+  ],
+  dependencies: [
+    external_lib: [
+      requirement: "~> 1.2",
+      opts: []
+    ]
+  ],
+  artifacts: [
+    my_bundle: [
+      roots: ["runtime/local"],
+      package: [
+        name: "my_bundle",
+        otp_app: :my_bundle,
+        version: "0.1.0",
+        description: "My welded package",
+        docs: [
+          logo: "assets/my_bundle.svg",
+          source_url: "https://github.com/example/my_bundle",
+          source_ref: "v0.1.0",
+          extra_titles: %{"README.md" => "Overview"},
+          groups_for_extras: [
+            {"Start Here", ["README.md"]},
+            {"Release", ["CHANGELOG.md", "LICENSE"]}
+          ]
+        ]
+      ],
+      output: [
+        docs: ["README.md", "CHANGELOG.md", "LICENSE", "guides/architecture.md"],
+        assets: ["assets/my_bundle.svg"]
+      ],
+      verify: [
+        artifact_tests: ["packaging/weld/my_bundle/test"],
+        hex_build: true,
+        hex_publish: true,
+        smoke: [
+          enabled: true,
+          entry_file: "packaging/weld/my_bundle/smoke.ex"
+        ]
+      ]
+    ]
+  ]
+]
+```
+
+Monolith mode:
+
+```elixir
+[
+  workspace: [
+    root: "../..",
+    project_globs: ["core/*", "runtime/*"]
+  ],
+  artifacts: [
+    my_monolith: [
+      mode: :monolith,
+      roots: ["runtime/api"],
+      monolith_opts: [
+        shared_test_configs: ["core/contracts"],
+        test_support_projects: ["tooling/test_support"]
+      ],
+      package: [
+        name: "my_monolith",
+        otp_app: :my_monolith,
+        version: "0.1.0",
+        description: "My welded monolith"
+      ],
+      output: [
+        docs: ["README.md"]
+      ]
+    ]
+  ]
+]
+```
+
+For each selected project, monolith mode copies tests only from the project's
+declared Mix `:test_paths` (defaulting to `["test"]`). This keeps the generated
+suite aligned with the tests the owning project actually runs.
+
+## Core Commands
+
+Standard-layout repos can omit the manifest path. `weld` now discovers, in
+order:
+
+1. `build_support/weld.exs`
+2. `build_support/weld_contract.exs`
+3. a single `packaging/weld/*.exs`
+
+```bash
+mix weld.inspect
+mix weld.graph --format dot
+mix weld.query deps runtime/local
+mix weld.project
+mix weld.verify
+mix weld.agents.verify
+mix release.prepare
+mix release.track
+mix release.archive
+mix weld.affected --task verify.all --base main --head HEAD
+```
+
+You can still pass an explicit manifest path when a repo carries more than one
+Weld manifest or when you want to target a nonstandard location.
+
+## Source-root artifacts in 0.15.0
+
+For an existing public Mix project, use `mode: :source_project` to preserve its application metadata and compiler roots. Direct Mix consumption needs no Weld setup. Maintainers can create optional live and full representations; verified releases receive immutable identities. [Source-root artifacts](guides/source_projects.md)
+
+## Generated Output
+
+**Package-projection mode** (default) projects under `.weld/full/<artifact>/project/` using
+a component-preserving layout:
+
+```text
+.weld/full/my_bundle/project/
+      mix.exs
+      projection.lock.json
+      lib/
+        my_bundle/
+          application.ex
+      components/
+        core/contracts/
+        runtime/local/
+      test/
+```
+
+**Monolith mode** merges all selected packages into a single flat project under
+`.weld/full/<artifact>/project/`:
+
+```text
+.weld/full/my_monolith/project/
+      mix.exs
+      projection.lock.json
+      lib/
+        my_monolith/
+          application.ex
+        fixture/
+          store.ex
+          api.ex
+      test/
+        core_store/
+        runtime_api/
+        support/
+      config/
+        config.exs
+        sources/
+        runtime_sources/
+      priv/
+        repo/migrations/
+```
+
+When selected projects expose OTP applications, `weld` synthesizes a merged
+`lib/<otp_app>/application.ex` that starts those children inside the welded
+package. In monolith mode this module also bootstraps per-package config at
+startup via `Config.Reader`.
+
+When selected-package tests depend on non-selected workspace projects, declare
+those source-only support projects explicitly in
+`monolith_opts[:test_support_projects]`. `weld` copies that support code under
+`test/support/weld_projects/` and fails closed if the discovered support set
+drifts from the manifest contract.
+
+The welded artifact is a normal Mix project. `weld.verify` runs:
+
+**Package-projection mode:**
+
+- `mix deps.compile`
+- `mix compile --warnings-as-errors --no-compile-deps`
+- `mix test`
+- `mix docs --warnings-as-errors`
+- `mix hex.build`
+- `mix hex.publish --dry-run --yes`
+- optional smoke-app compilation
+
+You can opt out of the Hex-only steps per artifact with:
+
+- `verify: [hex_build: false]`
+- `verify: [hex_publish: false]`
+
+This is the correct setting for internal artifacts that intentionally depend on
+non-Hex git dependencies. When disabled, Weld records the step as `:skipped`
+instead of forcing a failing `mix hex.build`.
+
+**Monolith mode:**
+
+- per-package test baseline (asserts selected packages pass their own tests)
+- `mix deps.get`
+- `mix compile --warnings-as-errors`
+- `mix test` (asserts test count ≥ baseline sum)
+- `mix docs --warnings-as-errors`
+- `mix hex.build`
+
+Monolith artifacts can also disable `hex.build` with `verify: [hex_build: false]`
+when they are intentionally not Hex-packagable.
+
+Prepared release bundles include the projected project tree, `release.json`
+metadata, and an optional tarball when `verify.hex_build` is enabled. The
+prepared project and tracked Git projection retain `projection.lock.json`.
+Hex tarballs omit it. Bundle metadata remains portable across checkout
+locations because it records the manifest path relative to the repo root and
+the Weld version used to create the bundle.
+
+## Guides
+
+- [Getting Started](guides/getting_started.md)
+- [Workflow](guides/workflow.md)
+- [CLI Reference](guides/cli_reference.md)
+- [Manifest Reference](guides/manifest_reference.md)
+- [Architecture](guides/architecture.md)
+- [Testing Strategy](guides/testing_strategy.md)
+- [Release Process](guides/release_process.md)
+- [Consumer Repo Integration](guides/consumer_repo_integration.md)
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

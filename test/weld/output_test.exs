@@ -1,0 +1,96 @@
+defmodule Weld.OutputTest do
+  use ExUnit.Case, async: true
+
+  alias Weld.{Error, FixtureCase, Output}
+
+  setup do
+    root = FixtureCase.unique_tmp_dir("weld_output")
+    {_, 0} = System.cmd("git", ["init", "--quiet"], cd: root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    %{root: root, ignore: Path.join(root, ".gitignore")}
+  end
+
+  test "a missing rule is added once, and is effective from a nested project", %{
+    root: root,
+    ignore: ignore
+  } do
+    nested = Path.join(root, "private/component")
+    File.mkdir_p!(nested)
+    tasks = for _ <- 1..6, do: Task.async(fn -> Output.with_lock(nested, fn -> :ok end) end)
+    Enum.each(tasks, &Task.await/1)
+    assert File.read!(ignore) == ".weld/\n"
+    refute File.exists?(Path.join(nested, ".weld"))
+
+    for probe <- ~w(.weld/full/name/project/mix.exs .weld/live/name/priv .weld/cache/test) do
+      assert {_, 0} = System.cmd("git", ["check-ignore", "--no-index", probe], cd: root)
+    end
+  end
+
+  test "normalization preserves unrelated bytes, newline convention and permissions", %{
+    root: root,
+    ignore: ignore
+  } do
+    File.write!(ignore, "# local\r\n/.weld/\r\nkeep   \r\n.weld/   \r\n/.weld   \r\nlast")
+    File.chmod!(ignore, 0o640)
+
+    for _ <- 1..2 do
+      Output.with_lock(root, fn -> :ok end)
+      assert File.read!(ignore) == "# local\r\n.weld/\r\nkeep   \r\nlast"
+      assert Bitwise.band(File.stat!(ignore).mode, 0o777) == 0o640
+    end
+
+    File.write!(ignore, "# last")
+    Output.with_lock(root, fn -> :ok end)
+    assert File.read!(ignore) == "# last\n.weld/\n"
+  end
+
+  test "exceptions, tracked output and unsafe paths fail closed", %{root: root, ignore: ignore} do
+    for rule <- ["!/.weld/", "!.weld/keep", "!/.w?ld", "!/.w[e]ld   ", "!/.weld   "] do
+      File.write!(ignore, rule)
+      assert_raise Error, ~r/conflicting/, fn -> Output.with_lock(root, fn -> :ok end) end
+      assert File.read!(ignore) == rule
+    end
+
+    File.write!(ignore, ".weld/\n")
+    tracked = Path.join(root, ".weld/tracked")
+    File.write!(tracked, "owned by Git")
+    {_, 0} = System.cmd("git", ["add", "-f", ".weld/tracked"], cd: root)
+    assert_raise Error, ~r/tracked/, fn -> Output.with_lock(root, fn -> :ok end) end
+    assert File.read!(tracked) == "owned by Git"
+    assert_raise Error, ~r/invalid/, fn -> Output.path(root, ["full", "../elsewhere"]) end
+  end
+
+  test "refuses files, symlinks and unowned trees at the output root", %{root: root} do
+    output = Path.join(root, ".weld")
+    File.write!(output, "mine")
+    assert_raise Error, fn -> Output.with_lock(root, fn -> :ok end) end
+    File.rm!(output)
+    File.ln_s!(root, output)
+    assert_raise Error, ~r/symlink/, fn -> Output.with_lock(root, fn -> :ok end) end
+    File.rm!(output)
+    File.mkdir!(output)
+    File.write!(Path.join(output, "user-data"), "preserve")
+    assert_raise Error, ~r/unmanaged/, fn -> Output.with_lock(root, fn -> :ok end) end
+    assert File.read!(Path.join(output, "user-data")) == "preserve"
+  end
+
+  test "linked worktrees get independent output roots", %{root: root} do
+    FixtureCase.git_output!(root, [
+      "-c",
+      "user.name=Fixture",
+      "-c",
+      "user.email=test@example.test",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "baseline"
+    ])
+
+    linked = root <> "-linked"
+    on_exit(fn -> File.rm_rf!(linked) end)
+    FixtureCase.git_output!(root, ["worktree", "add", "--detach", linked])
+    Output.with_lock(linked, fn -> :ok end)
+    assert File.regular?(Path.join(linked, ".weld/.owner"))
+    refute File.exists?(Path.join(root, ".weld"))
+  end
+end

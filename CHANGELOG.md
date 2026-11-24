@@ -1,0 +1,447 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.15.0] - 2026-11-24
+
+- Add explicit source-project artifacts with portable full candidates and optional live views of canonical compiler inputs and assets.
+- Collect generated projections, verifier caches, smoke consumers, locks, worktrees and immutable prepared releases beneath the checkout's `.weld/`.
+- Normalize the root ignore rule on explicit projection operations and protect unmanaged output. Existing `dist/` trees remain available for manual migration.
+- Bind prepared identities to verified project, archive, resolved lock, configuration, source revision and toolchain. Retain component-preserving and monolith projection, archive and orphan branch tracking.
+
+## [0.14.0] - 2026-11-22
+
+- Keep projection metadata in prepared projects and tracked Git projections.
+  Omit `projection.lock.json` from generated Hex archives in both modes.
+
+## [0.13.1] - 2026-11-22
+
+- Keep verification dependency checkouts and compiled output under the
+  workspace's `_build/weld/` directory. This preserves warm verification and
+  keeps compiler symlinks out of source probes such as Mix Workspace Ops.
+
+## [0.13.0] - 2026-11-22
+
+- Reuse Mix dependency checkouts and compilation state across verification runs and report stage timings.
+- Serialize operations sharing a projection or prepared bundle.
+- Verify prepared release digests before tracking or archiving.
+- Reject invalid options in projection and release commands.
+- Support opt-in Mermaid rendering in generated HTML documentation.
+
+## [0.12.0] - 2026-11-22
+
+Default `mix test` runs the fast checks. `mix ci` also runs the tests that
+build and verify generated packages. Blitz runs the independent checks in
+parallel with isolated Mix build directories and streams labeled results.
+Release checks reuse prepared outputs and compare package contents across
+clean checkouts.
+
+### Added
+
+- Prepared bundles provide rendered documentation beside the clean project and archive.
+
+### Release verification
+
+- Freeze the projection lock before building the Hex archive and encode nested JSON keys in a stable order.
+- Apply Hex dry runs in both projection modes and reject unsupported monolith verification settings.
+- Reject dirty Git release inputs and conflicting monolith private assets.
+
+### Changed
+
+- prepared bundles now expose the portable
+  `mix_workspace_ops.prepared_artifact/v2` handoff consumed by an external
+  clean-checkout release transaction, while Weld remains independent of Mix
+  Workspace Ops and publication credentials.
+- generated release projects contain only declared package files, the portable
+  lockfile, and owned tests; transient build, dependency, documentation, and
+  nested archive outputs are excluded.
+
+### Fixed
+
+- prepared project trees and lockfiles are reproducible across independent
+  checkout locations, and handoff manifest paths are anchored to the Git root.
+
+## [0.11.0] - 2026-08-30
+
+### Removed
+
+- **Breaking:** remove `Weld.DependencySources`, its canonical helper template,
+  and `mix weld.dependency_sources.verify`. Dependency-source selection and
+  verification now live outside Weld's package-projection boundary.
+- **Breaking:** remove `Weld.EcosystemReport` and
+  `mix weld.ecosystem.report`; their graph, publish-order, clone, and readiness
+  fields were projections of the removed dependency-source manifest.
+- remove dependency-source requirements from `mix weld.agents.verify`; the task
+  continues to enforce runtime-environment guidance.
+
+### Changed
+
+- consumer guidance now targets Weld `~> 0.11.0` and keeps Weld focused on
+  projection, generated-package verification, and release bundles.
+
+## [0.10.0] - 2026-08-11
+
+### Added
+
+- prepared release metadata now exposes a bounded,
+  `mix_workspace_ops.prepared_artifact/v1` data handoff containing the source
+  revision, package/version, relative artifact paths, and SHA-256 digests.
+
+### Changed
+
+- consumer guidance and release documentation now target Weld `~> 0.10.0`.
+
+### Architecture
+
+- Weld retains complete ownership of projection and artifact preparation; the
+  handoff introduces no Mix Workspace Ops dependency or executable coupling,
+  leaving clean-checkout transaction consumption to a later product-driven
+  integration.
+
+## [0.9.0] - 2026-08-10
+
+### Added
+
+- the canonical dependency-source template now provides fail-closed publish
+  preflight checks, machine-readable release ordering, source inspection, and
+  exact task-token detection for Hex-only package builds and publication.
+- package projections can declare Hex-only development dependencies so their
+  generated artifacts run Credo and Dialyzer as first-class release gates.
+
+### Security
+
+- dependency-source configuration and local overrides are parsed as literals
+  instead of evaluated as code, configured names cannot allocate arbitrary
+  atoms, and local-path resolution is absolute and bounded to declared sources.
+
+### Changed
+
+- consumer guidance and release documentation now target Weld `~> 0.9.0`.
+
+### Fixed
+
+- generated-project verification recognizes both the legacy ExUnit summary and
+  Elixir 1.20's `Result: N passed` summary without weakening the zero-test or
+  failure checks.
+
+## [0.8.4] - 2026-07-13
+
+### Fixed
+
+- monolith projection now honors every selected project's declared
+  `test_paths` instead of copying all files below `test/`, preventing dormant
+  or separately owned suites from leaking into generated-package verification.
+- selected-project test paths are constrained to their owning project root and
+  overlapping paths are de-duplicated before projection.
+
+### Changed
+
+- consumer guidance and release documentation now target Weld `~> 0.8.4`.
+
+## [0.8.3] - 2026-07-13
+
+### Added
+
+- generated-package HexDocs metadata for logos, homepage/source links, source
+  refs, copied assets, titled extras, and ordered extra-page groups in both
+  package-projection and monolith modes.
+
+### Fixed
+
+- monolith `package.files` now includes every manifest-declared output document
+  and asset, including individual changelog and SVG paths outside Weld's legacy
+  hard-coded candidates.
+- monolith package allowlists now collapse descendant paths already covered by
+  a declared directory, keeping generated Hex previews explicit but minimal.
+- the repository `mix ci` alias now launches test-environment child commands
+  through an explicit `env` executable, avoiding Mix 1.19's literal-command
+  parsing failure for the former inline assignment syntax.
+
+### Changed
+
+- consumer guidance and release documentation now target Weld `~> 0.8.3`.
+
+## [0.8.2] - 2026-05-10
+
+### Fixed
+
+- `mix weld.agents.verify` now ignores generated build and dependency
+  directories at any repo depth, preventing nested package `deps/AGENTS.md`
+  files from being treated as source-owned guidance.
+
+## [0.8.1] - 2026-05-10
+
+### Fixed
+
+- the canonical dependency-source helper now preserves GitHub `subdir` metadata
+  and per-dependency options such as `only`, `runtime`, and `override`, allowing
+  consumer repos to remove one-off dependency resolver modules without losing
+  workspace, GitHub fallback, or Hex publish behavior.
+
+## [0.8.0] - 2026-05-10
+
+### Added
+
+- `Weld.Credo.Check.NoRuntimeOsEnv` for rejecting direct OS environment API
+  calls in runtime `lib/**` code.
+- a canonical `build_support/dependency_sources.exs` template plus
+  `mix weld.dependency_sources.verify` for helper drift, manifest shape,
+  source metadata, and publish-mode blocker checks.
+- `mix weld.agents.verify` for root and nested `AGENTS.md` dependency-source
+  and runtime-env guidance.
+- `mix weld.ecosystem.report` for dependency graph, publish-order,
+  clean-clone, and publish-readiness reports across repo sets.
+
+### Changed
+
+- consumer guidance now targets the Weld `~> 0.8.0` line.
+- the Hex package file list now includes `priv/templates` so packaged Weld
+  carries the dependency-source helper template without generated PLT files.
+
+## [0.7.2] - 2026-04-23
+
+### Changed
+
+- publish Weld with a current Telemetry dependency requirement (`~> 1.4`) so
+  downstream welded-package verification can use the latest Telemetry 1.4.x
+  line without stale owned-package constraints.
+- refresh development quality tooling to the latest available Credo patch
+  release.
+
+## [0.7.1] - 2026-04-13
+
+### Added
+
+- repo-layout autodiscovery for Weld CLI tasks. When no manifest path is
+  passed, Weld now prefers `build_support/weld.exs`, then
+  `build_support/weld_contract.exs`, then a single `packaging/weld/*.exs`
+- plain `mix release.prepare`, `mix release.track`, and `mix release.archive`
+  wrapper tasks that delegate to the Weld release flow
+
+### Changed
+
+- the recommended consumer steady state now uses Weld's standard manifest
+  locations plus direct task invocation instead of repo-local alias blocks that
+  only forward manifest paths and artifact names
+
+## [0.7.0] - 2026-04-13
+
+### Changed
+
+- prepared release bundles now treat the projected source tree as the canonical
+  tracked payload and the tarball as optional bundle content
+- `weld.release.prepare`, `weld.release.track`, and `weld.release.archive` now
+  work for internal-only artifacts that intentionally set `verify.hex_build:
+  false`
+- consumer guidance now recommends plain Hex consumption of Weld `~> 0.7.0`
+  and prerelease version bumps for coordinated pre-release validation instead
+  of baking repo-local path/git override logic into every consumer repo
+
+### Fixed
+
+- `Weld.Release.prepare!/1` no longer crashes when verification intentionally
+  omits a tarball
+- archive and projection tracking now work from prepared bundles that do not
+  contain a tarball
+
+## [0.6.0] - 2026-04-13
+
+### Added
+
+- `mix weld.release.track` and the corresponding public API for tracking
+  prepared bundles on durable `projection/<package_name>` branches.
+- thin Git helpers for branch detection, worktree management, tagging, and
+  push operations used by projection tracking.
+- real Git fixture coverage for projection tracking, including orphan-branch
+  initialization, no-op sync, content updates, and tag/push behavior.
+- a root `mix ci` alias that runs the full formatter, compiler, test, Credo,
+  Dialyzer, and docs gate.
+
+### Changed
+
+- projection tracking now treats orphan `projection/<package_name>` branches as
+  the default durable generated-source history surface.
+- README and guides now document tracked projections, consumer override policy,
+  and the `0.6.0` dependency line.
+
+## [0.5.0] - 2026-04-11
+
+### Changed
+
+- Weld now depends on `multigraph ~> 0.16.1-mg.3` directly instead of the old
+  `libgraph` alias shape, matching the dependency's current package and OTP app
+  contract.
+- workspace graph operations now target `Multigraph.*` throughout the codebase,
+  which restores compatibility with the current graph backend API.
+- README and guide installation examples now target the `0.5.0` dependency
+  line.
+
+## [0.4.1] - 2026-04-11
+
+### Added
+
+- explicit `verify.hex_build` and `verify.hex_publish` manifest controls so
+  artifacts can opt out of Hex-only verification steps by policy.
+
+### Changed
+
+- README and guide examples now target the `0.4.1` dependency line and document
+  when Hex build and dry-run publish verification should be disabled.
+
+### Fixed
+
+- verifier results now mark skipped Hex-only steps explicitly and only record a
+  tarball path when `mix hex.build` actually ran successfully.
+
+## [0.4.0] - 2026-04-09
+
+### Added
+
+- `Weld.version/0`, a stable public version API for bundle metadata and
+  downstream tooling that needs the packaged Weld version instead of the caller
+  project's version.
+
+### Changed
+
+- prepared release bundle metadata now records the manifest path relative to
+  the repo root instead of an absolute filesystem path.
+- release bundle slug derivation is now stable across checkout locations while
+  still reflecting the selected artifact and manifest contents.
+- release docs and installation examples now target the `0.4.0` line.
+
+### Fixed
+
+- `release.json` now records the actual Weld version instead of the consumer
+  repo version when Weld runs as a dependency.
+- workspace discovery no longer duplicates `"."` when the root project is
+  already declared in `blitz_workspace.projects`.
+
+## [0.3.3] - 2026-04-08
+
+### Fixed
+
+- generated package-mode and monolith-mode application modules now emit an
+  explicit `@moduledoc false`, so prepared release bundles and projected
+  monoliths stay Credo-clean when downstream repos lint the generated
+  artifacts directly
+
+## [0.3.2] - 2026-04-08
+
+### Added
+
+- a shared source formatter helper for generated Elixir sources so projected
+  Mix files, generated applications, and synthesized config roots are emitted
+  formatter-clean by construction.
+
+### Changed
+
+- projected package and monolith artifacts now preserve repo-root Mix tooling
+  files such as `.formatter.exs`, with support ready for other root quality
+  config files when present.
+
+### Fixed
+
+- prepared release bundles and projected monoliths can now run `mix format`
+  from the artifact root without ad hoc arguments or missing-config failures.
+- generated `mix.exs`, application modules, and root config files are now
+  emitted in formatter-clean form, so dist artifacts satisfy the normal
+  formatter gate instead of only compiling and testing cleanly.
+
+## [0.3.1] - 2026-04-08
+
+### Added
+
+- package-mode regression fixtures and projector tests covering projected
+  package config bootstrap, root `ecto_repos` overlays, and repo-priv layout.
+
+### Changed
+
+- projected package and monolith `mix.exs` files now declare an explicit
+  `build_path`, which keeps Mix from misclassifying generated multi-app config
+  as invalid during local dist verification commands.
+- staged static config sources now preserve selected project app config instead
+  of blanking it out and relying solely on generated application bootstrap.
+
+### Fixed
+
+- prepared bundles and projected monoliths now keep repo config available for
+  direct dist commands such as `mix ecto.create`, `mix ecto.migrate`, and
+  other Mix tasks that need config before the generated application starts.
+- regenerated artifacts no longer emit false-positive "configured application
+  ... is not available" warnings during normal Mix task execution.
+
+## [0.3.0] - 2026-04-08
+
+### Added
+
+- `monolith_opts[:test_support_projects]`, an explicit manifest-owned contract
+  for non-selected workspace projects that still participate in the monolith
+  `:test` view as source-only support.
+
+### Changed
+
+- Monolith projection now fails closed when
+  `monolith_opts[:test_support_projects]` is declared but the discovered
+  non-selected test support set does not match the manifest.
+- Monolith config bootstrap app ownership is now derived from staged bootstrap
+  sources rather than from every staged project app, which keeps generated
+  application bootstrap allowlists aligned with the actual runtime config
+  surface.
+- Consumer integration docs, monolith docs, and examples now describe the
+  explicit source-only test support policy.
+
+### Fixed
+
+- `guides/consumer_repo_integration.md` now references the current Weld
+  dependency line instead of an outdated `0.1.0` example.
+
+## [0.2.0] - 2026-04-07
+
+### Added
+
+- **Monolith artifact mode** (`mode: :monolith`): projects selected packages and
+  their test-view closure into a single flat Mix project under
+  `dist/monolith/<package>/` instead of `dist/hex/<package>/`. Merges `lib/`,
+  `test/`, `priv/`, config, and migrations from all selected projects with
+  automatic file-conflict resolution and deterministic migration re-stamping.
+- `monolith_opts` artifact key: supports `shared_test_configs` (list of project
+  ids whose `test.exs` are included in the monolith root config) and
+  `extra_test_deps` (atoms referencing manifest-declared dependencies to force
+  into test-only deps in the generated mix file).
+- Weld.Config.Generator: generates a merged config tree for monolith artifacts,
+  sanitizing workspace-app config calls from static copies while preserving full
+  originals under `config/runtime_sources/` for bootstrap use.
+- Weld.Projector.Monolith, Weld.Projector.Monolith.FilePlan,
+  Weld.Projector.Monolith.Migrations, Weld.Projector.Monolith.MixFile,
+  Weld.Projector.Monolith.TestHelper: internal modules implementing monolith
+  projection, file merging, migration merging, mix file generation, and test
+  helper synthesis.
+- `Plan.projects_for_view/2` and `Plan.external_deps_for_view/2`: view-scoped
+  project and dependency queries used by monolith projection.
+- Git/GitHub-only manifest dependencies: `requirement` is now optional when
+  `opts` include `:git` or `:github`, enabling manifest-declared git deps without
+  a version constraint.
+- Monolith verifier gate: runs per-selected-project test baseline before
+  verifying the merged artifact, then asserts the monolith test count is not
+  lower than the baseline sum.
+- `mode: :components` is accepted as an alias for `:package_projection` for
+  compatibility with earlier internal configurations.
+
+### Changed
+
+- Package-projection verifier now runs `deps.compile` then
+  `compile --warnings-as-errors --no-compile-deps` instead of a single
+  `compile --warnings-as-errors` step.
+- Manifest dependency validation: `:path` is still rejected; `:git` and
+  `:github` are now permitted in dependency opts.
+- Canonical external dep normalization strips `:override`, `:branch`, `:tag`,
+  `:ref`, and `:subdir` from workspace dep opts before merging manifest opts.
+- Monolith artifacts are excluded from `hex.publish --dry-run --yes` during
+  verification (not a publishable Hex package in the traditional sense).
+
+## [0.1.0] - 2026-04-02
+
+Initial release.
