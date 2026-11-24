@@ -14,6 +14,19 @@ defmodule Weld.MixTasksTest do
     end
   end
 
+  test "nested explicit setup and project share the checkout-root output" do
+    root = FixtureCase.copy_fixture("source_project")
+    FixtureCase.init_git!(root)
+
+    File.cd!(Path.join(root, "components/pure"), fn ->
+      Mix.Task.rerun("weld.setup", [])
+      Mix.Task.rerun("weld.project", ["--artifact", "sprout", "--live"])
+    end)
+
+    assert File.dir?(Path.join(root, ".weld/live/sprout"))
+    refute File.exists?(Path.join(root, "components/pure/.weld"))
+  end
+
   test "mix weld.inspect prints json output" do
     manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
 

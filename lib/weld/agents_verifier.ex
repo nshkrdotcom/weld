@@ -62,7 +62,7 @@ defmodule Weld.AgentsVerifier do
   defp ignored_path?(path) do
     path
     |> Path.split()
-    |> Enum.any?(&(&1 in ~w(.git _build deps dist tmp doc)))
+    |> Enum.any?(&(&1 in ~w(.git .weld _build deps dist tmp doc)))
   end
 
   defp file_violations(path, content) do

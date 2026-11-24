@@ -48,6 +48,7 @@ defmodule Weld.Plan do
   def build!(%Manifest{} = manifest, opts) do
     artifact = Manifest.artifact!(manifest, opts[:artifact])
     workspace = Workspace.load!(manifest)
+    validate_source_identity!(artifact, workspace.projects)
     graph = workspace.graph
 
     seed_ids =
@@ -107,6 +108,18 @@ defmodule Weld.Plan do
       violations: violations
     }
   end
+
+  defp validate_source_identity!(%{mode: :source_project, package: package}, projects) do
+    case Map.get(projects, ".") do
+      %{app: app, version: version} when app == package.otp_app and version == package.version ->
+        :ok
+
+      _ ->
+        raise Error, "source project app and version must match the artifact package"
+    end
+  end
+
+  defp validate_source_identity!(_artifact, _projects), do: :ok
 
   @spec selected?(t(), String.t()) :: boolean()
   def selected?(%__MODULE__{} = plan, project_id), do: project_id in plan.selected_ids

@@ -4,7 +4,7 @@ defmodule Weld.MixProject do
   def project do
     [
       app: :weld,
-      version: "0.14.0",
+      version: "0.15.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       build_path: System.get_env("WELD_CI_BUILD_ROOT", "_build"),
@@ -64,7 +64,7 @@ defmodule Weld.MixProject do
       logo: "assets/weld.svg",
       homepage_url: "https://github.com/nshkrdotcom/weld",
       source_url: "https://github.com/nshkrdotcom/weld",
-      source_ref: "v0.14.0",
+      source_ref: "v0.15.0",
       assets: %{"assets" => "assets"},
       extras: [
         "README.md": [title: "Overview"],
@@ -72,6 +72,7 @@ defmodule Weld.MixProject do
         "guides/workflow.md": [title: "Workflow"],
         "guides/cli_reference.md": [title: "CLI Reference"],
         "guides/architecture.md": [title: "Architecture"],
+        "guides/source_projects.md": [title: "Source-root Artifacts"],
         "guides/manifest_reference.md": [title: "Manifest Reference"],
         "guides/testing_strategy.md": [title: "Testing Strategy"],
         "guides/release_process.md": [title: "Release Process"],
@@ -88,6 +89,8 @@ defmodule Weld.MixProject do
           Weld.Graph
         ],
         "Projection And Release": [
+          Weld.Output,
+          Weld.Projector.SourceProject,
           Weld.Projector,
           Weld.Verifier,
           Weld.Release,
@@ -112,6 +115,7 @@ defmodule Weld.MixProject do
           Mix.Tasks.Weld.Query,
           Mix.Tasks.Weld.Affected,
           Mix.Tasks.Weld.Agents.Verify,
+          Mix.Tasks.Weld.Setup,
           Mix.Tasks.Weld.Project,
           Mix.Tasks.Weld.Verify,
           Mix.Tasks.Weld.Release.Prepare,
@@ -124,7 +128,8 @@ defmodule Weld.MixProject do
       ],
       groups_for_extras: [
         "Start Here": ~r/README.md|guides\/getting_started.md|guides\/workflow.md/,
-        Reference: ~r/guides\/cli_reference.md|guides\/manifest_reference.md/,
+        Reference:
+          ~r/guides\/cli_reference.md|guides\/manifest_reference.md|guides\/source_projects.md/,
         "Deep Dive":
           ~r/guides\/architecture.md|guides\/testing_strategy.md|guides\/consumer_repo_integration.md/,
         Release: ~r/guides\/release_process.md|CHANGELOG.md|LICENSE/

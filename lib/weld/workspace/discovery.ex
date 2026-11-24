@@ -7,7 +7,7 @@ defmodule Weld.Workspace.Discovery do
   alias Weld.Error
   alias Weld.Manifest
 
-  @ignored_prefixes ~w(.git _build deps dist tmp doc)
+  @ignored_prefixes ~w(.git .weld _build deps dist tmp doc)
 
   @type result :: %{
           source: :manifest | :blitz_workspace | :filesystem,

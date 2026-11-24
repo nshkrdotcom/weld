@@ -57,8 +57,8 @@ This is useful for:
 
 Disposable output:
 
-- `dist/hex/<package>/` (package-projection mode)
-- `dist/monolith/<package>/` (monolith mode)
+- `.weld/full/<artifact>/project/` (all composition modes)
+- `.weld/live/<artifact>/` (source-project live view)
 - smoke-app temp output
 - local cache
 
@@ -75,12 +75,10 @@ The projection is disposable during day-to-day development. The prepared and
 archived release bundle is the durable release record. Projection branches are
 the durable generated-source record when a repo chooses to track them.
 
-Verification uses `_build/weld/` in the workspace root for downloaded
+Verification uses `.weld/cache/` in the workspace root for downloaded
 dependencies and compiler output. Each projection destination and toolchain
 has its own cache. Weld regenerates sources and runs the full verification
 sequence each time. To reproduce a cold run, remove the matching cache
 directory while verification is idle.
 
-The first verification after upgrading from 0.13.0 clears that package's
-obsolete `.weld-build/` caches and populates the new cache. The projected
-project and prepared bundle retain their normal locations.
+Older `dist/` outputs and historical caches are preserved. Update callers to the new paths. Source-root integration and refresh procedures are documented in [Source-root artifacts](source_projects.md).

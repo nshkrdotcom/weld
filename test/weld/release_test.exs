@@ -13,6 +13,11 @@ defmodule Weld.ReleaseTest do
     prepared = Weld.release_prepare!(manifest_path)
 
     assert File.dir?(prepared.bundle_path)
+    assert prepared.identity =~ ~r/^[0-9a-f]{64}$/
+
+    assert prepared.bundle_path ==
+             Path.join([repo_root, ".weld", "releases", "fixture_bundle", prepared.identity])
+
     assert Weld.release_bundle_path!(manifest_path) == prepared.bundle_path
     assert File.regular?(prepared.release_metadata_path)
     assert File.regular?(prepared.tarball_path)
@@ -73,6 +78,12 @@ defmodule Weld.ReleaseTest do
     assert metadata["manifest_path"] == "packaging/weld/fixture_bundle.exs"
     refute Path.type(metadata["manifest_path"]) == :absolute
     assert metadata["weld_version"] == Weld.version()
+    assert metadata["identity"] == Weld.Release.identity(metadata)
+
+    assert metadata["lock_sha256"] ==
+             Weld.Hash.sha256_file(Path.join(prepared.project_path, "mix.lock"))
+
+    assert File.regular?(Path.join(prepared.project_path, "weld.provenance.json"))
 
     lockfile =
       prepared.project_path
@@ -84,7 +95,7 @@ defmodule Weld.ReleaseTest do
     assert %{
              "manifest" => %{"path" => "packaging/weld/fixture_bundle.exs"},
              "workspace" => %{"root" => "."},
-             "projection" => %{"build_path" => "dist/hex/fixture_bundle"}
+             "projection" => %{"build_path" => ".weld/full/fixture_bundle/project"}
            } = Jason.decode!(lockfile)
   end
 

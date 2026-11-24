@@ -8,7 +8,7 @@ multi-project Elixir repo.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.14.0", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.15.0", only: [:dev, :test], runtime: false}
   ]
 end
 ```
@@ -95,11 +95,11 @@ mix weld.project
 ```
 
 Package-projection mode (the default, `mode: :package_projection`) creates a
-standalone Mix project under `dist/hex/<package>/` with a component-preserving
+standalone Mix project under `.weld/full/<artifact>/project/` with a component-preserving
 layout.
 
 Monolith mode (`mode: :monolith`) creates a merged flat project under
-`dist/monolith/<package>/`, combining sources, tests, config, migrations, and
+`.weld/full/<artifact>/project/`, combining sources, tests, config, migrations, and
 priv from all selected packages into a single project tree.
 
 If selected projects publish OTP application modules, the generated package also

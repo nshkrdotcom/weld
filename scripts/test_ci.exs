@@ -1,5 +1,6 @@
 jobs = [
   {"fast", nil},
+  {"source_consumption", "source_consumption_test"},
   {"release", "release_test"},
   {"formatter", "release_test"},
   {"internal", "release_test"},

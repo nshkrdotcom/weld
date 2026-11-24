@@ -14,8 +14,8 @@ defmodule Weld.VerifierTest do
 
     result = Weld.verify!(manifest)
 
-    refute File.exists?(legacy_cache)
-    assert [_ | _] = Path.wildcard(Path.join(repo, "_build/weld/*/*/build/dev/lib/*/ebin"))
+    assert File.exists?(legacy_cache)
+    assert [_ | _] = Path.wildcard(Path.join(repo, ".weld/cache/*/*/build/dev/lib/*/ebin"))
 
     assert File.regular?(result.lockfile_path)
     assert File.regular?(result.tarball_path)

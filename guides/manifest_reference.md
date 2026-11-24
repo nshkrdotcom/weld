@@ -50,8 +50,9 @@ Each key is the dependency app name. Each value contains:
 One manifest can define more than one publishable artifact. Each artifact entry
 contains:
 
-- `mode` — `:package_projection` (default) or `:monolith`. The alias
+- `mode` — `:package_projection` (default), `:monolith`, or `:source_project`. The alias
   `:components` is accepted as a synonym for `:package_projection`.
+- `source_project` — explicit root inventory and structural fingerprint inputs. See [Source-root artifacts](source_projects.md).
 - `monolith_opts` — keyword list of monolith-specific options (see below).
   Ignored in package-projection mode.
 - `roots`
@@ -102,7 +103,7 @@ project root.
 
 ## Output Keys
 
-- `dist_root`
+- `dist_root` — legacy input; projections always use checkout-root `.weld/`
 - `docs`
 - `assets`
 

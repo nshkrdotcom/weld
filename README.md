@@ -24,12 +24,12 @@ Mix tooling, and prepares an archiveable release bundle for publication.
 - classifies internal edges by execution meaning
 - exposes inspect, graph, query, affected, project, verify, and release tasks
 - emits a deterministic `projection.lock.json`
-- generates a standalone Mix package under `dist/hex/<package>/` (package-projection mode) or `dist/monolith/<package>/` (monolith mode)
+- generates a standalone Mix package under `.weld/full/<artifact>/project/`
 - canonicalizes external workspace path or git deps into manifest-owned Hex deps
 - synthesizes a merged application module when selected projects publish OTP children
 - merges sources, tests, config, migrations, and priv from all selected projects in monolith mode
 - supports explicit manifest-owned source-only monolith test support projects
-- prepares a deterministic release bundle under `dist/release_bundles/<package>/...`
+- prepares a deterministic release bundle under `.weld/releases/<artifact>/<identity>/`
 - keeps the prepared bundle model valid for both publishable and internal-only artifacts
 - archives released bundles without turning generated output into a long-lived source tree
 
@@ -40,7 +40,7 @@ Add `weld` to the root project that owns the repo's packaging and release flow.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.14.0", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.15.0", only: [:dev, :test], runtime: false}
   ]
 end
 ```
@@ -64,7 +64,7 @@ creates that branch as an orphan on first use so the projection history stays
 isolated from the source repo history.
 
 For coordinated pre-release validation across consumer repos, prefer normal
-version bumps to a prerelease Weld package such as `0.14.0-rc.1` rather than
+version bumps to a prerelease Weld package such as `0.15.0-rc.1` rather than
 embedding repo-local path or git override logic in every consumer.
 
 ## Example Manifest
@@ -179,15 +179,17 @@ mix weld.affected --task verify.all --base main --head HEAD
 You can still pass an explicit manifest path when a repo carries more than one
 Weld manifest or when you want to target a nonstandard location.
 
+## Source-root artifacts in 0.15.0
+
+For an existing public Mix project, use `mode: :source_project` to preserve its application metadata and compiler roots. Direct Mix consumption needs no Weld setup. Maintainers can create optional live and full representations; verified releases receive immutable identities. [Source-root artifacts](guides/source_projects.md)
+
 ## Generated Output
 
-**Package-projection mode** (default) projects under `dist/hex/<package>/` using
+**Package-projection mode** (default) projects under `.weld/full/<artifact>/project/` using
 a component-preserving layout:
 
 ```text
-dist/
-  hex/
-    my_bundle/
+.weld/full/my_bundle/project/
       mix.exs
       projection.lock.json
       lib/
@@ -200,12 +202,10 @@ dist/
 ```
 
 **Monolith mode** merges all selected packages into a single flat project under
-`dist/monolith/<package>/`:
+`.weld/full/<artifact>/project/`:
 
 ```text
-dist/
-  monolith/
-    my_monolith/
+.weld/full/my_monolith/project/
       mix.exs
       projection.lock.json
       lib/

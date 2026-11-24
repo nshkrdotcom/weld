@@ -102,3 +102,17 @@ The archive output is meant to preserve exactly what was released.
 It is not intended to be an active generated development branch. The source
 monorepo remains the source of truth, and `projection/<package_name>` is the
 optional generated-source tracking surface when you need one.
+
+## Prepared identities in 0.15.0
+
+Preparation activates `.weld/releases/<artifact>/<identity>/` after verifying the staged tree. Its SHA-256 identity covers release metadata, the source revision when available, configuration digest, verified project/docs/archive checksums, resolved lock digest, toolchain and verification outcomes. The recorded timestamp is informational. Tracking reads the integrity-checked current prepared bundle and keeps the orphan projection history. Archives live at `.weld/archive/<artifact>/<identity>/`. See [Source-root artifacts](source_projects.md) for output ownership and migration.
+
+For Weld itself, the checked-in `build_support/weld.exs` selects the root `:weld` project. Resolve and commit the reviewed lock, run `mix ci` on the supported Elixir toolchains, then prepare, archive and optionally track from the clean release revision.
+
+```bash
+mix weld.release.prepare --artifact weld
+mix weld.release.archive --artifact weld
+mix weld.release.track --artifact weld
+```
+
+Preparation exercises the Hex publish dry run. A real tag, push or package publication is a separate maintainer action.

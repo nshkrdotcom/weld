@@ -32,6 +32,19 @@ defmodule Weld.Hash do
     sha256_binary(entries)
   end
 
+  @doc "Hashes relative paths, executable flags and bytes using length-delimited entries."
+  @spec content_identity(Path.t()) :: digest()
+  def content_identity(root) do
+    entries =
+      for path <- list_files(root) do
+        relative = Path.relative_to(path, root)
+        executable = Bitwise.band(File.stat!(path).mode, 0o111)
+        :erlang.term_to_binary({relative, executable, sha256_file(path)})
+      end
+
+    :crypto.hash(:sha256, entries) |> Base.encode16(case: :lower)
+  end
+
   @spec list_files(Path.t()) :: [Path.t()]
   def list_files(root) do
     root

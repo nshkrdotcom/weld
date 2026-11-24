@@ -136,20 +136,17 @@ defmodule Weld do
 
   @spec project!(Path.t(), keyword()) :: map()
   def project!(manifest_path, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
-    Projector.with_output_lock(plan, fn -> Projector.project!(plan) end)
+    with_plan!(manifest_path, opts, &Projector.project!(&1, opts))
   end
 
   @spec verify!(Path.t(), keyword()) :: map()
   def verify!(manifest_path, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
-    Projector.with_output_lock(plan, fn -> Verifier.verify!(plan) end)
+    with_plan!(manifest_path, opts, &Verifier.verify!/1)
   end
 
   @spec release_prepare!(Path.t(), keyword()) :: map()
   def release_prepare!(manifest_path, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
-    Projector.with_output_lock(plan, fn -> Release.prepare!(plan) end)
+    with_plan!(manifest_path, opts, &Release.prepare!/1)
   end
 
   @spec release_bundle_path!(Path.t(), keyword()) :: Path.t()
@@ -161,14 +158,25 @@ defmodule Weld do
 
   @spec release_archive!(Path.t(), keyword()) :: map()
   def release_archive!(manifest_path, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
-    Projector.with_output_lock(plan, fn -> Release.archive!(plan) end)
+    with_plan!(manifest_path, opts, &Release.archive!/1)
   end
 
   @spec release_track!(Path.t(), keyword()) :: map()
   def release_track!(manifest_path, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
-    Projector.with_output_lock(plan, fn -> Release.track!(plan, opts) end)
+    with_plan!(manifest_path, opts, &Release.track!(&1, opts))
+  end
+
+  defp with_plan!(manifest_path, opts, fun) do
+    root = Weld.Manifest.load!(manifest_path).repo_root
+
+    Weld.Output.with_lock(root, fn ->
+      plan = Plan.build!(manifest_path, opts)
+
+      if plan.manifest.repo_root != root,
+        do: raise(Weld.Error, "manifest workspace changed while acquiring the lock")
+
+      fun.(plan)
+    end)
   end
 
   defp classify(plan, classification) do

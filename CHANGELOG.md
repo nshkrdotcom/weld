@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-11-24
+
+- Add explicit source-project artifacts with portable full candidates and optional live views of canonical compiler inputs and assets.
+- Collect generated projections, verifier caches, smoke consumers, locks, worktrees and immutable prepared releases beneath the checkout's `.weld/`.
+- Normalize the root ignore rule on explicit projection operations and protect unmanaged output. Existing `dist/` trees remain available for manual migration.
+- Bind prepared identities to verified project, archive, resolved lock, configuration, source revision and toolchain. Retain component-preserving and monolith projection, archive and orphan branch tracking.
+
 ## [0.14.0] - 2026-11-22
 
 - Keep projection metadata in prepared projects and tracked Git projections.

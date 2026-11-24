@@ -5,62 +5,117 @@ defmodule Weld.Projector do
 
   @root_tooling_files [".formatter.exs", ".credo.exs", ".dialyzer_ignore.exs"]
 
-  alias Mix.Sync.Lock
   alias Weld.Config.Generator
   alias Weld.Error
   alias Weld.Git
   alias Weld.Hash
   alias Weld.Lockfile
+  alias Weld.Output
   alias Weld.Plan
   alias Weld.Projector.Monolith
+  alias Weld.Projector.SourceProject
   alias Weld.SourceFormatter
 
-  @spec project!(Plan.t()) :: map()
-  def project!(%Plan{} = plan) do
-    plan = Plan.ensure_valid!(plan)
-    build_path = build_path(plan)
+  @spec project!(Plan.t(), keyword()) :: map()
+  def project!(%Plan{} = plan, opts \\ []) do
+    Weld.Output.with_lock(plan.manifest.repo_root, fn -> project_locked!(plan, opts) end)
+  end
 
-    clear_stale_build_paths!(plan)
-    File.rm_rf!(build_path)
-    File.mkdir_p!(build_path)
+  defp project_locked!(plan, opts) do
+    Plan.ensure_valid!(plan)
+    kind = if opts[:live], do: :live, else: :full
 
-    projection =
-      plan
-      |> project_by_mode!(build_path)
-      |> Map.put(:build_path, build_path)
-      |> Map.put(:git_revision, Git.revision(plan.manifest.repo_root))
-      |> Map.put(:tree_digest, Hash.sha256_tree(build_path))
+    if kind == :live and plan.artifact.mode != :source_project do
+      raise Error, "--live requires a source_project artifact"
+    end
 
-    lockfile = Lockfile.build(plan, projection, [])
-    lockfile_path = Path.join(build_path, "projection.lock.json")
-    File.write!(lockfile_path, Lockfile.encode!(lockfile))
+    root = plan.manifest.repo_root
+    validate_inputs!(plan)
+    target = build_path(plan, kind)
+    stage = Output.temporary!(root, "staging")
 
-    Map.put(projection, :lockfile_path, lockfile_path)
+    try do
+      projection =
+        case plan.artifact.mode do
+          :source_project -> SourceProject.project!(plan, stage, kind)
+          _ -> project_by_mode!(plan, stage)
+        end
+
+      files = Enum.map(projection.copied_files, &Path.relative_to(&1, stage))
+      if kind == :full, do: Output.reject_tree_links!(stage)
+      digest = if kind == :full, do: Hash.content_identity(stage)
+      tree_digest = if kind == :full, do: Hash.sha256_tree(stage)
+      marker = %{schema: "weld.projection/v1", artifact: plan.artifact.id, kind: kind}
+      marker = if digest, do: Map.put(marker, :artifact_id, digest), else: marker
+      marker_path = Path.join(stage, "weld.provenance.json")
+      File.write!(marker_path, Jason.encode!(marker, pretty: true), [:exclusive])
+
+      projection =
+        Map.merge(projection, %{
+          copied_files: files,
+          build_path: target,
+          git_revision: Git.revision(root),
+          tree_digest: tree_digest
+        })
+
+      lockname = "projection.lock.json"
+      lockfile = Lockfile.build(plan, projection, [])
+      File.write!(Path.join(stage, lockname), Lockfile.encode!(lockfile), [:exclusive])
+      Output.activate!(stage, target, &managed?(&1, plan.artifact.id, kind))
+      Map.put(projection, :lockfile_path, Path.join(target, lockname))
+    after
+      File.rm_rf!(stage)
+    end
+  end
+
+  defp validate_inputs!(plan) do
+    root = plan.manifest.repo_root
+    artifact = plan.artifact
+
+    for path <-
+          artifact.output.docs ++
+            artifact.output.assets ++
+            artifact.verify.artifact_tests ++
+            List.wrap(artifact.verify.smoke.entry_file) do
+      root |> Output.source!(path) |> Output.reject_tree_links!()
+    end
+
+    if artifact.mode != :source_project do
+      for project <- Plan.projects_for_view(plan, :test) do
+        if project.id != ".", do: Output.source!(root, project.id)
+
+        for dir <- Enum.uniq(project.copy_dirs ++ project.test_paths ++ ["config", "test"]) do
+          relative = Path.relative_to(Path.expand(dir, project.abs_path), project.abs_path)
+          project.abs_path |> Output.source!(relative) |> Output.reject_tree_links!()
+        end
+      end
+    end
+  end
+
+  defp managed?(target, artifact, kind) do
+    path = Path.join(target, "weld.provenance.json")
+    Output.reject_link!(path)
+
+    with {:ok, bytes} <- File.read(path),
+         {:ok, %{"schema" => "weld.projection/v1", "artifact" => ^artifact, "kind" => value}} <-
+           Jason.decode(bytes) do
+      value == Atom.to_string(kind)
+    else
+      _ -> false
+    end
   end
 
   @doc false
-  def with_output_lock(%Plan{} = plan, fun) do
-    dist = Path.expand(plan.artifact.output.dist_root, plan.manifest.repo_root)
-    lock_path = Path.join([dist, ".weld", plan.artifact.package.name])
+  def with_output_lock(%Plan{} = plan, fun), do: Output.with_lock(plan.manifest.repo_root, fun)
 
-    Lock.with_lock(lock_path, fun,
-      on_taken: fn pid ->
-        Mix.shell().info(
-          "Weld: waiting for #{plan.artifact.package.name} output lock held by #{pid}"
-        )
-      end
-    )
-  end
+  @spec build_path(Plan.t(), :live | :full) :: Path.t()
+  def build_path(plan, kind \\ :full)
 
-  @spec build_path(Plan.t()) :: Path.t()
-  def build_path(%Plan{} = plan) do
-    dist_root = Path.expand(plan.artifact.output.dist_root, plan.manifest.repo_root)
+  def build_path(%Plan{} = plan, :full),
+    do: Output.path(plan.manifest.repo_root, ["full", plan.artifact.id, "project"])
 
-    case plan.artifact.mode do
-      :monolith -> Path.join([dist_root, "monolith", plan.artifact.package.name])
-      _ -> Path.join([dist_root, "hex", plan.artifact.package.name])
-    end
-  end
+  def build_path(%Plan{} = plan, :live),
+    do: Output.path(plan.manifest.repo_root, ["live", plan.artifact.id])
 
   @spec package_files(Plan.t(), keyword()) :: [String.t()]
   def package_files(%Plan{} = plan, opts \\ []) do
@@ -643,18 +698,6 @@ defmodule Weld.Projector do
 
   defp maybe_add_generated_root_path(paths, nil), do: paths
   defp maybe_add_generated_root_path(paths, path), do: paths ++ [path]
-
-  defp clear_stale_build_paths!(%Plan{} = plan) do
-    dist_root = Path.expand(plan.artifact.output.dist_root, plan.manifest.repo_root)
-
-    stale_paths =
-      case plan.artifact.mode do
-        :monolith -> [Path.join([dist_root, "hex", plan.artifact.package.name])]
-        _other -> [Path.join([dist_root, "monolith", plan.artifact.package.name])]
-      end
-
-    Enum.each(stale_paths, &File.rm_rf!/1)
-  end
 
   defp repo_info_from_file(path, project) do
     contents = File.read!(path)

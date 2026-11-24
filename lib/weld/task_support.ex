@@ -24,8 +24,12 @@ defmodule Weld.TaskSupport do
 
   @spec discover_manifest!(String.t()) :: String.t()
   def discover_manifest!(usage) do
-    default_candidates = Enum.filter(@default_manifest_paths, &File.regular?/1)
-    packaging_candidates = Path.wildcard("packaging/weld/*.exs")
+    root = Weld.Git.root(File.cwd!()) || File.cwd!()
+
+    default_candidates =
+      Enum.map(@default_manifest_paths, &Path.join(root, &1)) |> Enum.filter(&File.regular?/1)
+
+    packaging_candidates = Path.wildcard(Path.join(root, "packaging/weld/*.exs"))
 
     candidates =
       case default_candidates do

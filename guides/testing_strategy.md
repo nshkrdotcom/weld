@@ -63,3 +63,5 @@ The target is not just "projection succeeded". The target is:
 - the artifact is trackable and archivable even when it is intentionally not
   Hex-buildable
 - the artifact is publishable when Hex verification is enabled
+
+The `source_project` fixture compiles the private components and consumes the aggregate, its optional extensions, and linked assets from independent Mix processes. Run the source-transport lane with `MIX_ENV=test mix test --only ci_build:source_consumption test/weld/source_consumption_test.exs`. The local bare Git repository supplies real refs and complete subdirectory checkouts. The distribution lane detaches full, prepared, projection-clone and unpacked archive inputs before making the original path inaccessible.

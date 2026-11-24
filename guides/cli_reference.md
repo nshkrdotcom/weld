@@ -40,14 +40,17 @@ mix weld.affected [manifest_path] --task verify.all --base main --head HEAD [--a
 Computes affected selected projects from a Git diff range plus reverse
 dependency traversal.
 
+## Setup
+
+`mix weld.setup [manifest_path]` normalizes checkout-root ignore and initializes managed output.
+
 ## Project
 
 ```bash
-mix weld.project [manifest_path] [--artifact name]
+mix weld.project [manifest_path] [--artifact name] [--live]
 ```
 
-Generates the welded artifact. Package-projection mode writes to
-`dist/hex/<package>/`; monolith mode writes to `dist/monolith/<package>/`.
+Generates a full candidate under `.weld/full/<artifact>/project/`. A source-project artifact also supports `--live` under `.weld/live/<artifact>/`.
 
 ## Verify
 

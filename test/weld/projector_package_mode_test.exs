@@ -67,7 +67,7 @@ defmodule Weld.ProjectorPackageModeTest do
     assert mixfile =~ "build_path: \"_build\""
   end
 
-  test "projecting a monolith artifact removes stale package-mode output" do
+  test "projecting a monolith artifact preserves historical package-mode output" do
     repo_root = FixtureCase.copy_fixture("monolith_bundle")
     manifest_path = Path.join(repo_root, "packaging/weld/monolith_bundle.exs")
     stale_path = Path.join(repo_root, "dist/hex/monolith_bundle/STALE")
@@ -77,7 +77,7 @@ defmodule Weld.ProjectorPackageModeTest do
 
     result = Weld.project!(manifest_path)
 
-    refute File.exists?(stale_path)
-    assert result.build_path == Path.join(repo_root, "dist/monolith/monolith_bundle")
+    assert File.exists?(stale_path)
+    assert result.build_path == Path.join(repo_root, ".weld/full/monolith_bundle/project")
   end
 end

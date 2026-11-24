@@ -6,7 +6,7 @@ defmodule Weld.ProjectorMonolithTest do
   test "projects a monolith artifact into a real root project tree" do
     result = Weld.project!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
 
-    assert result.build_path =~ "/dist/monolith/monolith_bundle"
+    assert result.build_path =~ "/.weld/full/monolith_bundle/project"
     assert File.regular?(Path.join(result.build_path, "mix.exs"))
     assert File.regular?(Path.join(result.build_path, "projection.lock.json"))
     refute "projection.lock.json" in result.package_files

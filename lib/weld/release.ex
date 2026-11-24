@@ -6,29 +6,45 @@ defmodule Weld.Release do
   alias Weld.Error
   alias Weld.Git
   alias Weld.Hash
+  alias Weld.Output
   alias Weld.Plan
   alias Weld.Verifier
 
   @spec prepare!(Plan.t()) :: map()
   def prepare!(%Plan{} = plan) do
+    Weld.Output.with_lock(plan.manifest.repo_root, fn -> prepare_locked!(plan) end)
+  end
+
+  defp prepare_locked!(plan) do
     plan = Plan.ensure_valid!(plan)
     repo_root = plan.manifest.repo_root
     source_revision = Git.revision(repo_root)
+
+    if is_nil(source_revision) and plan.artifact.mode == :source_project do
+      raise Error, "source-project release preparation requires a committed Git revision"
+    end
+
     if source_revision, do: Git.ensure_clean_repo!(repo_root)
     verification = Verifier.verify!(plan)
     ensure_source!(repo_root, source_revision)
-    bundle_path = bundle_path(plan)
+    stage = Output.temporary!(repo_root, "staging")
+
+    try do
+      finish_prepare!(plan, verification, source_revision, stage)
+    after
+      File.rm_rf!(stage)
+    end
+  end
+
+  defp finish_prepare!(plan, verification, source_revision, stage) do
     relative_manifest_path = manifest_path(plan)
     manifest_digest = Hash.sha256_file(plan.manifest.manifest_path)
-    project_target = Path.join(bundle_path, "project")
-
-    File.rm_rf!(bundle_path)
-    File.mkdir_p!(bundle_path)
+    project_target = Path.join(stage, "project")
 
     copy_prepared_project!(verification.build_path, project_target, verification.package_files)
 
-    tarball_target = maybe_copy_tarball(bundle_path, verification.tarball_path)
-    docs_path = Path.join(bundle_path, "docs")
+    tarball_target = maybe_copy_tarball(stage, verification.tarball_path)
+    docs_path = Path.join(stage, "docs")
     File.cp_r!(Path.join(verification.build_path, "doc"), docs_path)
 
     release_json =
@@ -43,6 +59,13 @@ defmodule Weld.Release do
         manifest_path: relative_manifest_path,
         manifest_digest: manifest_digest,
         weld_version: Weld.version(),
+        lock_sha256: optional_digest(Path.join(project_target, "mix.lock")),
+        content_sha256:
+          project_target
+          |> Path.join("weld.provenance.json")
+          |> File.read!()
+          |> Jason.decode!()
+          |> Map.fetch!("artifact_id"),
         elixir_version: System.version(),
         otp_release: List.to_string(:erlang.system_info(:otp_release)),
         prepared_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
@@ -51,7 +74,9 @@ defmodule Weld.Release do
         verification_results: verification.verification_results,
         integrity: %{
           project_sha256: Hash.sha256_tree(project_target),
+          project_identity: Hash.content_identity(project_target),
           docs_sha256: Hash.sha256_tree(docs_path),
+          docs_identity: Hash.content_identity(docs_path),
           archive_sha256: tarball_target && Hash.sha256_file(tarball_target)
         },
         tarball_path: tarball_target && Path.basename(tarball_target),
@@ -66,17 +91,45 @@ defmodule Weld.Release do
           )
       }
 
-    release_json_path = Path.join(bundle_path, "release.json")
-    File.write!(release_json_path, Jason.encode_to_iodata!(release_json, pretty: true))
+    identity = identity(release_json)
+    bundle = release_path(plan, identity)
+
+    File.write!(
+      Path.join(stage, "release.json"),
+      Jason.encode!(Map.put(release_json, :identity, identity), pretty: true)
+    )
+
+    validate_bundle!(plan, stage, identity)
+    ensure_source!(plan.manifest.repo_root, source_revision)
+
+    if File.exists?(bundle) do
+      validate_bundle!(plan, bundle, identity)
+    else
+      File.mkdir_p!(Path.dirname(bundle))
+      File.rename!(stage, bundle)
+    end
+
+    set_current!(plan, identity)
 
     %{
-      bundle_path: bundle_path,
-      docs_path: docs_path,
-      project_path: project_target,
-      tarball_path: tarball_target,
-      release_metadata_path: release_json_path,
+      identity: identity,
+      bundle_path: bundle,
+      docs_path: Path.join(bundle, "docs"),
+      project_path: Path.join(bundle, "project"),
+      tarball_path: tarball_target && Path.join(bundle, Path.basename(tarball_target)),
+      release_metadata_path: Path.join(bundle, "release.json"),
       build_path: verification.build_path
     }
+  end
+
+  defp optional_digest(path), do: if(File.regular?(path), do: Hash.sha256_file(path))
+
+  @doc false
+  def identity(metadata) do
+    metadata
+    |> Map.drop([:prepared_at, :identity, "prepared_at", "identity"])
+    |> Weld.Lockfile.encode!()
+    |> Hash.sha256_binary()
   end
 
   defp ensure_source!(_root, nil), do: :ok
@@ -91,6 +144,10 @@ defmodule Weld.Release do
 
   @spec archive!(Plan.t()) :: map()
   def archive!(%Plan{} = plan) do
+    Weld.Output.with_lock(plan.manifest.repo_root, fn -> archive_locked!(plan) end)
+  end
+
+  defp archive_locked!(plan) do
     prepared_bundle = bundle_path(plan)
 
     unless File.dir?(prepared_bundle) do
@@ -99,23 +156,33 @@ defmodule Weld.Release do
 
     validate_bundle!(plan, prepared_bundle)
 
-    archive_root =
-      Path.expand(
-        Path.join([plan.artifact.output.dist_root, "archive", plan.artifact.package.name]),
-        plan.manifest.repo_root
-      )
+    identity = Path.basename(prepared_bundle)
+    archive_path = Output.path(plan.manifest.repo_root, ["archive", plan.artifact.id, identity])
 
-    archive_path = Path.join(archive_root, bundle_slug(plan))
+    if File.exists?(archive_path) do
+      validate_bundle!(plan, archive_path, identity)
+    else
+      stage = Output.temporary!(plan.manifest.repo_root, "staging")
 
-    File.rm_rf!(archive_path)
-    File.mkdir_p!(archive_root)
-    File.cp_r!(prepared_bundle, archive_path)
+      try do
+        File.cp_r!(prepared_bundle, stage)
+        validate_bundle!(plan, stage, identity)
+        File.mkdir_p!(Path.dirname(archive_path))
+        File.rename!(stage, archive_path)
+      after
+        File.rm_rf!(stage)
+      end
+    end
 
     %{archive_path: archive_path, source_bundle_path: prepared_bundle}
   end
 
   @spec track!(Plan.t(), keyword()) :: map()
   def track!(%Plan{} = plan, opts \\ []) do
+    Weld.Output.with_lock(plan.manifest.repo_root, fn -> track_locked!(plan, opts) end)
+  end
+
+  defp track_locked!(plan, opts) do
     prepared_bundle = bundle_path(plan)
     project_path = Path.join(prepared_bundle, "project")
     metadata = validate_bundle!(plan, prepared_bundle)
@@ -137,28 +204,42 @@ defmodule Weld.Release do
 
   @spec bundle_path(Plan.t()) :: Path.t()
   def bundle_path(%Plan{} = plan) do
-    Path.expand(
-      Path.join([
-        plan.artifact.output.dist_root,
-        "release_bundles",
-        plan.artifact.package.name,
-        bundle_slug(plan)
-      ]),
-      plan.manifest.repo_root
-    )
+    current = current_path(plan)
+
+    case File.read(current) do
+      {:ok, bytes} -> release_path(plan, parse_pointer!(bytes))
+      _ -> raise Error, "release bundle not prepared: #{current}"
+    end
   end
 
-  defp bundle_slug(plan) do
-    manifest_path = manifest_path(plan)
-    manifest_digest = Hash.sha256_file(plan.manifest.manifest_path)
+  defp parse_pointer!("weld.release/v1 " <> value) do
+    digest = String.trim_trailing(value, "\n")
 
-    digest =
-      Hash.sha256_binary(
-        "#{plan.artifact.package.name}:#{plan.artifact.package.version}:#{plan.artifact.id}:#{manifest_path}:#{manifest_digest}"
-      )
-      |> binary_part(0, 12)
+    unless Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
+      do: raise(Error, "invalid prepared identity")
 
-    "#{plan.artifact.package.version}-#{digest}"
+    digest
+  end
+
+  defp parse_pointer!(_), do: raise(Error, "unmanaged prepared release pointer")
+
+  defp current_path(plan),
+    do: Output.path(plan.manifest.repo_root, ["releases", plan.artifact.id, "CURRENT"])
+
+  defp release_path(plan, identity),
+    do: Output.path(plan.manifest.repo_root, ["releases", plan.artifact.id, identity])
+
+  defp set_current!(plan, identity) do
+    path = current_path(plan)
+    if File.exists?(path), do: path |> File.read!() |> parse_pointer!()
+    temp = path <> "-" <> Output.nonce()
+
+    try do
+      File.write!(temp, "weld.release/v1 #{identity}\n", [:exclusive])
+      File.rename!(temp, path)
+    after
+      File.rm(temp)
+    end
   end
 
   defp manifest_path(plan) do
@@ -179,7 +260,11 @@ defmodule Weld.Release do
   end
 
   defp copy_prepared_project!(source, target, package_files) do
-    roots = Enum.uniq(package_files ++ ["mix.lock", "projection.lock.json", "test"])
+    roots =
+      Enum.uniq(
+        package_files ++ ["mix.lock", "weld.provenance.json", "projection.lock.json", "test"]
+      )
+
     File.mkdir_p!(target)
 
     source
@@ -245,15 +330,21 @@ defmodule Weld.Release do
     }
   end
 
-  defp validate_bundle!(plan, bundle) do
+  defp validate_bundle!(plan, bundle), do: validate_bundle!(plan, bundle, Path.basename(bundle))
+
+  defp validate_bundle!(plan, bundle, expected_identity) do
+    Output.reject_tree_links!(bundle)
     metadata_path = Path.join(bundle, "release.json")
 
     with {:ok, json} <- File.read(metadata_path),
          {:ok, %{} = metadata} <- Jason.decode(json),
+         true <-
+           metadata["identity"] == expected_identity and identity(metadata) == expected_identity,
          %{"name" => name, "version" => version} <- metadata["package"],
          true <- {name, version} == {plan.artifact.package.name, plan.artifact.package.version},
          true <- metadata["artifact"] == plan.artifact.id,
          true <- metadata["manifest_digest"] == Hash.sha256_file(plan.manifest.manifest_path),
+         true <- valid_inventory?(bundle, metadata),
          true <- valid_bundle_contents?(bundle, metadata, "#{name}-#{version}.tar") do
       metadata
     else
@@ -261,6 +352,11 @@ defmodule Weld.Release do
         raise Error,
               "prepared release bundle is missing or failed integrity verification: #{bundle}"
     end
+  end
+
+  defp valid_inventory?(bundle, metadata) do
+    known = ["release.json", "project", "docs"] ++ List.wrap(metadata["tarball_path"])
+    File.ls!(bundle) -- known == []
   end
 
   defp valid_bundle_contents?(bundle, metadata, archive_name) do
@@ -272,7 +368,15 @@ defmodule Weld.Release do
     is_map(integrity) and
       valid_archive?(archive, metadata["tarball_path"], archive_name, integrity["archive_sha256"]) and
       File.dir?(project) and Hash.sha256_tree(project) == integrity["project_sha256"] and
-      valid_docs?(docs, metadata["integrity"])
+      match_identity?(project, integrity["project_identity"]) and
+      valid_docs?(docs, metadata["integrity"]) and
+      match_identity?(docs, integrity["docs_identity"])
+  end
+
+  defp match_identity?(_path, nil), do: true
+
+  defp match_identity?(path, expected) do
+    File.dir?(path) and Hash.content_identity(path) == expected
   end
 
   defp valid_archive?(path, name, name, digest) do
@@ -289,15 +393,9 @@ defmodule Weld.Release do
   end
 
   defp unique_worktree_path(%Plan{} = plan) do
-    suffix =
-      8
-      |> :crypto.strong_rand_bytes()
-      |> Base.encode16(case: :lower)
-
-    base =
-      "weld_projection_#{plan.artifact.package.name}_#{suffix}"
-
-    Path.join(System.tmp_dir!(), base)
+    path = Output.path(plan.manifest.repo_root, ["worktrees", Output.nonce()])
+    File.mkdir_p!(Path.dirname(path))
+    path
   end
 
   defp track_projection!(%Plan{} = plan, project_path, source_revision, track_opts) do
@@ -362,7 +460,7 @@ defmodule Weld.Release do
   end
 
   defp prepare_worktree!(repo_root, worktree_path, branch, remote) do
-    File.rm_rf!(worktree_path)
+    if File.exists?(worktree_path), do: raise(Error, "unmanaged worktree path: #{worktree_path}")
 
     cond do
       Git.branch_exists?(repo_root, branch) ->

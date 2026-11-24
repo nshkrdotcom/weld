@@ -61,10 +61,10 @@ Dependencies without a version requirement are permitted when `opts` includes
 ### Package-Projection Mode (default)
 
 Artifacts with `mode: :package_projection` (or no `mode` key) generate a
-component-preserving layout under `dist/hex/<package>/`:
+component-preserving layout under `.weld/full/<artifact>/project/`:
 
 ```text
-dist/hex/<package>/
+.weld/full/<artifact>/project/
   mix.exs
   projection.lock.json
   lib/<otp_app>/application.ex
@@ -81,10 +81,10 @@ turning the output into a second hand-maintained source tree.
 ### Monolith Mode
 
 Artifacts with `mode: :monolith` merge all selected packages into a single flat
-project under `dist/monolith/<package>/`:
+project under `.weld/full/<artifact>/project/`:
 
 ```text
-dist/monolith/<package>/
+.weld/full/<artifact>/project/
   mix.exs
   projection.lock.json
   lib/<otp_app>/application.ex

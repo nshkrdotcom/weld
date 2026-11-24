@@ -43,7 +43,8 @@ defmodule Weld.Workspace do
       path == workspace.manifest.manifest_path ->
         :global
 
-      String.starts_with?(path, workspace.manifest.repo_root) ->
+      path == workspace.manifest.repo_root or
+          String.starts_with?(path, workspace.manifest.repo_root <> "/") ->
         relative = Path.relative_to(path, workspace.manifest.repo_root)
         classify_relative_owner(workspace, relative)
 
@@ -171,7 +172,9 @@ defmodule Weld.Workspace do
 
   defp path_dep(graph, manifest, project, dep, path_index) do
     dep_path = Path.expand(dep.opts[:path], project.abs_path)
-    within_repo? = String.starts_with?(dep_path, manifest.repo_root)
+
+    within_repo? =
+      dep_path == manifest.repo_root or String.starts_with?(dep_path, manifest.repo_root <> "/")
 
     cond do
       Map.has_key?(path_index, dep_path) ->

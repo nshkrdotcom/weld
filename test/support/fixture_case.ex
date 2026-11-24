@@ -30,8 +30,8 @@ defmodule Weld.FixtureCase do
   end
 
   def write_tracking_fixture!(repo_root, manifest_path) do
-    bundle = Weld.release_bundle_path!(manifest_path)
-    project = Path.join(bundle, "project")
+    stage = unique_tmp_dir("weld_tracking")
+    project = Path.join(stage, "project")
     File.mkdir_p!(project)
     File.cp!(Path.join(repo_root, "README.md"), Path.join(project, "README.md"))
     revision = git_output!(repo_root, ["rev-parse", "HEAD"])
@@ -44,12 +44,24 @@ defmodule Weld.FixtureCase do
       handoff: %{project_sha256: Weld.Hash.sha256_tree(project)}
     }
 
-    File.write!(Path.join(bundle, "release.json"), Jason.encode!(metadata))
+    identity = Weld.Release.identity(metadata)
+    release_root = Path.join(repo_root, ".weld/releases/fixture_bundle")
+    bundle = Path.join(release_root, identity)
+    File.mkdir_p!(release_root)
+    File.rename!(stage, bundle)
+
+    File.write!(
+      Path.join(bundle, "release.json"),
+      Jason.encode!(Map.put(metadata, :identity, identity))
+    )
+
+    File.write!(Path.join(release_root, "CURRENT"), "weld.release/v1 #{identity}\n")
   end
 
   def init_git!(repo_root) do
     run!(repo_root, ["init"])
 
+    Weld.Output.with_lock(repo_root, fn -> :ok end)
     ignore_generated_files!(repo_root)
 
     run!(repo_root, ["config", "user.name", "Weld Test"])

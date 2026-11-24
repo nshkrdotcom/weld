@@ -12,12 +12,18 @@ defmodule Weld.Verifier do
 
   @spec verify!(Plan.t()) :: map()
   def verify!(%Plan{} = plan) do
+    Weld.Output.with_lock(plan.manifest.repo_root, fn -> verify_locked!(plan) end)
+  end
+
+  defp verify_locked!(plan) do
     projection = Projector.project!(plan)
     build_path = projection.build_path
 
-    clear_legacy_cache!(build_path)
     workspace = {build_path, cache_root(plan, build_path)}
     verification_results = verify_by_mode!(plan, workspace)
+
+    hex_results = verify_hex!(plan, workspace)
+    verification_results = verification_results ++ hex_results
 
     lockfile =
       Lockfile.build(
@@ -34,8 +40,6 @@ defmodule Weld.Verifier do
 
     File.write!(projection.lockfile_path, Lockfile.encode!(lockfile))
 
-    hex_results = verify_hex!(plan, workspace)
-    verification_results = verification_results ++ hex_results
     tarball_path = tarball_path_for(plan, build_path, hex_results)
 
     %{
@@ -98,19 +102,10 @@ defmodule Weld.Verifier do
     ]
   end
 
-  defp clear_legacy_cache!(build_path) do
-    dist = build_path |> Path.dirname() |> Path.dirname()
-    package = Path.basename(build_path)
-
-    for mode <- ~w(hex monolith) do
-      File.rm_rf!(Path.join([dist, mode, ".weld-build", package]))
-    end
-  end
-
   defp cache_root(plan, build_path) do
     toolchain = "#{System.version()}-otp-#{:erlang.system_info(:otp_release)}"
     projection_id = Hash.sha256_binary(build_path)
-    Path.join([plan.manifest.repo_root, "_build", "weld", projection_id, toolchain])
+    Weld.Output.cache!(plan.manifest.repo_root, projection_id, toolchain)
   end
 
   defp run_mix!({build_path, build_root}, env, args) do

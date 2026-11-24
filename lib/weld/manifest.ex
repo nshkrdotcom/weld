@@ -21,11 +21,12 @@ defmodule Weld.Manifest do
       :output,
       :verify
     ]
-    defstruct @enforce_keys
+    defstruct @enforce_keys ++ [source_project: []]
 
     @type t :: %__MODULE__{
             id: String.t(),
-            mode: :package_projection | :monolith,
+            mode: :package_projection | :monolith | :source_project,
+            source_project: keyword(),
             monolith_opts: keyword(),
             roots: [String.t()],
             include: [String.t()],
@@ -216,15 +217,16 @@ defmodule Weld.Manifest do
 
   @artifact_schema [
     mode: [
-      type: {:in, [:package_projection, :components, :monolith]},
+      type: {:in, [:package_projection, :components, :monolith, :source_project]},
       default: :package_projection
     ],
+    source_project: [type: :keyword_list, default: []],
     monolith_opts: [type: :keyword_list, default: []],
     roots: [type: {:list, :string}, required: true],
     include: [type: {:list, :string}, default: []],
     optional_features: [type: {:list, :string}, default: []],
     package: [type: :keyword_list, required: true],
-    output: [type: :keyword_list, required: true],
+    output: [type: :keyword_list, default: []],
     verify: [type: :keyword_list, default: []]
   ]
 
@@ -261,7 +263,7 @@ defmodule Weld.Manifest do
   ]
 
   @output_schema [
-    dist_root: [type: :string, default: "dist"],
+    dist_root: [type: :string, default: ".weld"],
     layout: [type: {:in, [:components]}, default: :components],
     docs: [type: {:list, :string}, default: []],
     assets: [type: {:list, :string}, default: []]
@@ -412,10 +414,14 @@ defmodule Weld.Manifest do
       normalized = NimbleOptions.validate!(config, @artifact_schema)
       artifact_id = normalize_key(artifact_name)
 
+      unless Regex.match?(~r/\A[a-zA-Z0-9][a-zA-Z0-9_-]*\z/, artifact_id),
+        do: raise(Error, "unsafe artifact id: #{artifact_id}")
+
       artifact =
         %Artifact{
           id: artifact_id,
           mode: normalize_mode(normalized[:mode]),
+          source_project: source_options!(normalized),
           monolith_opts: normalize_monolith_opts(normalized[:monolith_opts]),
           roots: Enum.sort(normalized[:roots]),
           include: Enum.sort(normalized[:include]),
@@ -431,8 +437,36 @@ defmodule Weld.Manifest do
     |> Map.new()
   end
 
+  defp source_options!(options) do
+    if options[:mode] == :source_project do
+      unless options[:roots] == ["."] and options[:include] == [] and
+               options[:optional_features] == [] do
+        raise Error, "source_project requires roots: [\".\"] and one authoritative Mix project"
+      end
+
+      NimbleOptions.validate!(options[:source_project],
+        files: [type: {:list, :string}, required: true],
+        structural_inputs: [type: {:list, :string}, default: []]
+      )
+    else
+      if options[:source_project] != [],
+        do: raise(Error, "source_project options require source_project mode")
+
+      []
+    end
+  end
+
   defp normalize_package(package) do
     package = NimbleOptions.validate!(package, @package_schema)
+
+    for name <- [package[:name], Atom.to_string(package[:otp_app])] do
+      unless Regex.match?(~r/\A[a-z][a-z0-9_]*\z/, name),
+        do: raise(Error, "invalid package name: #{name}")
+    end
+
+    unless match?({:ok, _}, Version.parse(package[:version])),
+      do: raise(Error, "invalid package version")
+
     docs = normalize_docs(package[:docs], package[:docs_main])
 
     links =
@@ -590,8 +624,12 @@ defmodule Weld.Manifest do
   defp normalize_output(output) do
     output = NimbleOptions.validate!(output, @output_schema)
 
+    if output[:dist_root] != ".weld" do
+      IO.warn("output.dist_root is legacy; Weld writes to the source checkout's .weld/ directory")
+    end
+
     %Output{
-      dist_root: output[:dist_root],
+      dist_root: ".weld",
       layout: output[:layout],
       docs: Enum.sort(output[:docs]),
       assets: Enum.sort(output[:assets])
