@@ -13,7 +13,8 @@ jobs = [
 ]
 
 build = Mix.Project.build_path()
-scratch = Path.join(Path.dirname(build), "ci-#{System.pid()}")
+suffix = Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+scratch = Path.join(System.tmp_dir!(), "weld-ci-#{suffix}")
 File.mkdir!(scratch)
 
 try do
@@ -36,6 +37,7 @@ try do
         args: ["test", "--no-compile" | args],
         env: %{
           "WELD_CI_BUILD_ROOT" => build_root,
+          "ERL_CRASH_DUMP" => Path.join(build_root, "erl_crash.dump"),
           "ERL_FLAGS" => System.get_env("ERL_FLAGS", "+S 4:4")
         }
       )

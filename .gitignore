@@ -16,9 +16,6 @@ erl_crash.dump
 # Generated projection output.
 /dist/
 
-# Local Dialyzer PLTs.
-/priv/plts/
-
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
 

@@ -2,17 +2,12 @@ defmodule Weld.ConfigGeneratorTest do
   use ExUnit.Case, async: false
 
   alias Weld.Config.Generator
+  alias Weld.FixtureCase
   alias Weld.Workspace.Project
 
   test "does not emit repo priv overlays when the merged repo path is the default priv/repo" do
     build_path =
-      Path.join(
-        System.tmp_dir!(),
-        "weld_config_generator_#{System.unique_integer([:positive, :monotonic])}"
-      )
-
-    File.rm_rf!(build_path)
-    File.mkdir_p!(build_path)
+      FixtureCase.unique_tmp_dir("weld_config_generator")
 
     repo_infos = [
       %{
@@ -37,28 +32,15 @@ defmodule Weld.ConfigGeneratorTest do
 
   test "bootstrapped_apps only includes projects that stage runtime bootstrap sources" do
     build_path =
-      Path.join(
-        System.tmp_dir!(),
-        "weld_config_generator_#{System.unique_integer([:positive, :monotonic])}"
-      )
+      FixtureCase.unique_tmp_dir("weld_config_generator")
 
     project_root =
-      Path.join(
-        System.tmp_dir!(),
-        "weld_config_project_#{System.unique_integer([:positive, :monotonic])}"
-      )
+      FixtureCase.unique_tmp_dir("weld_config_project")
 
     support_root =
-      Path.join(
-        System.tmp_dir!(),
-        "weld_config_support_#{System.unique_integer([:positive, :monotonic])}"
-      )
+      FixtureCase.unique_tmp_dir("weld_config_support")
 
-    File.rm_rf!(build_path)
-    File.rm_rf!(project_root)
-    File.rm_rf!(support_root)
     File.mkdir_p!(Path.join(project_root, "config"))
-    File.mkdir_p!(support_root)
 
     File.write!(
       Path.join(project_root, "config/config.exs"),
@@ -87,19 +69,11 @@ defmodule Weld.ConfigGeneratorTest do
 
   test "staged static config retains selected project app config" do
     build_path =
-      Path.join(
-        System.tmp_dir!(),
-        "weld_config_generator_#{System.unique_integer([:positive, :monotonic])}"
-      )
+      FixtureCase.unique_tmp_dir("weld_config_generator")
 
     project_root =
-      Path.join(
-        System.tmp_dir!(),
-        "weld_config_project_#{System.unique_integer([:positive, :monotonic])}"
-      )
+      FixtureCase.unique_tmp_dir("weld_config_project")
 
-    File.rm_rf!(build_path)
-    File.rm_rf!(project_root)
     File.mkdir_p!(Path.join(project_root, "config"))
 
     File.write!(
