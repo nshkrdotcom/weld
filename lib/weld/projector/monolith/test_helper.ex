@@ -28,7 +28,7 @@ defmodule Weld.Projector.Monolith.TestHelper do
           fragment_source = render_fragment(fragment_forms)
 
           File.mkdir_p!(Path.dirname(fragment_path))
-          File.write!(fragment_path, fragment_source)
+          File.write!(fragment_path, fragment_source, [:exclusive])
 
           %{
             files: [fragment_relative | acc.files],
@@ -55,7 +55,8 @@ defmodule Weld.Projector.Monolith.TestHelper do
 
     File.write!(
       root_helper_path,
-      root_helper_source(result.options, Enum.reverse(result.fragments))
+      root_helper_source(result.options, Enum.reverse(result.fragments)),
+      [:exclusive]
     )
 
     %{

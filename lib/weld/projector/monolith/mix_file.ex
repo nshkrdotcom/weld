@@ -4,6 +4,7 @@ defmodule Weld.Projector.Monolith.MixFile do
   alias Weld.Git
   alias Weld.Plan
   alias Weld.Projector
+  alias Weld.Projector.Live
   alias Weld.SourceFormatter
 
   @spec render!(Plan.t(), Path.t(), keyword()) :: [String.t()]
@@ -13,7 +14,8 @@ defmodule Weld.Projector.Monolith.MixFile do
 
     File.write!(
       mixfile_path,
-      mixfile_contents(plan, build_path, application, opts) |> SourceFormatter.format!()
+      mixfile_contents(plan, build_path, application, opts) |> SourceFormatter.format!(),
+      [:exclusive]
     )
 
     generated = ["mix.exs"]
@@ -42,7 +44,8 @@ defmodule Weld.Projector.Monolith.MixFile do
     File.write!(
       target,
       application_module_contents(application, plan.artifact.package.otp_app)
-      |> SourceFormatter.format!()
+      |> SourceFormatter.format!(),
+      [:exclusive]
     )
 
     [relative | generated]
@@ -71,14 +74,16 @@ defmodule Weld.Projector.Monolith.MixFile do
       use Mix.Project
 
       def project do
+        #{opts[:live_guard] || ""}
         [
           app: #{inspect(package.otp_app)},
           version: #{inspect(package.version)},
-          build_path: "_build",
+          #{if(opts[:live?], do: "", else: "build_path: \"_build\",")}
           elixir: #{inspect(package.elixir)},
           start_permanent: Mix.env() == :prod,
           elixirc_paths: elixirc_paths(Mix.env()),
-          erlc_paths: #{inspect(erlc_paths)},
+          erlc_paths: #{render_paths(erlc_paths, opts)},
+          #{if(opts[:live?], do: "aliases: #{Live.aliases_source()},", else: "")}
           deps: deps(),
           description: #{inspect(package.description)},
           package: package(),
@@ -91,14 +96,14 @@ defmodule Weld.Projector.Monolith.MixFile do
       end
 
       def elixirc_paths(:test) do
-        if File.dir?("test/support") do
-          ["lib", "test/support"]
+        if File.dir?(Path.expand("test/support", __DIR__)) do
+          #{render_paths(["lib", "test/support"], opts)}
         else
-          ["lib"]
+          #{render_paths(["lib"], opts)}
         end
       end
 
-      def elixirc_paths(_env), do: ["lib"]
+      def elixirc_paths(_env), do: #{render_paths(["lib"], opts)}
 
       defp deps do
         [
@@ -122,6 +127,10 @@ defmodule Weld.Projector.Monolith.MixFile do
       end
     end
     """
+  end
+
+  defp render_paths(paths, opts) do
+    if opts[:live?], do: "Enum.map(#{inspect(paths)}, &Path.expand(&1, __DIR__))", else: inspect(paths)
   end
 
   defp generated_application(%Plan{} = plan, opts) do

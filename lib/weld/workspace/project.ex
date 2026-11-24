@@ -17,7 +17,15 @@ defmodule Weld.Workspace.Project do
     :classification,
     :publication_role
   ]
-  defstruct @enforce_keys ++ [test_paths: ["test"]]
+  defstruct @enforce_keys ++
+              [
+                package_name: nil,
+                package_files: nil,
+                test_paths: ["test"],
+                test_elixirc_paths: [],
+                test_erlc_paths: [],
+                erlc_include_path: "include"
+              ]
 
   @type dep :: %{
           app: atom(),
@@ -41,12 +49,17 @@ defmodule Weld.Workspace.Project do
           abs_path: Path.t(),
           app: atom(),
           version: String.t(),
+          package_name: String.t() | nil,
+          package_files: [String.t()] | nil,
           elixir: String.t(),
           deps: [dep()],
           application: application_config(),
           elixirc_paths: [String.t()],
           erlc_paths: [String.t()],
+          erlc_include_path: String.t(),
           test_paths: [String.t()],
+          test_elixirc_paths: [String.t()],
+          test_erlc_paths: [String.t()],
           copy_dirs: [String.t()],
           classification: classification(),
           publication_role: publication_role()

@@ -4,7 +4,7 @@ defmodule Weld.MixProject do
   def project do
     [
       app: :weld,
-      version: "0.15.0",
+      version: "0.16.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       build_path: System.get_env("WELD_CI_BUILD_ROOT", "_build"),
@@ -13,7 +13,7 @@ defmodule Weld.MixProject do
       aliases: aliases(),
       dialyzer: dialyzer(),
       deps: deps(),
-      description: "Deterministic Hex package projection for Elixir monorepos",
+      description: "Deterministic Mix project composition and release preparation",
       package: package(),
       docs: docs()
     ]
@@ -64,7 +64,7 @@ defmodule Weld.MixProject do
       logo: "assets/weld.svg",
       homepage_url: "https://github.com/nshkrdotcom/weld",
       source_url: "https://github.com/nshkrdotcom/weld",
-      source_ref: "v0.15.0",
+      source_ref: "v0.16.0",
       assets: %{"assets" => "assets"},
       extras: [
         "README.md": [title: "Overview"],
@@ -72,7 +72,7 @@ defmodule Weld.MixProject do
         "guides/workflow.md": [title: "Workflow"],
         "guides/cli_reference.md": [title: "CLI Reference"],
         "guides/architecture.md": [title: "Architecture"],
-        "guides/source_projects.md": [title: "Source-Root Artifacts"],
+        "guides/source_projects.md": [title: "Source-Project Artifacts"],
         "guides/manifest_reference.md": [title: "Manifest Reference"],
         "guides/testing_strategy.md": [title: "Testing Strategy"],
         "guides/release_process.md": [title: "Release Process"],

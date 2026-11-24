@@ -7,6 +7,7 @@ defmodule Weld.Workspace do
   alias Weld.Graph
   alias Weld.Graph.Edge
   alias Weld.Manifest
+  alias Weld.Output
   alias Weld.Violation
   alias Weld.Workspace.Discovery
   alias Weld.Workspace.Project
@@ -60,38 +61,55 @@ defmodule Weld.Workspace do
     |> Enum.sort_by(& &1.id)
   end
 
+  @doc false
+  @spec external_dependency(Project.dep()) :: Graph.external_dep()
+  def external_dependency(dep), do: Map.put(dep, :kind, infer_external_kind(dep.opts))
+
   defp load_projects!(manifest, project_ids) do
+    component_tests? =
+      Enum.any?(manifest.artifacts, fn {_, artifact} ->
+        artifact.verify.component_tests or artifact.mode == :monolith
+      end)
+
     project_ids
-    |> Enum.map(&load_project!(manifest, &1))
+    |> Enum.map(&load_project!(manifest, &1, component_tests?))
     |> Map.new(fn project -> {project.id, project} end)
   end
 
-  defp load_project!(manifest, ".") do
-    load_project!(manifest, ".", manifest.repo_root)
+  defp load_project!(manifest, ".", component_tests?) do
+    load_project!(manifest, ".", manifest.repo_root, component_tests?)
   end
 
-  defp load_project!(manifest, project_id) do
-    load_project!(manifest, project_id, Path.join(manifest.repo_root, project_id))
+  defp load_project!(manifest, project_id, component_tests?) do
+    path = Output.source!(manifest.repo_root, project_id)
+    load_project!(manifest, project_id, path, component_tests?)
   end
 
-  defp load_project!(manifest, project_id, abs_path) do
-    unless File.regular?(Path.join(abs_path, "mix.exs")) do
+  defp load_project!(manifest, project_id, abs_path, component_tests?) do
+    unless File.regular?(Output.source!(abs_path, "mix.exs")) do
       raise Error, "project #{project_id} is missing mix.exs"
     end
 
-    {config, application} = load_project_config(abs_path, project_id)
+    {config, application, test_config} = load_project_config(abs_path, project_id, component_tests?)
+    package = Keyword.get(config, :package) || []
+    app = Keyword.fetch!(config, :app)
 
     %Project{
       id: project_id,
       abs_path: abs_path,
-      app: Keyword.fetch!(config, :app),
+      app: app,
       version: Keyword.fetch!(config, :version),
+      package_name: to_string(Keyword.get(package, :name, app)),
+      package_files: Keyword.get(package, :files),
       elixir: Keyword.get(config, :elixir, "~> 1.18"),
-      deps: normalize_deps(Keyword.get(config, :deps, [])),
+      deps: configured_deps(config, test_config),
       application: normalize_application(application),
       elixirc_paths: normalize_paths(Keyword.get(config, :elixirc_paths, ["lib"])),
       erlc_paths: normalize_paths(Keyword.get(config, :erlc_paths, ["src"])),
-      test_paths: normalize_paths(Keyword.get(config, :test_paths, ["test"])),
+      erlc_include_path: Keyword.get(config, :erlc_include_path, "include"),
+      test_paths: normalize_paths(Keyword.get(test_config, :test_paths, ["test"])),
+      test_elixirc_paths: normalize_paths(Keyword.get(test_config, :elixirc_paths, ["lib"])),
+      test_erlc_paths: normalize_paths(Keyword.get(test_config, :erlc_paths, ["src"])),
       copy_dirs: existing_copy_dirs(abs_path),
       classification: classification_for(project_id, manifest),
       publication_role: publication_role_for(project_id, manifest)
@@ -333,6 +351,7 @@ defmodule Weld.Workspace do
 
   defp build_canonical_external_dep(_app, _requirement, _opts), do: :error
 
+  defp canonical_dep_original(app, nil, opts), do: {app, opts}
   defp canonical_dep_original(app, requirement, []), do: {app, requirement}
   defp canonical_dep_original(app, requirement, opts), do: {app, requirement, opts}
 
@@ -380,6 +399,23 @@ defmodule Weld.Workspace do
     end)
   end
 
+  defp configured_deps(config, test_config) do
+    deps = normalize_deps(Keyword.get(config, :deps, []))
+    apps = MapSet.new(deps, & &1.app)
+
+    test_deps =
+      test_config
+      |> Keyword.get(:deps, [])
+      |> normalize_deps()
+      |> Enum.reject(&MapSet.member?(apps, &1.app))
+      |> Enum.map(fn dep ->
+        opts = Keyword.put_new(dep.opts, :only, :test)
+        %{dep | opts: opts, original: canonical_dep_original(dep.app, dep.requirement, opts)}
+      end)
+
+    deps ++ test_deps
+  end
+
   defp normalize_paths(path) when is_binary(path), do: [path]
   defp normalize_paths(paths) when is_list(paths), do: Enum.sort(paths)
 
@@ -423,11 +459,16 @@ defmodule Weld.Workspace do
   end
 
   defp classify_relative_owner(workspace, relative) do
-    case Enum.find(projects(workspace), &owns_relative_path?(&1, relative)) do
-      %Project{id: project_id} -> {:project, project_id}
-      nil -> :global
-    end
+    owner =
+      workspace
+      |> projects()
+      |> Enum.filter(&owns_relative_path?(&1, relative))
+      |> Enum.max_by(&byte_size(&1.id), fn -> nil end)
+
+    if owner, do: {:project, owner.id}, else: :global
   end
+
+  defp owns_relative_path?(%Project{id: "."}, _relative), do: true
 
   defp owns_relative_path?(project, relative) do
     relative == project.id or String.starts_with?(relative, "#{project.id}/")
@@ -442,34 +483,49 @@ defmodule Weld.Workspace do
     String.to_atom("weld_probe_#{suffix}_#{System.unique_integer([:positive])}")
   end
 
-  defp load_project_config(abs_path, project_id) do
+  defp load_project_config(abs_path, project_id, component_tests?) do
     if current_project_root() == Path.expand(abs_path) and Mix.Project.get() do
-      project_config()
+      project_config(component_tests?)
     else
       without_module_conflicts(fn ->
         Mix.Project.in_project(unique_probe(project_id), abs_path, [], fn _module ->
-          project_config!()
+          project_config(component_tests?)
         end)
       end)
     end
   end
 
-  defp project_config do
-    project_module = Mix.Project.get()
+  defp project_config(component_tests?) do
+    project_module = Mix.Project.get!()
+    config = Mix.Project.config()
 
-    {
-      Mix.Project.config(),
-      project_application(project_module)
-    }
+    cond do
+      not component_tests? ->
+        {config, project_application(project_module), config}
+
+      Mix.env() == :test ->
+        {regular_config, application} =
+          with_mix_env(:dev, fn ->
+            {project_module.project(), project_application(project_module)}
+          end)
+
+        {regular_config, application, config}
+
+      true ->
+        test_config = with_mix_env(:test, &project_module.project/0)
+        {config, project_application(project_module), test_config}
+    end
   end
 
-  defp project_config! do
-    project_module = Mix.Project.get!()
+  defp with_mix_env(env, fun) do
+    previous = Mix.env()
+    Mix.env(env)
 
-    {
-      Mix.Project.config(),
-      project_application(project_module)
-    }
+    try do
+      fun.()
+    after
+      Mix.env(previous)
+    end
   end
 
   defp project_application(project_module) do

@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-11-24
+
+### Added
+
+- Generate linked live views for package-projection and monolith artifacts from
+  the same composition as their full counterparts. Live projects use ordinary
+  Mix and require refresh when inputs that determine their layout change.
+- Preserve nested standalone Mix projects as source-project artifacts and
+  declare artifact-local package boundaries with `external_projects`.
+- Include selected component suites in package-projection verification with
+  `verify: [component_tests: true]` while excluding verification files from Hex.
+
+### Fixed
+
+- Report the actual projects that own compiled sources and inventory, including
+  sources linked into live projects. Use the same ownership to detect affected
+  artifacts when Git paths are added, changed, renamed, or deleted.
+- Retain the files required to verify a detached prepared project alongside the
+  separate Hex package allowlist.
+
+### Upgrading
+
+- Existing manifests retain their dependency closure unless they opt into
+  `external_projects`. Refresh existing live views after upgrading Weld.
+- Linked package directories expose ordinary additions and deletions on the
+  next compile. Live monoliths require refresh when file topology changes.
+
 ## [0.15.0] - 2026-11-24
 
 - Add explicit source-project artifacts with portable full candidates and optional live views of canonical compiler inputs and assets.

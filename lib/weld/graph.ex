@@ -104,6 +104,19 @@ defmodule Weld.Graph do
     |> Enum.sort_by(fn edge -> {edge.from, edge.to, edge.kind, Atom.to_string(edge.app)} end)
   end
 
+  @doc false
+  @spec filter_edges(t(), (Edge.t() -> boolean())) :: t()
+  def filter_edges(%__MODULE__{} = graph, accept?) do
+    edges =
+      graph
+      |> edges()
+      |> Enum.filter(accept?)
+      |> Enum.group_by(&{&1.from, &1.to})
+
+    filtered = %{graph | edges: edges}
+    %{filtered | dag: subgraph(filtered, :all)}
+  end
+
   @spec external_deps(t(), project_id()) :: [external_dep()]
   def external_deps(%__MODULE__{} = graph, project_id) do
     graph.external_deps

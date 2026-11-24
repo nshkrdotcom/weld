@@ -12,7 +12,14 @@
 
 ## Live Versus Full Projections
 
-- **Live view (`.weld/live/<artifact>/`, `:source_project` mode):** Generated with `mix weld.project --live` for fast local cross-repo development. Source and `priv/` directories link directly to the checkout so code edits appear immediately on a consumer's next build. Structural edits to `mix.exs`, `mix.lock`, the manifest, or `structural_inputs` invalidate the view with an explicit refresh error.
+- **Live view (`.weld/live/<artifact>/`, all modes):** Generate with
+  `mix weld.project --artifact <name> --live` and depend on that directory
+  with `path:` in an ordinary Mix consumer. Linked package and source-project
+  directories expose code and asset edits on the next build. A monolith uses
+  file links for its merged layout. Refresh a monolith when files are added,
+  removed, or remapped, and refresh any live view when its structural guard
+  reports a change. Run formatters and code generators from the source
+  checkout.
 - **Full candidate (`.weld/full/<artifact>/project/`, all modes):** Generated with `mix weld.project` (and refreshed automatically by `mix weld.verify` and `mix release.prepare`). Contains regular copied/synthesized files, `weld.provenance.json` (`kind: "full"`, `artifact_id`), and `projection.lock.json`.
 
 ## Recommended Release Sequence
@@ -20,7 +27,9 @@
 1. Run `mix weld.setup` once (and commit `.gitignore` if updated) so `.weld/` is ignored on a clean tree.
 2. Run the source repository's own test and quality gates.
 3. Run `mix weld.inspect` to confirm workspace discovery, selected closure, and zero graph violations.
-4. Run `mix weld.project` / `mix weld.verify` while iterating on packaging configuration.
+4. Run `mix weld.project` and `mix weld.verify` for each artifact while
+   iterating on packaging configuration. Compile any live view you intend to
+   share from a separate Mix consumer.
 5. From a clean committed revision, run `mix release.prepare` to verify and write `.weld/releases/<artifact>/<identity>/`.
 6. Optionally run `mix release.track` to update `projection/<package_name>` (with optional `--tag` and `--push`).
 7. When publishing to Hex, run `mix hex.publish` inside `.weld/releases/<artifact>/<identity>/project/`.
@@ -40,4 +49,6 @@ All Weld-owned files live under `<checkout_root>/.weld/`:
   - `.weld/archive/<artifact>/<identity>/` — post-publication archive copy
   - `projection/<package_name>` commits and tags — durable projected-source Git history when tracked
 
-Legacy `dist/` directories from earlier Weld versions are left untouched; update any external scripts to read from `.weld/` before retiring old directories. See [Source-Root Artifacts](source_projects.md) for lock ownership and consumer concurrency details.
+Update any scripts still reading legacy `dist/` directories before retiring
+them. See [Source-Project Artifacts](source_projects.md) for lock ownership and
+consumer concurrency details.

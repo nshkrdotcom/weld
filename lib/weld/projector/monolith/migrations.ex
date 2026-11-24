@@ -1,7 +1,7 @@
 defmodule Weld.Projector.Monolith.Migrations do
   @moduledoc false
 
-  alias Weld.Hash
+  alias Weld.{Error, Hash}
 
   @spec merge!([Weld.Workspace.Project.t()], Path.t()) :: %{
           copied_files: [String.t()],
@@ -97,6 +97,7 @@ defmodule Weld.Projector.Monolith.Migrations do
           filename
         ])
 
+      ensure_new_target!(target)
       File.mkdir_p!(Path.dirname(target))
       File.cp!(entry.source, target)
 
@@ -147,6 +148,14 @@ defmodule Weld.Projector.Monolith.Migrations do
       end
 
     File.mkdir_p!(Path.dirname(target))
-    File.write!(target, Jason.encode_to_iodata!(remaps, pretty: true))
+    ensure_new_target!(target)
+    File.write!(target, Jason.encode_to_iodata!(remaps, pretty: true), [:exclusive])
+  end
+
+  defp ensure_new_target!(target) do
+    case File.lstat(target) do
+      {:error, :enoent} -> :ok
+      _ -> raise Error, "migration path collision: #{target}"
+    end
   end
 end

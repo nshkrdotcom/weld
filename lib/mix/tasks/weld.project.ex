@@ -4,7 +4,10 @@ defmodule Mix.Tasks.Weld.Project do
   alias Weld.TaskSupport
 
   @moduledoc """
-  Generate the welded artifact for a manifest and selected artifact.
+  Generate the selected artifact as a portable Mix project or a live view.
+
+  Use `--live` to link the artifact's source files into a local development
+  view. Generate a full project for verification and Hex packaging.
   """
 
   @shortdoc "Project the welded Mix artifact"

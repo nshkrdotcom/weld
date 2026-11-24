@@ -41,7 +41,16 @@ defmodule Weld.Release do
     manifest_digest = Hash.sha256_file(plan.manifest.manifest_path)
     project_target = Path.join(stage, "project")
 
-    copy_prepared_project!(verification.build_path, project_target, verification.package_files)
+    inventory = Map.get(verification, :verification_files, verification.package_files)
+    copy_prepared_project!(verification.build_path, project_target, inventory)
+
+    if expected = verification[:verification_input_identity] do
+      unless Hash.verification_identity(project_target, inventory) == expected do
+        raise Error, "verified source or test inputs changed before release preparation"
+      end
+    end
+
+    finalize_project_identity!(project_target)
 
     tarball_target = maybe_copy_tarball(stage, verification.tarball_path)
     docs_path = Path.join(stage, "docs")
@@ -268,19 +277,18 @@ defmodule Weld.Release do
     target
   end
 
-  defp copy_prepared_project!(source, target, package_files) do
-    roots =
-      Enum.uniq(
-        package_files ++ ["mix.lock", "weld.provenance.json", "projection.lock.json", "test"]
-      )
-
+  defp copy_prepared_project!(source, target, project_files) do
+    optional = for file <- ["mix.lock", "weld.provenance.json", "projection.lock.json"],
+      File.exists?(Path.join(source, file)), do: file
     File.mkdir_p!(target)
 
-    source
-    |> Hash.list_files()
-    |> Enum.filter(fn path -> included_in_prepared_project?(path, source, roots) end)
-    |> Enum.each(fn source_path ->
-      relative = Path.relative_to(source_path, source)
+    (project_files ++ optional)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.each(fn relative ->
+      source_path = Output.source!(source, relative)
+      unless match?({:ok, %{type: :regular}}, File.lstat(source_path)),
+        do: raise(Error, "verified project file missing or unsafe: #{relative}")
       target_path = Path.join(target, relative)
       File.mkdir_p!(Path.dirname(target_path))
       File.cp!(source_path, target_path)
@@ -288,12 +296,10 @@ defmodule Weld.Release do
     end)
   end
 
-  defp included_in_prepared_project?(path, source, roots) do
-    relative = Path.relative_to(path, source)
-
-    Enum.any?(roots, fn root ->
-      relative == root or String.starts_with?(relative, root <> "/")
-    end)
+  defp finalize_project_identity!(project) do
+    path = Path.join(project, "weld.provenance.json")
+    marker = path |> File.read!() |> Jason.decode!()
+    File.write!(path, Jason.encode!(Map.put(marker, "artifact_id", Hash.project_identity(project)), pretty: true))
   end
 
   defp prepared_artifact_handoff(

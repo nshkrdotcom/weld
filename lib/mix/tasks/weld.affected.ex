@@ -4,7 +4,9 @@ defmodule Mix.Tasks.Weld.Affected do
   alias Weld.TaskSupport
 
   @moduledoc """
-  Show which selected projects are affected by a Git diff range.
+  Show affected projects and artifacts for a Git diff range.
+
+  Uses artifact source ownership as well as Mix dependency relationships.
   """
 
   @shortdoc "Show affected projects for a task"

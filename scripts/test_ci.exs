@@ -9,7 +9,9 @@ jobs = [
   {"monolith", "verifier_test"},
   {"prepare_cli", "mix_tasks_test"},
   {"monolith_tests", "projector_monolith_test"},
-  {"package_config", "projector_package_mode_test"}
+  {"package_config", "projector_package_mode_test"},
+  {"component_prepare", "component_tests_test"},
+  {"graph_consumption", "graph_live_test"}
 ]
 
 build = Mix.Project.build_path()

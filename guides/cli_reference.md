@@ -10,8 +10,10 @@ When the manifest path is omitted, Weld auto-discovers one by checking
 mix weld.inspect [manifest_path] [--artifact name] [--format json]
 ```
 
-Shows manifest metadata, discovery source, project classifications, selected
-closure, excluded projects, and current violations.
+Shows manifest metadata, discovery source, project classifications, effective
+selection, excluded projects, and violations. Use JSON to inspect dependency
+closure, compiled source ownership, inventory and verification membership,
+and external package boundaries.
 
 ## Graph
 
@@ -19,7 +21,9 @@ closure, excluded projects, and current violations.
 mix weld.graph [manifest_path] [--artifact name] [--format json|dot]
 ```
 
-Renders the workspace graph as human-readable edges, JSON, or DOT.
+Renders actual workspace dependency relationships as human-readable edges,
+JSON, or DOT. The JSON output identifies edges externalized by the selected
+artifact.
 
 ## Query
 
@@ -28,8 +32,9 @@ mix weld.query deps [manifest_path] <project_id> [--artifact name]
 mix weld.query why [manifest_path] <from_project> <to_project> [--artifact name]
 ```
 
-`deps` lists direct outgoing internal and external dependencies for a project.
-`why` shows one explanatory path through the selected package view.
+`deps` lists direct outgoing dependencies and indicates artifact-local
+externalization. `why` shows an explanatory path through the selected
+artifact's package view.
 
 ## Affected
 
@@ -37,8 +42,10 @@ mix weld.query why [manifest_path] <from_project> <to_project> [--artifact name]
 mix weld.affected [manifest_path] --task verify.all --base main --head HEAD [--artifact name]
 ```
 
-Computes affected selected projects from a Git diff range plus reverse
-dependency traversal.
+Computes affected projects using Git paths, artifact source ownership, and
+dependency relationships. A file copied or linked into an artifact can
+affect that artifact even when the owning project is absent from its Mix
+dependency closure.
 
 ## Setup
 
@@ -54,7 +61,12 @@ Initializes `<checkout_root>/.weld/`, writes its ownership marker, verifies `.we
 mix weld.project [manifest_path] [--artifact name] [--live]
 ```
 
-Generates a standalone full candidate under `.weld/full/<artifact>/project/` (`weld.provenance.json` + `projection.lock.json`). For `mode: :source_project` artifacts, passing `--live` generates a symlinked development view under `.weld/live/<artifact>/` whose compiler paths point back to the source checkout.
+Generates a standalone full candidate under `.weld/full/<artifact>/project/`.
+Pass `--live` to generate the same artifact as a source-linked development
+view under `.weld/live/<artifact>/`. Both kinds record provenance and inventory
+in `weld.provenance.json` and `projection.lock.json`. Live views use standard
+Mix and report a refresh command if structural inputs change. Use a full
+candidate for Hex packaging.
 
 ## Verify
 

@@ -1,16 +1,24 @@
 # Getting Started
 
-`Weld` can be installed in the workspace root project or—when keeping a public `:source_project` root free of maintainer dependencies—in a dedicated maintainer project such as `tools/maintainer/mix.exs`. Consumers of your source root, generated projections, `projection/*` branches, or Hex packages never install `Weld`.
+Install Weld in the workspace root project or a dedicated maintainer project
+such as `tools/maintainer/mix.exs`. Consumers use ordinary Mix dependencies for
+source projects, generated projections, `projection/*` branches, and Hex
+packages.
 
 ## 1. Add The Maintainer Dependency
 
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.15.0", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.16.0", only: [:dev, :test], runtime: false}
   ]
 end
 ```
+
+Resolve this Hex dependency after Weld 0.16.0 is published. To try a release
+candidate, point a disposable maintainer Mix project at the candidate checkout
+with a Weld path dependency and pass your manifest's absolute path to the tasks
+below.
 
 ## 2. Add A Repo-Local Manifest
 
@@ -66,11 +74,12 @@ Key manifest concepts:
 
 - `workspace.root` resolves relative to the manifest file (`"../.."` from `packaging/weld/my_bundle.exs`, or `".."` from `build_support/weld.exs`).
 - **Choose the composition mode that matches your repo:**
-  - `:package_projection` *(default)* stages selected workspace projects under `components/<project_id>/` and synthesizes a root `mix.exs` (and merged `Application` module when selected projects start OTP children).
+  - `:package_projection` *(default)* stages the selected dependency closure under `components/` and synthesizes a root `mix.exs` (and a merged `Application` module when selected projects start OTP children).
   - `:monolith` merges `lib/`, `priv/`, migrations, configs, and declared `:test_paths` into a single flat Mix project. Declare any non-selected test helpers explicitly in `monolith_opts[:test_support_projects]`.
-  - `:source_project` (`roots: ["."]`) preserves an existing root `mix.exs` and materializes its declared `source_project[:files]` inventory as either a full copy or a symlinked `--live` view. See [Source-Root Artifacts](source_projects.md).
-- Every `output.docs` and `output.assets` entry (in `:package_projection` and `:monolith` modes) is copied into the generated project and added to its Hex `package.files` allowlist.
+  - `:source_project` preserves the existing `mix.exs` of one selected project and its declared `source_project[:files]` inventory. Use `roots: ["."]` for the repository root or a discovered project ID for a nested package. See [Source-Project Artifacts](source_projects.md).
+- The graph modes include every declared `output.docs` and `output.assets` entry in the projected project and its Hex `package.files` allowlist.
 - Declare `dependencies` when a selected workspace project uses `:path`, `:git`, or `:github` for an external dependency that must be rewritten to a canonical Hex requirement (or canonical Git spec) in the projected package.
+- Declare `external_projects` on an artifact when an otherwise discoverable workspace dependency should remain a separately installed package.
 
 ## 3. Initialize `.weld/` And Inspect The Graph
 
@@ -90,11 +99,21 @@ Use `weld.inspect` and `weld.graph` to confirm project discovery, classification
 # Portable full projection under .weld/full/<artifact>/project/
 mix weld.project
 
-# Symlinked live view under .weld/live/<artifact>/ (:source_project mode only)
+# Symlinked live view under .weld/live/<artifact>/
 mix weld.project --live
 ```
 
-Full projections contain regular files only, `weld.provenance.json` (`kind: "full"` and content-addressed `artifact_id`), and `projection.lock.json`. Live projections symlink a `:source_project` inventory back to the checkout so local path consumers see source edits immediately without installing Weld.
+For a manifest with multiple artifacts, pass `--artifact <name>` to each
+artifact command. A nested maintainer project can pass the manifest path
+explicitly, for example `mix weld.project ../../build_support/weld.exs --artifact my_bundle --live`.
+
+Full projections contain regular files, `weld.provenance.json` (`kind: "full"`
+and content-addressed `artifact_id`), and `projection.lock.json`. Live
+projections use the same composition and link back to the checkout. Edits
+inside linked source directories take effect at the next build. A live
+monolith links individual files, so additions, removals, and remaps require
+refresh. The generated Mix project prints the refresh command when its
+layout inputs change.
 
 ## 5. Verify The Projected Artifact
 
@@ -112,6 +131,10 @@ mix weld.verify
 - optional consumer smoke-app compilation when `verify.smoke.enabled` is `true`
 - `mix hex.build` (when `verify.hex_build` is `true`)
 - `mix hex.publish --dry-run --yes` (when both `hex_build` and `hex_publish` are `true`)
+
+Package projections run artifact tests by default. Set
+`verify: [component_tests: true]` to include declared component suites along
+with any artifact test roots.
 
 **Monolith mode** runs:
 

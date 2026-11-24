@@ -12,7 +12,9 @@ defmodule Weld.Projector do
   alias Weld.Lockfile
   alias Weld.Output
   alias Weld.Plan
+  alias Weld.Plan.Inventory
   alias Weld.Projector.Monolith
+  alias Weld.Projector.Live
   alias Weld.Projector.SourceProject
   alias Weld.SourceFormatter
 
@@ -25,10 +27,6 @@ defmodule Weld.Projector do
     Plan.ensure_valid!(plan)
     kind = if opts[:live], do: :live, else: :full
 
-    if kind == :live and plan.artifact.mode != :source_project do
-      raise Error, "--live requires a source_project artifact"
-    end
-
     root = plan.manifest.repo_root
     validate_inputs!(plan)
     target = build_path(plan, kind)
@@ -38,15 +36,24 @@ defmodule Weld.Projector do
       projection =
         case plan.artifact.mode do
           :source_project -> SourceProject.project!(plan, stage, kind)
-          _ -> project_by_mode!(plan, stage)
+          _ -> project_by_mode!(plan, stage, kind)
         end
 
-      files = Enum.map(projection.copied_files, &Path.relative_to(&1, stage))
+      linked = Map.get(projection, :linked_files, [])
+      inventory =
+        (Hash.list_files(stage) |> Enum.map(&Path.relative_to(&1, stage)))
+        |> Kernel.++(linked)
+        |> Enum.uniq()
+        |> Enum.sort()
+
+      files = inventory -- linked
       tree_digest = write_marker!(stage, plan.artifact.id, kind)
 
       projection =
         Map.merge(projection, %{
           copied_files: files,
+          linked_files: linked,
+          verification_files: inventory,
           build_path: target,
           git_revision: Git.revision(root),
           tree_digest: tree_digest
@@ -55,12 +62,26 @@ defmodule Weld.Projector do
       lockname = "projection.lock.json"
       lockfile = Lockfile.build(plan, projection, [])
       File.write!(Path.join(stage, lockname), Lockfile.encode!(lockfile), [:exclusive])
+      reject_published_reports!(stage, projection)
       Output.activate!(stage, target, &managed?(&1, plan.artifact.id, kind))
       Map.put(projection, :lockfile_path, Path.join(target, lockname))
     after
       File.rm_rf!(stage)
     end
   end
+
+  defp reject_published_reports!(stage, %{package_patterns: patterns}) do
+    paths = Enum.flat_map(patterns, fn pattern ->
+      Path.wildcard(Path.join(stage, pattern), match_dot: true)
+      |> Enum.flat_map(fn path -> if File.dir?(path), do: Hash.list_files(path), else: [path] end)
+    end)
+
+    for report <- ~w(weld.provenance.json projection.lock.json), Path.join(stage, report) in paths do
+      raise Error, "native package allowlist includes generated publication metadata: #{report}"
+    end
+  end
+
+  defp reject_published_reports!(_stage, _projection), do: :ok
 
   defp write_marker!(stage, artifact, kind) do
     marker = %{schema: "weld.projection/v1", artifact: artifact, kind: kind}
@@ -84,6 +105,14 @@ defmodule Weld.Projector do
     root = plan.manifest.repo_root
     artifact = plan.artifact
 
+    if artifact.mode != :source_project do
+      for path <- artifact.output.docs ++ artifact.output.assets do
+        if hd(Path.split(path)) in ~w(mix.exs mix.lock doc config components test lib src c_src include weld.provenance.json projection.lock.json) do
+          raise Error, "output path overlaps generated project files: #{path}"
+        end
+      end
+    end
+
     for path <-
           artifact.output.docs ++
             artifact.output.assets ++
@@ -93,14 +122,25 @@ defmodule Weld.Projector do
     end
 
     if artifact.mode != :source_project do
-      Enum.each(Plan.projects_for_view(plan, :test), &validate_project_inputs!(root, &1))
+      for project <- Plan.projects_for_view(plan, :test) do
+        include_suite? = artifact.mode == :monolith or Plan.selected?(plan, project.id)
+        validate_project_inputs!(root, project, include_suite?)
+      end
     end
   end
 
-  defp validate_project_inputs!(root, project) do
+  defp validate_project_inputs!(root, project, include_suite?) do
     if project.id != ".", do: Output.source!(root, project.id)
 
-    for dir <- Enum.uniq(project.copy_dirs ++ project.test_paths ++ ["config", "test"]) do
+    suite_paths =
+      if include_suite? do
+        project.test_elixirc_paths ++ project.test_erlc_paths ++ project.test_paths ++ ["config", "test"]
+      else
+        []
+      end
+
+    for dir <- Enum.uniq(project.copy_dirs ++ project.elixirc_paths ++ project.erlc_paths ++
+                 [project.erlc_include_path] ++ suite_paths) do
       relative = Path.relative_to(Path.expand(dir, project.abs_path), project.abs_path)
       project.abs_path |> Output.source!(relative) |> Output.reject_tree_links!()
     end
@@ -135,8 +175,10 @@ defmodule Weld.Projector do
   def package_files(%Plan{} = plan, opts \\ []) do
     component_roots =
       plan.selected_projects
-      |> Enum.map(&component_dir/1)
-      |> Enum.map(&Path.join("components", &1))
+      |> Enum.flat_map(fn project ->
+        runtime_roots(project)
+        |> Enum.map(&Path.join(["components", component_dir(project), &1]))
+      end)
 
     ["mix.exs"]
     |> Kernel.++(generated_root_paths(plan, opts))
@@ -209,45 +251,6 @@ defmodule Weld.Projector do
     end
   end
 
-  defp copy_project!(build_path, project) do
-    base = Path.join([build_path, "components", component_dir(project)])
-
-    project.copy_dirs
-    |> Enum.flat_map(fn dir ->
-      source = Path.join(project.abs_path, dir)
-      target = Path.join(base, dir)
-
-      File.mkdir_p!(Path.dirname(target))
-      File.cp_r!(source, target)
-
-      target
-      |> list_copied_paths()
-    end)
-  end
-
-  defp copy_relative!(plan, build_path, relative_path) do
-    source = Path.join(plan.manifest.repo_root, relative_path)
-    target = Path.join(build_path, relative_path)
-
-    cond do
-      File.regular?(source) ->
-        File.mkdir_p!(Path.dirname(target))
-        File.cp!(source, target)
-        [relative_path]
-
-      File.dir?(source) ->
-        File.mkdir_p!(Path.dirname(target))
-        File.cp_r!(source, target)
-
-        target
-        |> list_copied_paths()
-        |> Enum.map(&Path.relative_to(&1, build_path))
-
-      true ->
-        raise Error, "copy target not found: #{relative_path}"
-    end
-  end
-
   defp copy_artifact_tests!(plan, build_path, relative_path) do
     source = Path.join(plan.manifest.repo_root, relative_path)
 
@@ -265,6 +268,9 @@ defmodule Weld.Projector do
       child_source = Path.join(source, child)
       child_target = Path.join(target, child)
 
+      if File.exists?(child_target),
+        do: raise(Error, "artifact test collision at test/#{child}")
+
       if File.dir?(child_source) do
         File.cp_r!(child_source, child_target)
       else
@@ -277,11 +283,17 @@ defmodule Weld.Projector do
     end)
   end
 
-  defp project_by_mode!(%Plan{artifact: %{mode: :monolith}} = plan, build_path) do
-    Monolith.project!(plan, build_path)
+  defp project_by_mode!(%Plan{artifact: %{mode: :monolith}} = plan, build_path, kind) do
+    Monolith.project!(plan, build_path, kind: kind)
   end
 
-  defp project_by_mode!(%Plan{} = plan, build_path) do
+  defp project_by_mode!(%Plan{} = plan, build_path, kind) do
+    validate_component_test_paths!(plan)
+    validate_include_paths!(Plan.projects_for_view(plan, :test))
+    compiler_roots = Enum.flat_map(plan.selected_projects, fn project ->
+      Enum.map(project.elixirc_paths, &Path.expand(&1, project.abs_path))
+    end)
+    SourceProject.validate_modules!(compiler_roots)
     repo_infos = detect_repo_infos(plan.selected_projects)
 
     config_merge =
@@ -295,60 +307,194 @@ defmodule Weld.Projector do
           List.wrap(root_ecto_repos_overlay(repo_infos, plan.artifact.package.otp_app))
       )
 
-    copied_components = Enum.flat_map(plan.selected_projects, &copy_project!(build_path, &1))
-    copied_docs = Enum.flat_map(plan.artifact.output.docs, &copy_relative!(plan, build_path, &1))
+    roots = Enum.reject(plan.source_roots, &(&1.target == "test" and not plan.artifact.verify.component_tests))
+    materialized = Enum.flat_map(roots, &materialize_root!(plan, build_path, &1, kind))
 
-    copied_assets =
-      Enum.flat_map(plan.artifact.output.assets, &copy_relative!(plan, build_path, &1))
+    copied_tests = if plan.artifact.verify.component_tests do
+      []
+    else
+      Enum.flat_map(plan.artifact.verify.artifact_tests, &copy_artifact_tests!(plan, build_path, &1))
+    end
 
-    copied_tooling_files =
-      Enum.flat_map(root_tooling_files(plan), &copy_relative!(plan, build_path, &1))
-
-    copied_tests =
-      Enum.flat_map(
-        plan.artifact.verify.artifact_tests,
-        &copy_artifact_tests!(plan, build_path, &1)
-      )
+    test_paths = projected_test_paths(plan)
+    for path <- test_paths do
+      unless File.regular?(Path.join([build_path, path, "test_helper.exs"])),
+        do: raise(Error, "projected test path requires test_helper.exs: #{path}")
+    end
 
     ensure_readme!(plan, build_path)
 
-    generated_files =
-      render_generated_files!(plan, build_path,
+    generation_opts = [
         bootstrapped_apps: config_merge.bootstrapped_apps,
         bootstrapped_config_sources: config_merge.bootstrapped_sources,
-        generate_config?: true
-      )
+        generate_config?: true,
+        live?: kind == :live,
+        live_guard: if(kind == :live, do: Live.guard_source(plan,
+          directories: Enum.map(roots, &Path.join(plan.manifest.repo_root, &1.source)),
+          digests: Enum.flat_map(plan.artifact.verify.artifact_tests, fn path ->
+            if plan.artifact.verify.component_tests, do: [], else: Hash.list_files(Path.join(plan.manifest.repo_root, path))
+          end),
+          topology: if(plan.artifact.verify.component_tests, do: [], else: Enum.map(plan.artifact.verify.artifact_tests, &Path.join(plan.manifest.repo_root, &1)))
+        ), else: "")
+      ]
 
-    render_mixfile!(plan, build_path,
-      bootstrapped_apps: config_merge.bootstrapped_apps,
-      bootstrapped_config_sources: config_merge.bootstrapped_sources,
-      generate_config?: true
-    )
+    generated_files = render_generated_files!(plan, build_path, generation_opts)
+
+    render_mixfile!(plan, build_path, generation_opts)
 
     %{
       copied_files:
-        (copied_components ++
-           copied_docs ++
-           copied_assets ++
-           copied_tooling_files ++
+        (materialized ++
            copied_tests ++
            config_merge.copied_files ++ generated_files)
         |> Enum.uniq()
         |> Enum.sort(),
       package_files:
-        package_files(plan,
-          bootstrapped_apps: config_merge.bootstrapped_apps,
-          bootstrapped_config_sources: config_merge.bootstrapped_sources,
-          generate_config?: true
-        )
+        package_files(plan, generation_opts),
+      linked_files: if(kind == :live, do: Enum.sort(materialized), else: [])
     }
   end
 
   defp render_mixfile!(plan, build_path, opts) do
     File.write!(
       Path.join(build_path, "mix.exs"),
-      mixfile_contents(plan, opts) |> SourceFormatter.format!()
+      mixfile_contents(plan, opts) |> SourceFormatter.format!(),
+      [:exclusive]
     )
+  end
+
+  defp materialize_root!(plan, build_path, entry, kind) do
+    source = Output.source!(plan.manifest.repo_root, entry.source)
+    target = Output.source!(build_path, entry.target)
+    Output.reject_tree_links!(source)
+
+    unless File.exists?(source), do: raise(Error, "missing planned source: #{entry.source}")
+    if File.exists?(target), do: raise(Error, "projection path collision: #{entry.target}")
+    File.mkdir_p!(Path.dirname(target))
+
+    files = if File.dir?(source), do: Hash.list_files(source), else: [source]
+    projected = Enum.map(files, fn path ->
+      if path == source, do: entry.target, else: Path.join(entry.target, Path.relative_to(path, source))
+    end)
+
+    case kind do
+      :full -> File.cp_r!(source, target)
+      :live ->
+        case File.ln_s(source, target) do
+          :ok -> :ok
+          {:error, reason} -> raise Error, "live projection needs symlink support for #{entry.target}: #{reason}"
+        end
+    end
+
+    projected
+  end
+
+  defp runtime_roots(project) do
+    Inventory.normalize_paths(project,
+      project.copy_dirs ++ project.elixirc_paths ++ project.erlc_paths ++ [project.erlc_include_path])
+    |> Enum.uniq()
+    |> Enum.filter(&File.dir?(Path.expand(&1, project.abs_path)))
+    |> then(fn roots ->
+      Enum.reject(roots, fn path ->
+        Enum.any?(roots, &(&1 != path and String.starts_with?(path, &1 <> "/")))
+      end)
+    end)
+    |> Enum.sort()
+  end
+
+  defp projected_test_paths(%Plan{artifact: %{verify: %{component_tests: false}}} = plan) do
+    if plan.artifact.verify.artifact_tests == [], do: [], else: ["test"]
+  end
+
+  defp projected_test_paths(plan) do
+    components =
+      plan.selected_projects
+      |> Enum.flat_map(fn project ->
+        Inventory.normalize_paths(project, project.test_paths)
+        |> Enum.filter(&File.dir?(Path.expand(&1, project.abs_path)))
+        |> Enum.map(&Path.join(["components", component_dir(project), &1]))
+      end)
+
+    artifacts =
+      plan.artifact.verify.artifact_tests
+      |> Enum.with_index(1)
+      |> Enum.map(fn {_path, index} -> "test/artifact_#{index}" end)
+
+    Enum.uniq(components ++ artifacts)
+  end
+
+  defp component_test_compile_paths(%Plan{artifact: %{verify: %{component_tests: false}}}), do: []
+
+  defp component_test_compile_paths(plan) do
+    Plan.projects_for_view(plan, :test)
+    |> Enum.flat_map(fn project ->
+      paths = if Plan.selected?(plan, project.id), do: project.test_elixirc_paths, else: project.elixirc_paths
+
+      project
+      |> Inventory.normalize_paths(paths)
+      |> Enum.filter(&File.dir?(Path.expand(&1, project.abs_path)))
+      |> Enum.map(&Path.join(["components", component_dir(project), &1]))
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp component_test_erlc_paths(%Plan{artifact: %{verify: %{component_tests: false}}}, runtime), do: runtime
+
+  defp component_test_erlc_paths(plan, _runtime) do
+    Plan.projects_for_view(plan, :test)
+    |> Enum.flat_map(fn project ->
+      paths = if Plan.selected?(plan, project.id), do: project.test_erlc_paths, else: project.erlc_paths
+
+      project
+      |> Inventory.normalize_paths(paths)
+      |> Enum.map(&Path.join(["components", component_dir(project), &1]))
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp package_external_deps(%Plan{artifact: %{verify: %{component_tests: false}}} = plan), do: plan.external_deps
+
+  defp package_external_deps(plan) do
+    runtime_apps = Enum.map(plan.external_deps, & &1.app)
+
+    test_deps =
+      plan
+      |> Plan.external_deps_for_view(:test)
+      |> Enum.reject(&(&1.app in runtime_apps))
+      |> Enum.map(fn dep ->
+        opts = Keyword.put_new(dep.opts, :only, :test)
+        original = if dep.requirement, do: {dep.app, dep.requirement, opts}, else: {dep.app, opts}
+        %{dep | opts: opts, original: original}
+      end)
+
+    plan.external_deps ++ test_deps
+  end
+
+  defp validate_component_test_paths!(%Plan{artifact: %{verify: %{component_tests: false}}}), do: :ok
+
+  defp validate_component_test_paths!(plan) do
+    for project <- plan.selected_projects do
+      compiled = Inventory.normalize_paths(project, project.elixirc_paths ++ project.erlc_paths)
+      test_compiled = Inventory.normalize_paths(project,
+        project.test_elixirc_paths ++ project.test_erlc_paths) -- compiled
+      tests = Inventory.normalize_paths(project, project.test_paths) ++ test_compiled
+
+      for runtime <- runtime_roots(project), test <- tests,
+          Inventory.covered?(test, runtime) or Inventory.covered?(runtime, test) do
+        raise Error,
+              "component #{project.id} test input overlaps a published runtime root: #{test}"
+      end
+    end
+  end
+
+  defp render_paths(paths, opts) do
+    if opts[:live?] do
+      "Enum.map(#{inspect(paths)}, &Path.expand(&1, __DIR__))"
+    else
+      inspect(paths)
+    end
   end
 
   defp render_generated_files!(plan, build_path, opts) do
@@ -364,7 +510,8 @@ defmodule Weld.Projector do
         File.write!(
           target,
           application_module_contents(application, plan.artifact.package.otp_app)
-          |> SourceFormatter.format!()
+          |> SourceFormatter.format!(),
+          [:exclusive]
         )
 
         [relative_path]
@@ -385,7 +532,17 @@ defmodule Weld.Projector do
     application = generated_application(plan, opts)
     elixirc_paths = component_paths(plan.selected_projects, & &1.elixirc_paths, plan, opts)
     erlc_paths = component_paths(plan.selected_projects, & &1.erlc_paths)
-    deps = render_deps(plan.external_deps, package.development_dependencies)
+    test_paths = projected_test_paths(plan)
+    test_compile_paths = component_test_compile_paths(plan)
+    test_elixirc_paths =
+      if plan.artifact.verify.component_tests,
+        do: Enum.uniq(generated_root_paths(plan, opts) ++ test_compile_paths),
+        else: elixirc_paths
+    test_erlc_paths = component_test_erlc_paths(plan, erlc_paths)
+    include_paths = component_include_paths(plan.selected_projects)
+    test_include_paths = if plan.artifact.verify.component_tests,
+      do: component_include_paths(Plan.projects_for_view(plan, :test)), else: include_paths
+    deps = render_deps(package_external_deps(plan), package.development_dependencies)
     files = package_files(plan, opts) |> Enum.map_join(",\n        ", &inspect/1)
     docs = render_docs_options(plan)
     links = package.links |> fallback_links(plan.manifest.repo_root) |> inspect(pretty: true)
@@ -396,14 +553,18 @@ defmodule Weld.Projector do
       use Mix.Project
 
       def project do
+        #{opts[:live_guard] || ""}
         [
           app: #{inspect(package.otp_app)},
           version: #{inspect(package.version)},
-          build_path: "_build",
+          #{if(opts[:live?], do: "", else: "build_path: \"_build\",")}
           elixir: #{inspect(package.elixir)},
           start_permanent: Mix.env() == :prod,
           elixirc_paths: elixirc_paths(Mix.env()),
-          erlc_paths: #{inspect(erlc_paths)},
+          erlc_paths: erlc_paths(Mix.env()),
+          erlc_options: erlc_options(Mix.env()),
+          test_paths: #{render_paths(test_paths, opts)},
+          #{if(opts[:live?], do: "aliases: #{Live.aliases_source()},", else: "")}
           deps: deps(),
           description: #{inspect(package.description)},
           package: package(),
@@ -416,16 +577,24 @@ defmodule Weld.Projector do
       end
 
       def elixirc_paths(:test) do
-        base = #{inspect(elixirc_paths)}
+        base = #{render_paths(test_elixirc_paths, opts)}
 
-        if File.dir?("test/support") do
-          base ++ ["test/support"]
+        if File.dir?(Path.expand("test/support", __DIR__)) do
+          base ++ [#{if(opts[:live?], do: "Path.expand(\"test/support\", __DIR__)", else: "\"test/support\"")}]
         else
           base
         end
       end
 
-      def elixirc_paths(_env), do: #{inspect(elixirc_paths)}
+      def elixirc_paths(_env), do: #{render_paths(elixirc_paths, opts)}
+
+      defp erlc_paths(:test), do: #{render_paths(test_erlc_paths, opts)}
+      defp erlc_paths(_env), do: #{render_paths(erlc_paths, opts)}
+
+      defp erlc_options(env) do
+        paths = if env == :test, do: #{inspect(test_include_paths)}, else: #{inspect(include_paths)}
+        Enum.map(paths, fn path -> {:i, path |> Path.expand(__DIR__) |> String.to_charlist()} end)
+      end
 
       defp deps do
         [
@@ -462,13 +631,32 @@ defmodule Weld.Projector do
       (projects
        |> Enum.flat_map(fn project ->
          project
-         |> path_fun.()
+         |> Inventory.normalize_paths(path_fun.(project))
          |> Enum.map(fn relative ->
            Path.join(["components", component_dir(project), relative])
          end)
        end)
        |> Enum.uniq()
        |> Enum.sort())
+  end
+
+  defp component_include_paths(projects) do
+    for project <- projects,
+        relative <- Inventory.normalize_paths(project, [project.erlc_include_path]),
+        File.dir?(Path.expand(relative, project.abs_path)),
+        do: Path.join(["components", component_dir(project), relative])
+  end
+
+  defp validate_include_paths!(projects) do
+    headers = for project <- projects,
+      root = Path.expand(project.erlc_include_path, project.abs_path),
+      File.dir?(root), path <- Hash.list_files(root),
+      do: {Path.relative_to(path, root), path}
+
+    for {relative, files} <- Enum.group_by(headers, &elem(&1, 0), &elem(&1, 1)) do
+      if length(Enum.uniq_by(files, &Hash.sha256_file/1)) > 1,
+        do: raise(Error, "conflicting Erlang include #{relative} across selected projects")
+    end
   end
 
   defp render_deps(external_deps, development_dependencies) do

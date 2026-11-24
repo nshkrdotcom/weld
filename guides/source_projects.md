@@ -1,18 +1,27 @@
-# Source-Root Artifacts
+# Source-Project Artifacts
 
-Use `mode: :source_project` when the repository root is already an authoritative Mix project (`roots: ["."]`) that owns its OTP application, dependencies, compiler inputs, and Hex `package.files`, while keeping internal components, extensions, or maintainer tooling in subprojects.
+Use `mode: :source_project` when an existing Mix project owns its OTP
+application, dependencies, compiler paths, and Hex file allowlist. Select
+`roots: ["."]` for the repository root or name a discovered nested project
+such as `roots: ["extensions/color"]`.
 
-## Direct Consumption Versus Projections
+## Direct Consumption and Projections
 
-A source-root repository works as a normal Mix project out of the box:
+A source project remains independently consumable with ordinary Mix.
 
-- **Direct Mix consumption:** Downstream projects can depend directly on the repository root via `path:`, `git:` / `github:`, or Hex. Ordinary `mix deps.get`, `mix compile`, and `mix test` runs use standard Mix state and require no Weld installation or `.weld/` directory.
-- **Maintainer isolation:** Weld does not need to be added to the public root `mix.exs`. Maintainers can declare `{:weld, "~> 0.15.0", runtime: false}` in a separate non-published project (such as `tools/maintainer/mix.exs`) and pass the manifest path explicitly, keeping the root `mix.exs` and `mix.lock` completely free of maintainer packaging dependencies.
+- **Direct Mix consumption:** Depend on the package via `path:`, `git:` or
+  `github:` with `subdir:` for a nested package, or via Hex after release.
+- **Maintainer isolation:** A separate maintainer project, such as
+  `tools/maintainer/mix.exs`, can declare
+  `{:weld, "~> 0.16.0", runtime: false}` after publication and pass the
+  manifest path explicitly.
 - **Projected views:** When maintainers or local/CI consumers want a symlinked development surface, an isolated portable copy, a verified release bundle, or a tracked `projection/<package_name>` branch, Weld projects those views from `build_support/weld.exs` under `.weld/`.
 
 ## Manifest Configuration
 
-Define the artifact with `mode: :source_project`, `roots: ["."]`, and a `source_project` keyword list:
+Use a `source_project` keyword list to declare the files of the selected
+project. For a repository-root package with embedded components, the manifest
+at `build_support/weld.exs` can use this definition:
 
 ```elixir
 [
@@ -46,13 +55,60 @@ Define the artifact with `mode: :source_project`, `roots: ["."]`, and a `source_
 ]
 ```
 
+Omit `mix.lock` from `files` when the source project has no lockfile. A root
+that compiles `components/pure/lib` and `components/runtime/lib` reports those
+components as source members. Their Mix projects remain independently
+buildable. If the root declares a real path dependency, the dependency
+retains its own Mix application and must be covered by the inventory.
+
+### A Separately Released Nested Package
+
+Suppose `extensions/color/mix.exs` defines `:sprout_color` and declares the
+ordinary Hex dependency `{:sprout, "~> 0.1.0"}`. Add this entry to the same
+manifest's `artifacts` list:
+
+```elixir
+sprout_color: [
+  mode: :source_project,
+  roots: ["extensions/color"],
+  external_projects: ["."],
+  source_project: [
+    files: ~w(mix.exs VERSION LICENSE README.md lib test),
+    structural_inputs: ["VERSION"]
+  ],
+  package: [name: "sprout_color", otp_app: :sprout_color, version: "0.1.0"],
+  verify: [hex_build: true, hex_publish: false]
+]
+```
+
+The projected root is `extensions/color`'s own project. The `files` and nested
+`structural_inputs` entries are relative to that directory, while the
+manifest and output paths are resolved from the workspace. The portable
+project includes its own version file and resolves `:sprout` as a package.
+To try unreleased source together, set an explicit base `path:` with
+`override: true` in the outer consumer. Verify the release package using its
+normal versioned dependency.
+
 ### Inventory Rules (`source_project`)
 
-- `files` *(required)*: Literal relative paths from the repository root. It must cover `mix.exs`, `mix.lock` (when present at the root), every existing path in the root project's `elixirc_paths`, `erlc_paths`, and `test_paths`, plus `priv`, `config`, and `include` when those directories exist at the root. Include any helper files (`VERSION`, `.formatter.exs`, guides, assets) read during compilation, testing, or documentation generation.
-- **Disjoint, clean regular trees:** Listed paths must exist, contain only regular files and directories (no symlinks), have no duplicates or parent/child overlaps, and exclude `.git`, `.weld`, `deps`, `_build`, `weld.provenance.json`, `projection.lock.json`, and `.mix_sources.json`.
-- **Portable path dependencies:** If the root `mix.exs` declares relative `path:` dependencies, those subprojects must live inside the repository root and have their `mix.exs` covered by `files`.
-- **Static unique module names:** Weld parses `.ex` files across the root project's `elixirc_paths` and rejects dynamic `defmodule` names or duplicate module definitions across component source roots.
-- **Package allowlist ownership:** The root `mix.exs` retains ownership of Hex `package.files`. A full verification candidate may include maintainer test suites or scripts in `source_project[:files]` while `mix.exs` keeps proof-only suites and independent extensions outside the published Hex tarball.
+- `files` *(required)*: Literal paths relative to the selected project.
+  Cover `mix.exs`, `mix.lock` when present, existing compiler and test paths,
+  and existing `priv`, `config`, and `include` directories. Include project
+  helpers and metadata used during compilation, test, and docs.
+- **Disjoint, clean regular trees:** Listed paths must exist, contain only regular files and directories (no symlinks), have no duplicates or parent/child overlaps, and exclude `.git`, `.weld`, `deps`, `_build`, `doc`, `weld.provenance.json`, `projection.lock.json`, and `.mix_sources.json`.
+- **Portable path dependencies:** Declared relative path dependencies must
+  remain inside the selected project directory. Include their Mix
+  definitions and transitive source in the inventory. A nested standalone
+  package should declare dependencies outside its directory as separately
+  distributed packages.
+- **Static unique module names:** Weld parses `.ex` files across the selected
+  project's compiler roots and rejects dynamic module names and duplicate
+  definitions.
+- **Package allowlist ownership:** The selected `mix.exs` owns Hex
+  `package.files`. The full verification project can include tests and
+  support helpers beyond the published allowlist. Native directory and glob
+  matches must be completely represented in the source inventory. An allowlist
+  that also selects Weld's generated provenance or lock report is rejected.
 - `structural_inputs` *(optional, defaults to `[]`)*: Additional files (such as `VERSION` or component `mix.exs` files) hashed alongside `mix.exs`, `mix.lock`, and the Weld manifest to detect structural staleness in live projections.
 
 ## Generating Live And Full Projections
@@ -74,10 +130,19 @@ mix weld.verify --artifact sprout
 `mix weld.project --live` creates a lightweight development view for local path consumers:
 
 - Copies `mix.lock` (when present), symlinks all other declared `files` entries back to the source checkout, and writes `weld.provenance.json` (`kind: "live"`) plus `projection.lock.json`.
-- Generates a `mix.exs` wrapper that preserves the root project module (`application/0`, docs callbacks, lexical helpers, and `__DIR__` anchored to the source root) while overriding `project/0` so `elixirc_paths`, `erlc_paths`, `test_paths`, and `erlc_include_path` expand directly into the source checkout.
+- Generates a `mix.exs` wrapper that preserves the selected project module
+  and callbacks. Compiler and test paths resolve into the selected source
+  project, and project-local configuration remains available.
 - **Immediate code visibility:** Editing, adding, or deleting source files or `priv/` assets under existing directories is immediately visible on a path consumer's next `mix compile` without re-running Weld.
-- **Fail-fast structural staleness:** Every Mix evaluation of the live project verifies that required directories still exist and checks SHA-256 digests of `mix.exs`, `mix.lock`, the Weld manifest, and `structural_inputs`. When any structural input changes, Mix raises with the exact refresh command (`mix weld.project --artifact <name> --live`).
-- **Non-packagable by design:** Live projections require filesystem symlink support and override `mix hex.build` and `mix hex.publish` to raise an error directing callers to generate a full candidate instead.
+- **Structural refresh:** At project evaluation, the live view checks
+  required directories, project metadata, lockfile presence and digest,
+  and declared structural inputs. If one changes, run the refresh command
+  printed by Mix.
+- **Hex packaging:** Live views require filesystem symlink support. Use a
+  full candidate for `mix hex.build` or `mix hex.publish`, including dry runs.
+- **Mutable destinations:** Build, dependency, lock and ExDoc output paths must
+  stay in the generated project. They cannot overlap a linked source path in
+  either direction. Keep generated `doc` output outside the source inventory.
 
 ### Full Projection (`.weld/full/<artifact>/project/`)
 
@@ -85,6 +150,9 @@ mix weld.verify --artifact sprout
 
 - Contains no symlinks and can be copied or moved outside the source checkout.
 - Records `weld.provenance.json` with `schema: "weld.projection/v1"`, `kind: "full"`, and a content-addressed SHA-256 `artifact_id` computed over the staged project files prior to writing provenance and `projection.lock.json`.
+- After successful verification, atomically updates that ID from the exact
+  portable inventory and resolved standalone `mix.lock`. Build caches,
+  generated docs, the Hex tarball and provenance reports are outside this ID.
 - Downstream source-selection helpers can inspect `weld.provenance.json` to key isolated Mix build/lock contexts by `artifact_id` when consuming refreshable full candidates.
 
 ## `.weld/` Ownership, Locking, And Release Identities

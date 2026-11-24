@@ -21,7 +21,7 @@ defmodule Weld.Manifest do
       :output,
       :verify
     ]
-    defstruct @enforce_keys ++ [source_project: []]
+    defstruct @enforce_keys ++ [source_project: [], external_projects: [], structural_inputs: []]
 
     @type t :: %__MODULE__{
             id: String.t(),
@@ -31,6 +31,8 @@ defmodule Weld.Manifest do
             roots: [String.t()],
             include: [String.t()],
             optional_features: [String.t()],
+            external_projects: [String.t()],
+            structural_inputs: [String.t()],
             package: Weld.Manifest.Package.t(),
             output: Weld.Manifest.Output.t(),
             verify: Weld.Manifest.Verify.t()
@@ -125,7 +127,7 @@ defmodule Weld.Manifest do
     """
 
     @enforce_keys [:artifact_tests, :smoke, :hex_build, :hex_publish]
-    defstruct @enforce_keys
+    defstruct @enforce_keys ++ [component_tests: false]
 
     @type smoke_config :: %{
             enabled: boolean(),
@@ -134,6 +136,7 @@ defmodule Weld.Manifest do
 
     @type t :: %__MODULE__{
             artifact_tests: [String.t()],
+            component_tests: boolean(),
             smoke: smoke_config(),
             hex_build: boolean(),
             hex_publish: boolean()
@@ -225,6 +228,8 @@ defmodule Weld.Manifest do
     roots: [type: {:list, :string}, required: true],
     include: [type: {:list, :string}, default: []],
     optional_features: [type: {:list, :string}, default: []],
+    external_projects: [type: {:list, :string}, default: []],
+    structural_inputs: [type: {:list, :string}, default: []],
     package: [type: :keyword_list, required: true],
     output: [type: :keyword_list, default: []],
     verify: [type: :keyword_list, default: []]
@@ -271,6 +276,7 @@ defmodule Weld.Manifest do
 
   @verify_schema [
     artifact_tests: [type: {:list, :string}, default: []],
+    component_tests: [type: :boolean, default: false],
     smoke: [type: :keyword_list, default: []],
     hex_build: [type: :boolean, default: true],
     hex_publish: [type: :boolean, default: true]
@@ -426,10 +432,13 @@ defmodule Weld.Manifest do
           roots: Enum.sort(normalized[:roots]),
           include: Enum.sort(normalized[:include]),
           optional_features: Enum.sort(normalized[:optional_features]),
+          external_projects: normalize_external_projects!(normalized[:external_projects]),
+          structural_inputs: Enum.uniq(normalized[:structural_inputs]) |> Enum.sort(),
           package: normalize_package(normalized[:package]),
           output: normalize_output(normalized[:output]),
           verify: normalize_verify(normalized[:verify])
         }
+        |> validate_verify_mode!()
         |> validate_docs_output!()
 
       {artifact_id, artifact}
@@ -439,9 +448,9 @@ defmodule Weld.Manifest do
 
   defp source_options!(options) do
     if options[:mode] == :source_project do
-      unless options[:roots] == ["."] and options[:include] == [] and
+      unless length(options[:roots]) == 1 and options[:include] == [] and
                options[:optional_features] == [] do
-        raise Error, "source_project requires roots: [\".\"] and one authoritative Mix project"
+        raise Error, "source_project requires exactly one root and empty include and optional_features"
       end
 
       NimbleOptions.validate!(options[:source_project],
@@ -455,6 +464,26 @@ defmodule Weld.Manifest do
       []
     end
   end
+
+  defp normalize_external_projects!(ids) do
+    if Enum.uniq(ids) != ids, do: raise(Error, "duplicate external_projects project id")
+
+    for id <- ids, id != "." do
+      if Path.type(id) != :relative or String.contains?(id, ["\\", <<0>>]) or
+           Enum.any?(String.split(id, "/"), &(&1 in ["", ".", "..", ".git", ".weld"])) do
+        raise Error, "invalid external_projects project id: #{inspect(id)}"
+      end
+    end
+
+    Enum.sort(ids)
+  end
+
+  defp validate_verify_mode!(%Artifact{mode: mode, verify: %{component_tests: true}})
+       when mode != :package_projection do
+    raise Error, "verify.component_tests requires package_projection mode"
+  end
+
+  defp validate_verify_mode!(artifact), do: artifact
 
   defp normalize_package(package) do
     package = NimbleOptions.validate!(package, @package_schema)
@@ -642,6 +671,7 @@ defmodule Weld.Manifest do
 
     %Verify{
       artifact_tests: Enum.sort(verify[:artifact_tests]),
+      component_tests: verify[:component_tests],
       hex_build: verify[:hex_build],
       hex_publish: verify[:hex_publish],
       smoke: %{

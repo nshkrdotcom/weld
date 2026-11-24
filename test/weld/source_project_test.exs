@@ -78,14 +78,189 @@ defmodule Weld.SourceProjectTest do
     assert previous == marker(full)
   end
 
-  test "new CLI flag is explicit and legacy modes report its applicability", %{
+  test "the live CLI flag keeps source-preserving projects available", %{
     root: root,
     manifest: manifest
   } do
     Mix.Task.rerun("weld.project", [manifest, "--artifact", "sprout", "--live"])
     assert File.regular?(Path.join(root, ".weld/live/sprout/mix.exs"))
-    legacy = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    assert_raise Error, ~r/source_project/, fn -> Weld.project!(legacy, live: true) end
+  end
+
+  test "a real transitive path dependency stays separate and needs its compiler inputs", ctx do
+    %{root: root, manifest: manifest} = ctx
+    mixfile = Path.join(root, "mix.exs")
+    original = File.read!(mixfile)
+
+    File.write!(
+      mixfile,
+      original
+      |> String.replace(
+        ~s(elixirc_paths: ["components/pure/lib", "components/runtime/lib"]),
+        ~s(elixirc_paths: ["lib"])
+      )
+      |> String.replace(
+        ~s(deps: [{:ex_doc, "~> 0.40", only: :dev, runtime: false}]),
+        ~s(deps: [{:sprout_runtime, path: "components/runtime"}])
+      )
+      |> String.replace("components/pure/lib components/runtime/lib", "components lib")
+    )
+
+    text = File.read!(manifest)
+    File.write!(
+      manifest,
+      String.replace(text, "components/pure/lib components/runtime/lib", "components lib")
+    )
+    File.mkdir!(Path.join(root, "lib"))
+    File.write!(Path.join(root, "lib/sprout.ex"), "defmodule Sprout do\nend\n")
+    source_lock = Path.join(root, "components/pure/mix.lock")
+    File.write!(source_lock, "%{}\n")
+
+    %{build_path: candidate} = Weld.project!(manifest)
+    mix!(candidate, ["deps.get"])
+
+    mix!(candidate, [
+      "run",
+      "-e",
+      """
+      :seed = Sprout.Runtime.value()
+      :sprout_runtime = Application.get_application(Sprout.Runtime)
+      :sprout_pure = Application.get_application(Sprout.Pure)
+      """
+    ])
+
+    %{build_path: live} = Weld.project!(manifest, live: true)
+    projected_lock = Path.join(live, "components/pure/mix.lock")
+    assert File.lstat!(projected_lock).type == :regular
+    File.write!(projected_lock, "%{local: true}\n")
+    assert File.read!(source_lock) == "%{}\n"
+
+    File.write!(
+      manifest,
+      String.replace(
+        text,
+        "components/pure/lib components/runtime/lib",
+        "components/pure/mix.exs components/runtime lib"
+      )
+    )
+
+    assert_raise Error, ~r/source inventory missing components\/pure\/lib/, fn ->
+      Weld.project!(manifest)
+    end
+
+    File.write!(
+      manifest,
+      String.replace(text, "components/pure/lib components/runtime/lib", "components lib")
+    )
+
+    helper = Path.join(root, "private_metadata.exs")
+    File.write!(helper, ":ok\n")
+    pure_mixfile = Path.join(root, "components/pure/mix.exs")
+
+    File.write!(
+      pure_mixfile,
+      ~s(Code.require_file("../../private_metadata.exs", __DIR__)\n) <>
+        File.read!(pure_mixfile)
+    )
+
+    assert_raise Error, ~r/staged source project failed validation/, fn ->
+      Weld.project!(manifest)
+    end
+  end
+
+  test "nested source preserves its native callbacks, tests and publication inventory" do
+    root = FixtureCase.copy_fixture("nested_source_project")
+    manifest = Path.join(root, "build_support/weld.exs")
+    scratch = FixtureCase.unique_tmp_dir("nested_source_consumers")
+    source = Path.join(root, "extensions/palette")
+
+    full = Weld.project!(manifest)
+    assert full.package_files == ~w(VERSION build_support mix.exs priv source)
+    assert "checks/palette_test.exs" in full.verification_files
+    refute File.exists?(Path.join(full.build_path, "extensions"))
+    refute File.exists?(Path.join(full.build_path, "lib/workshop.ex"))
+
+    mixfile = Path.join(source, "mix.exs")
+    original = File.read!(mixfile)
+    File.write!(mixfile, String.replace(original, ~s(["source"]), ~s(["missing"])))
+    assert_raise Error, ~r/compiler input is missing: missing/, fn -> Weld.project!(manifest) end
+    File.write!(mixfile, original)
+
+    detached = Path.join(scratch, "palette")
+    File.cp_r!(full.build_path, detached)
+    base = Path.join(scratch, "base")
+    File.mkdir!(base)
+    File.cp!(Path.join(root, "mix.exs"), Path.join(base, "mix.exs"))
+    File.cp_r!(Path.join(root, "lib"), Path.join(base, "lib"))
+
+    live = Weld.project!(manifest, live: true)
+    assert "source/palette.ex" in live.linked_files
+
+    assert mix!(live.build_path, ["shade"]) =~ "jade"
+    lock = Path.join(source, "mix.lock")
+    File.write!(lock, "%{}\n")
+    {message, code} = mix(live.build_path, ["shade"])
+    assert code != 0
+    assert message =~ manifest
+    assert message =~ "--artifact workshop_palette --live"
+
+    File.write!(
+      manifest,
+      String.replace(File.read!(manifest), "mix.exs VERSION", "mix.exs mix.lock VERSION")
+    )
+    refreshed = Weld.project!(manifest, live: true)
+    projected_lock = Path.join(refreshed.build_path, "mix.lock")
+    assert File.lstat!(projected_lock).type == :regular
+    File.write!(projected_lock, "%{new: :entry}\n")
+    assert File.read!(lock) == "%{}\n"
+    assert mix!(refreshed.build_path, ["shade"]) =~ "jade"
+
+    {message, code} = mix(refreshed.build_path, ["hex.publish", "--dry-run", "--yes"])
+    assert code != 0
+    assert message =~ "live projections cannot be packaged"
+
+    File.rm_rf!(root)
+    assert mix!(detached, ["shade"]) =~ "jade"
+
+    consumer = Path.join(scratch, "consumer")
+    File.mkdir!(consumer)
+    deps = [{:workshop, path: base, override: true}, {:workshop_palette, path: detached}]
+
+    File.write!(Path.join(consumer, "mix.exs"), """
+    defmodule Workshop.Consumer.MixProject do
+      use Mix.Project
+
+      def project do
+        [
+          app: :workshop_consumer,
+          version: "0.0.0",
+          test_paths: [#{inspect(Path.join(detached, "checks"))}],
+          deps: #{inspect(deps)}
+        ]
+      end
+    end
+    """)
+
+    mix!(consumer, ["deps.get"])
+    assert mix!(consumer, ["test"]) =~ ~r/(?:1 test, 0 failures|Result: 1 passed)/
+  end
+
+  defp mix!(root, args) do
+    {output, status} = mix(root, args)
+    assert status == 0, "mix #{Enum.join(args, " ")} in #{root}:\n#{output}"
+    output
+  end
+
+  defp mix(root, args) do
+    System.cmd("mix", args,
+      cd: root,
+      stderr_to_stdout: true,
+      env: [
+        {"MIX_ENV", "test"},
+        {"MIX_DEPS_PATH", nil},
+        {"MIX_BUILD_PATH", nil},
+        {"MIX_BUILD_ROOT", nil}
+      ]
+    )
   end
 
   defp marker(projection) do

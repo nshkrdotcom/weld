@@ -18,23 +18,24 @@ defmodule Weld.Verifier do
   defp verify_locked!(plan) do
     projection = Projector.project!(plan)
     build_path = projection.build_path
+    input_identity = Hash.verification_identity(build_path, projection.verification_files)
+    package_identity = Hash.package_identity(build_path, package_patterns(projection))
 
     workspace = {build_path, cache_root(plan, build_path)}
     verification_results = verify_by_mode!(plan, workspace)
+    ensure_verification_inputs!(projection, input_identity, package_identity)
 
     hex_results = verify_hex!(plan, workspace)
+    ensure_verification_inputs!(projection, input_identity, package_identity)
     verification_results = verification_results ++ hex_results
+    projection = finalize_projection_identity!(projection)
 
     lockfile =
       Lockfile.build(
         plan,
-        Map.take(projection, [
-          :build_path,
-          :copied_files,
-          :package_files,
-          :git_revision,
-          :tree_digest
-        ]),
+        projection
+        |> Map.drop([:lockfile_path])
+        |> Map.put(:verification_input_identity, input_identity),
         verification_results
       )
 
@@ -46,9 +47,42 @@ defmodule Weld.Verifier do
       build_path: build_path,
       lockfile_path: projection.lockfile_path,
       package_files: projection.package_files,
+      verification_files: projection.verification_files,
+      verification_input_identity: input_identity,
       tarball_path: tarball_path,
       verification_results: verification_results
     }
+  end
+
+  defp ensure_verification_inputs!(projection, expected, package_identity) do
+    actual = Hash.verification_identity(projection.build_path, projection.verification_files)
+
+    unless actual == expected,
+      do: raise(Error, "verification modified projected source or test inputs; refresh and fix the mutating task")
+
+    unless Hash.package_identity(projection.build_path, package_patterns(projection)) == package_identity,
+      do: raise(Error, "verification changed the publication inventory; generated files cannot enter a prepared tarball")
+  end
+
+  defp package_patterns(projection),
+    do: Map.get(projection, :package_patterns, projection.package_files)
+
+  defp finalize_projection_identity!(projection) do
+    identity = Hash.portable_project_identity(projection.build_path, projection.verification_files)
+    path = Weld.Output.source!(projection.build_path, "weld.provenance.json")
+    marker = path |> File.read!() |> Jason.decode!()
+    temporary = path <> "-" <> Weld.Output.nonce()
+
+    try do
+      File.write!(temporary, Jason.encode!(Map.put(marker, "artifact_id", identity), pretty: true),
+        [:exclusive])
+      File.chmod!(temporary, Bitwise.band(File.stat!(path).mode, 0o777))
+      File.rename!(temporary, path)
+    after
+      File.rm(temporary)
+    end
+
+    Map.put(projection, :artifact_id, identity)
   end
 
   defp verify_by_mode!(%Plan{artifact: %{mode: :monolith}} = plan, workspace) do
@@ -58,6 +92,7 @@ defmodule Weld.Verifier do
       baseline,
       run_mix!(workspace, :dev, ["deps.get"]),
       run_mix!(workspace, :dev, ["compile", "--warnings-as-errors"]),
+      run_mix!(workspace, :test, ["deps.get"]),
       run_mix!(workspace, :test, ["test"]),
       run_mix!(workspace, :dev, ["docs", "--warnings-as-errors"])
     ]
@@ -73,13 +108,21 @@ defmodule Weld.Verifier do
   end
 
   defp verify_by_mode!(%Plan{} = plan, {build_path, _} = workspace) do
+    baseline = if plan.artifact.verify.component_tests, do: [run_selected_project_tests!(plan)], else: []
     results = [
       run_mix!(workspace, :dev, ["deps.get"]),
       run_mix!(workspace, :dev, ["deps.compile"]),
       run_mix!(workspace, :dev, ["compile", "--warnings-as-errors", "--no-compile-deps"]),
+      run_mix!(workspace, :test, ["deps.get"]),
       run_mix!(workspace, :test, ["test"]),
       run_mix!(workspace, :dev, ["docs", "--warnings-as-errors"])
     ]
+
+    if baseline != [] do
+      projected = Enum.find(results, &(&1.task == "test"))
+      if Map.get(projected, :test_count, -1) < hd(baseline).test_count,
+        do: raise(Error, "component test surface regressed in the projected package")
+    end
 
     smoke_results =
       if plan.artifact.verify.smoke.enabled do
@@ -88,7 +131,7 @@ defmodule Weld.Verifier do
         []
       end
 
-    results ++ smoke_results
+    baseline ++ results ++ smoke_results
   end
 
   defp verify_hex!(plan, workspace) do
@@ -142,14 +185,35 @@ defmodule Weld.Verifier do
   end
 
   defp run_selected_project_tests!(%Plan{} = plan) do
+    stage = Weld.Output.temporary!(plan.manifest.repo_root, "staging")
+    mirror = Path.join(stage, "baseline")
+
+    try do
+      mirror_source_tree!(plan.manifest.repo_root, mirror)
+      run_baseline_tests!(plan, mirror)
+    after
+      File.rm_rf!(stage)
+    end
+  end
+
+  defp run_baseline_tests!(plan, mirror) do
     per_project =
       Enum.map(plan.selected_projects, fn project ->
         Mix.shell().info("Weld: testing selected project #{project.id}")
 
+        cache = cache_root(plan, "baseline:" <> project.abs_path)
+        project_root = Path.expand(project.id, mirror)
+        run_mix!({project_root, cache}, :test, ["deps.get"])
+
         {output, status} =
           System.cmd("mix", ["test"],
-            cd: project.abs_path,
-            env: [{"MIX_ENV", "test"}],
+            cd: project_root,
+            env: [
+              {"MIX_ENV", "test"},
+              {"MIX_BUILD_PATH", nil},
+              {"MIX_BUILD_ROOT", Path.join(cache, "build")},
+              {"MIX_DEPS_PATH", Path.join(cache, "deps")}
+            ],
             stderr_to_stdout: true
           )
 
@@ -174,6 +238,25 @@ defmodule Weld.Verifier do
       test_count: Enum.sum(Enum.map(per_project, & &1.test_count)),
       project_test_counts: per_project
     }
+  end
+
+  defp mirror_source_tree!(source, target) do
+    case File.lstat!(source) do
+      %{type: :directory} ->
+        File.mkdir!(target)
+
+        for name <- File.ls!(source),
+            name not in ~w(.git .weld _build deps doc node_modules) do
+          mirror_source_tree!(Path.join(source, name), Path.join(target, name))
+        end
+
+      %{type: :regular, mode: mode} ->
+        File.cp!(source, target)
+        File.chmod!(target, Bitwise.band(mode, 0o777))
+
+      _ ->
+        raise Error, "baseline verification requires regular source files: #{source}"
+    end
   end
 
   defp maybe_put_test_summary(result, output) do

@@ -52,24 +52,59 @@ contains:
 
 - `mode` — `:package_projection` (default), `:monolith`, or `:source_project`. The alias
   `:components` is accepted as a synonym for `:package_projection`.
-- `source_project` — keyword list of source-root options (required when `mode: :source_project`; rejected in other modes).
+- `source_project` — source-preserving options, required for
+  `mode: :source_project`.
 - `monolith_opts` — keyword list of monolith-specific options (see below).
   Ignored outside monolith mode.
-- `roots` — list of root project IDs (`["."]` is required for `:source_project`).
+- `roots` — list of root project IDs. A source-project artifact takes exactly
+  one discovered ID, with `"."` for the repository root.
 - `include` — additional project IDs to include (`[]` required for `:source_project`).
 - `optional_features` — optional publication features to enable (`[]` required for `:source_project`).
+- `external_projects` — discovered project IDs to consume as separate
+  packages for this artifact (default `[]`). See the rules below.
+- `structural_inputs` — additional checkout-relative files that affect the
+  live projection's layout or generated metadata (default `[]`). Use
+  `source_project.structural_inputs` for paths local to a source-preserving
+  project.
 - `package`
 - `output`
 - `verify`
 
 ## Source-Project Options (`source_project`)
 
-Required when `mode: :source_project` (which also requires `roots: ["."]`, `include: []`, and `optional_features: []`):
+Required when `mode: :source_project`. Select exactly one root and leave
+`include` and `optional_features` empty.
 
-- `files` — required list of disjoint relative file/directory paths from the repository root. Must cover `mix.exs`, `mix.lock` (when present), all existing `elixirc_paths`, `erlc_paths`, and `test_paths` of the root Mix project, plus `priv`, `config`, and `include` when present. In `:source_project` mode, the root `mix.exs` directly owns its dependencies, `docs`, `test_paths`, and Hex `package.files`.
-- `structural_inputs` — optional list of relative file paths (default `[]`) hashed alongside `mix.exs`, `mix.lock`, and the manifest to invalidate `--live` projections when structural metadata changes.
+- `files` — required list of disjoint files and directories relative to the
+  selected project's directory. Cover `mix.exs`, `mix.lock` when present,
+  existing compiler and test paths, and existing `priv`, `config`, and
+  `include` directories. The selected Mix file owns dependencies, docs, test
+  paths, and Hex `package.files`.
+- `structural_inputs` — extra files relative to the selected project's
+  directory (default `[]`). Add any helper or metadata read to determine
+  package identity, compiler paths, or other project configuration. A change
+  invalidates the live view.
 
-See [Source-Root Artifacts](source_projects.md) for complete inventory validation rules.
+See [Source-Project Artifacts](source_projects.md) for inventory rules and a
+nested package example.
+
+## Artifact-Local Package Boundaries (`external_projects`)
+
+A discovered workspace app is normally an internal edge when another project
+declares a dependency on it. Add the target's project ID to
+`external_projects` to stop this artifact's dependency traversal at that
+package across runtime, compile, test, docs, and smoke views. Weld keeps its
+dependency requirement and applicable Mix options and excludes its sources
+and configuration from composition. The workspace graph continues to report
+the original relationship.
+
+Use each project ID once and keep the list disjoint from roots, explicit
+includes, and enabled features. Each boundary must match a relevant,
+compatible package dependency. For a generated package that currently uses a
+local or Git declaration, provide its canonical release dependency in
+`dependencies`. In source-project mode, the existing Mix definition must
+already declare the intended versioned package dependency. The
+`publication.separate` role remains independent of this artifact-local cut.
 
 ## Monolith Options (`monolith_opts`)
 
@@ -100,6 +135,8 @@ project root.
 - `maintainers`
 - `links`
 - `docs_main` — backward-compatible shorthand for `docs.main`
+- `development_dependencies` — Mix dependency tuples for generated
+  development and verification workflows
 - `docs` — generated HexDocs metadata:
   - `main`
   - `logo`
@@ -109,6 +146,7 @@ project root.
   - `assets` — source-to-target asset-directory map passed to ExDoc
   - `extra_titles` — map of `output.docs` paths to sidebar titles
   - `groups_for_extras` — ordered `{group, [output.docs paths]}` entries
+  - `mermaid` — enable rendered Mermaid fenced code blocks in HTML
 
 ## Output Keys
 
@@ -116,14 +154,18 @@ project root.
 - `docs`
 - `assets`
 
-Every declared `output.docs` and `output.assets` path is copied and included in
-the generated package's explicit `package.files` allowlist. Weld rejects
+Every declared `output.docs` and `output.assets` path is materialized and
+included in the generated package's explicit `package.files` allowlist. Weld rejects
 HexDocs title/group paths that are not declared in `output.docs`, logos that are
 not covered by `output.assets`, and ExDoc asset roots that are not copied.
 
 ## Verify Keys
 
 - `artifact_tests`
+- `component_tests` — include selected component suites for package
+  projection (default `false`). Weld preserves declared test roots and their
+  relative fixtures. The suites remain in the verification project and are
+  excluded from the Hex package.
 - `hex_build`
 - `hex_publish`
 - `smoke.enabled`

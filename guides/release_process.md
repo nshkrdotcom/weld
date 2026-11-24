@@ -14,12 +14,11 @@ credentials or network-side retry semantics.
 mix release.prepare
 ```
 
-This command:
-
-- generates the welded artifact
-- runs welded package verification
-- writes a deterministic release bundle
-- includes a tarball when `verify.hex_build` is enabled
+This command generates and verifies a full projection, then writes the
+prepared release bundle. Select an artifact explicitly when a manifest
+defines several, for example
+`mix release.prepare build_support/weld.exs --artifact console_bundle`.
+Preparation includes a tarball when `verify.hex_build` is enabled.
 
 If the manifest sets `verify: [hex_build: false]`, release preparation still
 writes the prepared bundle. The only thing omitted is the tarball, because the
@@ -71,11 +70,12 @@ This copies the prepared release bundle into the archive surface.
 
 The prepared bundle contains:
 
-- projected Mix project tree in `project/`
+- portable projected Mix project tree in `project/`, including the files
+  needed for configured verification
 - browser preview at `docs/index.html` beside the project, with generated Markdown when available
 - `project/weld.provenance.json` and `project/projection.lock.json` for auditing
   the projection. Both are retained in the prepared project and tracked Git
-  projection; Hex tarballs omit `projection.lock.json`.
+  projection; Hex tarballs omit both generated reports.
 - built tarball when `verify.hex_build` is enabled
 - `release.json` metadata
 
@@ -87,14 +87,10 @@ Weld version used to prepare the bundle, which keeps release metadata portable
 across checkout locations.
 
 When preparation runs from a Git revision, `release.json` also contains the
-small `mix_workspace_ops.prepared_artifact/v2` handoff: source revision,
-package/version, relative manifest, project and archive paths, and their SHA-256 digests.
-Weld does not depend on or invoke Mix Workspace Ops. This data-only boundary
-is consumed by Mix Workspace Ops' clean-checkout release transaction without
-teaching MWO to parse a Weld manifest: the transaction invokes Weld's declared
-prepare command in the pinned source checkout, compares the rebuilt handoff and
-its files with the expected handoff, and only then admits the archive to the
-publication step. Weld never receives or manages publication credentials.
+`mix_workspace_ops.prepared_artifact/v2` data handoff. It records the source
+revision, package and version, relative manifest, project and archive paths,
+and their SHA-256 digests. Mix Workspace Ops can independently compare a
+rebuild from the pinned checkout against that metadata before publication.
 
 Tracked projection commits are intentionally separate from the prepared bundle.
 The bundle is the release input; the projection branch is an optional durable
@@ -110,14 +106,28 @@ optional generated-source tracking surface when you need one.
 
 ## Prepared Identities And Storage
 
-Preparation stages and verifies the bundle before activating `.weld/releases/<artifact>/<identity>/` and updating `.weld/releases/<artifact>/CURRENT`. Its SHA-256 `<identity>` covers release metadata, source revision (when in Git; required for `:source_project`), manifest digest, verified `project/`, `docs/`, and archive checksums, resolved `mix.lock` digest, Elixir/OTP toolchain, and verification outcomes. The recorded `prepared_at` timestamp is informational and excluded from `<identity>`. Repeating preparation with unchanged inputs reuses the verified bundle. Tracking reads the integrity-checked `CURRENT` bundle and creates no commit when the projected tree is unchanged. Archives live at `.weld/archive/<artifact>/<identity>/`. See [Source-Root Artifacts](source_projects.md) for `.weld/` lock ownership and migration details.
+Preparation stages and verifies the bundle before activating `.weld/releases/<artifact>/<identity>/` and updating `.weld/releases/<artifact>/CURRENT`. Its SHA-256 `<identity>` covers release metadata, source revision (required in source-project mode), manifest digest, verified `project/`, `docs/`, and archive checksums, the resolved `mix.lock`, Elixir/OTP toolchain, and verification outcomes. The `prepared_at` timestamp is informational. Repeating preparation with unchanged inputs reuses the verified bundle. Tracking reads the integrity-checked `CURRENT` bundle and creates a commit when the projected tree changes. Archives live at `.weld/archive/<artifact>/<identity>/`. See [Source-Project Artifacts](source_projects.md) for `.weld/` lock ownership and migration details.
+
+The full projection's `artifact_id` initially identifies the materialized
+inputs. Successful verification atomically finalizes it over the portable
+inventory and resolved standalone lock; the prepared project carries the same
+ID. The surrounding prepared bundle identity also binds verification results,
+docs and tarball bytes. A Hex tarball follows the project's `package.files`
+allowlist, so its inventory can be smaller than the prepared project.
+
+Verification rejects modifications to inventoried source or test files and
+additions beneath published paths. Only the standalone root `mix.lock` may be
+resolved during verification. Component baseline tests run in a regular-file
+workspace mirror under `.weld/staging`, so fetching their test dependencies
+does not create or update source component locks. Preparation rechecks copied
+input bytes and executable flags before finalizing the bundle.
 
 For Weld itself, the checked-in `build_support/weld.exs` selects the root `:weld` project. Resolve and commit the reviewed lock, run `mix ci` on the supported Elixir toolchains, then prepare, archive and optionally track from the clean release revision.
 
 ```bash
-mix weld.release.prepare --artifact weld
-mix weld.release.archive --artifact weld
-mix weld.release.track --artifact weld
+mix release.prepare build_support/weld.exs --artifact weld
+mix release.archive build_support/weld.exs --artifact weld
+mix release.track build_support/weld.exs --artifact weld
 ```
 
 Preparation exercises the Hex publish dry run. A real tag, push or package publication is a separate maintainer action.

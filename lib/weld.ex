@@ -58,6 +58,15 @@ defmodule Weld do
         include: plan.artifact.include,
         selected_projects: plan.selected_ids,
         excluded_projects: plan.excluded_ids,
+        dependency_projects: plan.dependency_ids,
+        source_members: plan.source_member_ids,
+        inventory_members: plan.inventory_member_ids,
+        verification_projects: plan.verification_ids,
+        external_projects: plan.artifact.external_projects,
+        externalized_edges: Enum.map(plan.externalized_edges, &report_edge(plan, &1)),
+        structural_inputs: plan.structural_inputs,
+        source_inventory: plan.source_inventory,
+        source_target_basis: source_target_basis(plan),
         external_deps: Enum.map(plan.external_deps, &Atom.to_string(&1.app))
       },
       violations: Enum.map(plan.violations, &serialize_violation/1)
@@ -76,15 +85,11 @@ defmodule Weld do
           %{
             id: project.id,
             classification: project.classification,
-            selected: project.id in plan.selected_ids
+            selected: project.id in plan.selected_ids,
+            membership: membership(plan, project.id)
           }
         end),
-      edges:
-        plan.graph
-        |> Graph.edges()
-        |> Enum.map(fn edge ->
-          %{from: edge.from, to: edge.to, kind: edge.kind, app: edge.app}
-        end)
+      edges: Enum.map(reported_edges(plan), &report_edge(plan, &1))
     }
   end
 
@@ -106,18 +111,19 @@ defmodule Weld do
     %{
       project: project_id,
       outgoing:
-        plan.graph
-        |> Graph.edges()
+        plan
+        |> reported_edges()
         |> Enum.filter(&(&1.from == project_id))
         |> Enum.map(fn edge ->
-          %{to: edge.to, kind: edge.kind, app: edge.app}
+          report_edge(plan, edge) |> Map.delete(:from)
         end),
       external:
-        plan.graph
+        plan.artifact_graph
         |> Graph.external_deps(project_id)
         |> Enum.map(fn dep ->
           %{app: dep.app, kind: dep.kind, requirement: dep.requirement}
-        end)
+        end),
+      membership: membership(plan, project_id)
     }
   end
 
@@ -128,11 +134,13 @@ defmodule Weld do
     %{
       from: from,
       to: to,
-      path:
-        case Graph.path(plan.graph, from, to, :package) do
-          {:ok, path} -> path
-          :no_path -> []
-        end
+      path: dependency_path(plan.graph, from, to),
+      artifact_path: dependency_path(plan.artifact_graph, from, to),
+      source_membership: from in plan.artifact.roots and to in plan.source_member_ids,
+      externalized_edges:
+        plan.externalized_edges
+        |> Enum.filter(&(&1.from == from and &1.to == to))
+        |> Enum.map(&report_edge(plan, &1))
     }
   end
 
@@ -194,6 +202,44 @@ defmodule Weld do
     |> Enum.filter(&(&1.classification == classification))
     |> Enum.map(& &1.id)
   end
+
+  defp dependency_path(graph, from, to) do
+    case Graph.path(graph, from, to, :package) do
+      {:ok, path} -> path
+      :no_path -> []
+    end
+  end
+
+  defp reported_edges(plan) do
+    (Graph.edges(plan.graph) ++ plan.externalized_edges)
+    |> Enum.uniq()
+    |> Enum.sort_by(&{&1.from, &1.to, &1.kind, &1.app})
+  end
+
+  defp report_edge(plan, edge) do
+    %{
+      from: edge.from,
+      to: edge.to,
+      kind: edge.kind,
+      app: edge.app,
+      externalized: edge in plan.externalized_edges
+    }
+  end
+
+  defp membership(plan, id) do
+    for {relationship, ids} <- [
+          dependency: plan.dependency_ids,
+          compiled_source: plan.source_member_ids,
+          verification: plan.verification_ids,
+          inventory: plan.inventory_member_ids,
+          external_package: plan.artifact.external_projects
+        ],
+        id in ids,
+        do: relationship
+  end
+
+  defp source_target_basis(%Plan{artifact: %{mode: :monolith}}), do: :before_merge
+  defp source_target_basis(_plan), do: :projection
 
   defp serialize_violation(violation) do
     %{

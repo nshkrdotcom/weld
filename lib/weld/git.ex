@@ -7,11 +7,12 @@ defmodule Weld.Git do
 
   @spec changed_files(Path.t(), String.t(), String.t()) :: [String.t()]
   def changed_files(repo_root, base, head) do
-    output = run!(repo_root, ["diff", "--name-only", "#{base}..#{head}"])
+    args = ["diff", "--name-only", "--no-renames", "-z", "#{base}..#{head}", "--"]
 
-    output
-    |> String.split("\n", trim: true)
-    |> Enum.sort()
+    case System.cmd("git", args, cd: repo_root, stderr_to_stdout: true) do
+      {output, 0} -> output |> String.split(<<0>>, trim: true) |> Enum.sort()
+      {output, _status} -> raise Error, "git diff failed: #{String.trim(output)}"
+    end
   end
 
   @spec revision(Path.t()) :: String.t() | nil

@@ -7,6 +7,7 @@ defmodule Weld.Projector.Monolith do
   alias Weld.Manifest
   alias Weld.Plan
   alias Weld.Projector
+  alias Weld.Projector.Live
   alias Weld.Projector.Monolith.FilePlan
   alias Weld.Projector.Monolith.Migrations
   alias Weld.Projector.Monolith.MixFile
@@ -15,7 +16,8 @@ defmodule Weld.Projector.Monolith do
   @source_dirs ~w(lib src c_src include)
 
   @spec project!(Plan.t(), Path.t()) :: map()
-  def project!(%Plan{} = plan, build_path) do
+  def project!(%Plan{} = plan, build_path, opts \\ []) do
+    kind = Keyword.get(opts, :kind, :full)
     validate_source_assumptions!(plan)
 
     if plan.artifact.verify.smoke.enabled or plan.artifact.verify.artifact_tests != [] do
@@ -25,43 +27,47 @@ defmodule Weld.Projector.Monolith do
     test_support_projects = resolve_test_support_projects!(plan)
     all_projects = plan.selected_projects ++ test_support_projects
 
-    copied_docs = Enum.flat_map(plan.artifact.output.docs, &copy_relative!(plan, build_path, &1))
+    copied_docs = Enum.flat_map(plan.artifact.output.docs, &copy_relative!(plan, build_path, &1, kind))
 
     copied_assets =
-      Enum.flat_map(plan.artifact.output.assets, &copy_relative!(plan, build_path, &1))
+      Enum.flat_map(plan.artifact.output.assets, &copy_relative!(plan, build_path, &1, kind))
 
     copied_tooling_files =
-      Enum.flat_map(Projector.root_tooling_files(plan), &copy_relative!(plan, build_path, &1))
+      Enum.flat_map(Projector.root_tooling_files(plan), &copy_relative!(plan, build_path, &1, kind))
 
     source_merge =
-      Enum.reduce(plan.selected_projects, %{copied_files: [], remaps: []}, fn project, acc ->
+      Enum.reduce(plan.selected_projects,
+        %{copied_files: [], remaps: [], source_mappings: [], collision_targets: [], collision_sources: []}, fn project, acc ->
         Enum.reduce(@source_dirs, acc, fn dir, inner ->
           source_root = Path.join(project.abs_path, dir)
           target_root = Path.join(build_path, dir)
           project_slug = project_slug(project.id)
-          result = FilePlan.merge_tree!(source_root, target_root, project_slug, build_path)
+          result = FilePlan.merge_tree!(source_root, target_root, project_slug, build_path, kind: kind)
 
           %{
             copied_files: inner.copied_files ++ result.copied_files,
-            remaps: inner.remaps ++ result.remaps
+            remaps: inner.remaps ++ result.remaps,
+            source_mappings: inner.source_mappings ++ result.source_mappings,
+            collision_targets: inner.collision_targets ++ result.collision_targets,
+            collision_sources: inner.collision_sources ++ result.collision_sources
           }
         end)
       end)
 
     test_merge =
       Enum.reduce(plan.selected_projects, %{copied_files: []}, fn project, acc ->
-        result = copy_tests!(project, build_path)
+        result = copy_tests!(project, build_path, kind)
         %{copied_files: acc.copied_files ++ result.copied_files}
       end)
 
     test_support_merge =
       Enum.reduce(test_support_projects, %{copied_files: []}, fn project, acc ->
-        copied_files = copy_test_support_project!(project, build_path)
+        copied_files = copy_test_support_project!(project, build_path, kind)
         %{copied_files: acc.copied_files ++ copied_files}
       end)
 
     migration_merge = Migrations.merge!(plan.selected_projects, build_path)
-    copied_priv = Enum.flat_map(plan.selected_projects, &copy_non_migration_priv!(&1, build_path))
+    copied_priv = Enum.flat_map(plan.selected_projects, &copy_non_migration_priv!(&1, build_path, kind))
     helper_merge = TestHelper.generate!(plan.selected_projects, build_path)
 
     repo_infos = Projector.detect_repo_infos(all_projects)
@@ -82,6 +88,20 @@ defmodule Weld.Projector.Monolith do
 
     ensure_readme!(plan, build_path)
 
+    Weld.Projector.SourceProject.validate_modules!([Path.join(build_path, "lib")])
+
+    live_guard =
+      if kind == :live do
+        roots = live_roots(plan, all_projects)
+        Live.guard_source(plan,
+          directories: Enum.filter(roots, &File.dir?/1),
+          topology: roots,
+          digests: transformed_inputs(all_projects) ++ collision_inputs(source_merge)
+        )
+      else
+        ""
+      end
+
     generated_files =
       MixFile.render!(plan, build_path,
         bootstrapped_apps: config_merge.bootstrapped_apps,
@@ -89,7 +109,9 @@ defmodule Weld.Projector.Monolith do
         runtime_external_deps: plan.external_deps,
         test_external_deps: Plan.external_deps_for_view(plan, :test),
         forced_test_external_deps: forced_test_external_deps,
-        test_support_projects: test_support_projects
+        test_support_projects: test_support_projects,
+        live?: kind == :live,
+        live_guard: live_guard
       )
 
     copied_files =
@@ -113,8 +135,10 @@ defmodule Weld.Projector.Monolith do
     %{
       mode: :monolith,
       copied_files: copied_files,
+      linked_files: if(kind == :live, do: linked_files(build_path), else: []),
       package_files: MixFile.package_files(plan, build_path),
       file_remaps: source_merge.remaps,
+      source_mappings: source_merge.source_mappings,
       migration_layout: migration_merge.layout,
       migration_remaps: migration_merge.remaps,
       helper_transformations: helper_merge.transformations,
@@ -158,30 +182,39 @@ defmodule Weld.Projector.Monolith do
     end
   end
 
-  defp copy_relative!(plan, build_path, relative_path) do
+  defp copy_relative!(plan, build_path, relative_path, kind) do
     source = Path.join(plan.manifest.repo_root, relative_path)
     target = Path.join(build_path, relative_path)
+
+    if File.exists?(target), do: raise(Error, "projection path collision: #{relative_path}")
 
     cond do
       File.regular?(source) ->
         File.mkdir_p!(Path.dirname(target))
-        File.cp!(source, target)
+        copy_or_link!(source, target, kind)
         [relative_path]
 
       File.dir?(source) ->
         File.mkdir_p!(Path.dirname(target))
-        File.cp_r!(source, target)
-
-        target
-        |> list_copied_paths()
-        |> Enum.map(&Path.relative_to(&1, build_path))
+        files = Hash.list_files(source)
+        if kind == :live do
+          File.mkdir_p!(target)
+          for file <- files do
+            destination = Path.join(target, Path.relative_to(file, source))
+            File.mkdir_p!(Path.dirname(destination))
+            File.ln_s!(file, destination)
+          end
+        else
+          File.cp_r!(source, target)
+        end
+        Enum.map(files, &Path.join(relative_path, Path.relative_to(&1, source)))
 
       true ->
         raise Error, "copy target not found: #{relative_path}"
     end
   end
 
-  defp copy_tests!(project, build_path) do
+  defp copy_tests!(project, build_path, kind) do
     slug = project_slug(project.id)
 
     copied_files =
@@ -197,7 +230,7 @@ defmodule Weld.Projector.Monolith do
         target = projected_test_target(build_path, slug, relative)
 
         File.mkdir_p!(Path.dirname(target))
-        File.cp!(source, target)
+        copy_or_link!(source, target, kind)
         [Path.relative_to(target, build_path)]
       end)
 
@@ -243,7 +276,7 @@ defmodule Weld.Projector.Monolith do
     end
   end
 
-  defp copy_test_support_project!(project, build_path) do
+  defp copy_test_support_project!(project, build_path, kind) do
     project_root =
       Path.join([build_path, "test", "support", "weld_projects", project_slug(project.id)])
 
@@ -254,18 +287,18 @@ defmodule Weld.Projector.Monolith do
 
       if File.dir?(source_root) do
         File.mkdir_p!(Path.dirname(target_root))
-        File.cp_r!(source_root, target_root)
-
-        target_root
-        |> list_copied_paths()
-        |> Enum.map(&Path.relative_to(&1, build_path))
+        files = Hash.list_files(source_root)
+        copy_or_link!(source_root, target_root, kind)
+        Enum.map(files, fn path ->
+          Path.join(Path.relative_to(target_root, build_path), Path.relative_to(path, source_root))
+        end)
       else
         []
       end
     end)
   end
 
-  defp copy_non_migration_priv!(project, build_path) do
+  defp copy_non_migration_priv!(project, build_path, kind) do
     priv_root = Path.join(project.abs_path, "priv")
 
     if File.dir?(priv_root) do
@@ -279,7 +312,7 @@ defmodule Weld.Projector.Monolith do
 
         destination = Path.relative_to(target, build_path)
 
-        copy_private_asset!(source, target, destination, project.id)
+        copy_private_asset!(source, target, destination, project.id, kind)
         [destination]
       end)
     else
@@ -287,14 +320,14 @@ defmodule Weld.Projector.Monolith do
     end
   end
 
-  defp copy_private_asset!(source, target, destination, project_id) do
+  defp copy_private_asset!(source, target, destination, project_id, kind) do
     if File.exists?(target) do
       raise Error, "priv path collision at #{destination} while copying #{project_id}"
     end
 
     case File.mkdir_p(Path.dirname(target)) do
       :ok ->
-        File.cp!(source, target)
+        copy_or_link!(source, target, kind)
 
       {:error, reason} ->
         raise Error, "cannot create parent of #{destination} for #{project_id}: #{reason}"
@@ -310,6 +343,29 @@ defmodule Weld.Projector.Monolith do
   end
 
   defp validate_source_assumptions!(plan) do
+    for project <- Plan.projects_for_view(plan, :test) do
+      unless Enum.all?(project.elixirc_paths ++ project.test_elixirc_paths,
+               &(&1 in ["lib", "test/support"])) and
+               Enum.all?(project.erlc_paths ++ project.test_erlc_paths, &(&1 == "src")) and
+               project.erlc_include_path == "include" do
+        raise Error,
+              "monolith compiler roots must use lib/src/include (project #{project.id}); " <>
+                "use package_projection for custom compiler roots"
+      end
+
+      unless Enum.all?(project.test_paths, &(&1 == "test" or String.starts_with?(&1, "test/"))) do
+        raise Error,
+              "monolith test roots must be within test (project #{project.id}); " <>
+                "use package_projection for independent test helpers"
+      end
+
+      for path <- project.test_paths, path != "test" do
+        helper = Path.join([project.abs_path, path, "test_helper.exs"])
+        if File.regular?(helper) and not canonical_helper_delegate?(project, helper) do
+          raise Error, "monolith only transforms test/test_helper.exs (project #{project.id})"
+        end
+      end
+    end
     selected_apps = MapSet.new(Enum.map(plan.selected_projects, &Atom.to_string(&1.app)))
 
     issues =
@@ -326,6 +382,17 @@ defmodule Weld.Projector.Monolith do
       raise Error,
             "unsupported selected-package OTP app assumptions detected for monolith mode:\n" <>
               Enum.map_join(issues, "\n", &"- #{&1}")
+    end
+  end
+
+  defp canonical_helper_delegate?(project, helper) do
+    case helper |> File.read!() |> Code.string_to_quoted!(file: helper) do
+      {{:., _, [{:__aliases__, _, [:Code]}, :require_file]}, _,
+       [relative, {:__DIR__, _, _}]} when is_binary(relative) ->
+        Path.expand(relative, Path.dirname(helper)) ==
+          Path.join(project.abs_path, "test/test_helper.exs")
+
+      _ -> false
     end
   end
 
@@ -379,11 +446,60 @@ defmodule Weld.Projector.Monolith do
     |> String.downcase()
   end
 
-  defp list_copied_paths(path) do
-    cond do
-      File.regular?(path) -> [path]
-      File.dir?(path) -> Weld.Hash.list_files(path)
-      true -> []
+  defp copy_or_link!(source, target, :full), do: File.cp_r!(source, target)
+  defp copy_or_link!(source, target, :live), do: File.ln_s!(source, target)
+
+  defp live_roots(plan, projects) do
+    component_roots = Enum.flat_map(projects, fn project ->
+      (@source_dirs ++ ["priv", "config", "test"] ++ project.test_paths)
+      |> Enum.uniq()
+      |> Enum.map(&Path.expand(&1, project.abs_path))
+    end)
+
+    output_roots =
+      (plan.artifact.output.docs ++ plan.artifact.output.assets ++ Projector.root_tooling_files(plan))
+      |> Enum.map(&Path.join(plan.manifest.repo_root, &1))
+
+    Enum.uniq(component_roots ++ output_roots)
+  end
+
+  defp transformed_inputs(projects) do
+    Enum.flat_map(projects, fn project ->
+      roots = [Path.join(project.abs_path, "config"), Path.join(project.abs_path, "priv/repo/migrations")]
+      files = Enum.flat_map(roots, fn path -> if File.dir?(path), do: Hash.list_files(path), else: [] end)
+      helpers = ["test" | project.test_paths]
+        |> Enum.uniq()
+        |> Enum.map(&Path.join([project.abs_path, &1, "test_helper.exs"]))
+      helpers ++ files
+    end)
+  end
+
+  defp collision_inputs(source_merge) do
+    prior = for entry <- source_merge.source_mappings,
+      entry.target in source_merge.collision_targets, do: entry.source
+    Enum.uniq(prior ++ source_merge.collision_sources)
+  end
+
+  defp linked_files(root) do
+    collect_links(root, root) |> Enum.uniq() |> Enum.sort()
+  end
+
+  defp collect_links(path, root) do
+    case File.lstat!(path).type do
+      :directory ->
+        path |> File.ls!() |> Enum.flat_map(&collect_links(Path.join(path, &1), root))
+
+      :symlink ->
+        source = path |> File.read_link!() |> Path.expand(Path.dirname(path))
+        if File.dir?(source) do
+          source |> Hash.list_files() |> Enum.map(fn file ->
+            Path.join(Path.relative_to(path, root), Path.relative_to(file, source))
+          end)
+        else
+          [Path.relative_to(path, root)]
+        end
+
+      :regular -> []
     end
   end
 

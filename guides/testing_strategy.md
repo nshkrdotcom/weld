@@ -2,8 +2,6 @@
 
 `Weld` needs both fast internal tests and generated-artifact integration tests.
 
-## Repo Test Layers
-
 ## Unit And Planner Coverage
 
 These tests cover:
@@ -13,15 +11,21 @@ These tests cover:
 - project loading
 - graph traversal
 - artifact planning
+- source membership and artifact-local package boundaries
 - affected-file analysis
 
 ## Generated Artifact Integration
 
 These tests cover:
 
-- projecting a standalone Mix artifact (`:package_projection`, `:monolith`, and `:source_project` modes, plus `--live` views for `:source_project`)
+- projecting full and live views for `:package_projection`, `:monolith`, and
+  `:source_project`, including nested source projects
 - compiling the artifact
+- using ordinary Mix consumers outside the source checkout
+- refreshing live views after structural changes
 - running welded artifact tests
+- preserving opt-in component tests, helpers, and relative fixtures in
+  package-projection verification
 - building docs
 - building the Hex tarball when `verify.hex_build` is enabled
 - preparing and tracking bundles for internal-only artifacts even when no
@@ -45,13 +49,27 @@ That keeps the discovery model honest while still allowing fast tests.
 
 ## Source Lane Versus Artifact Lane
 
-The generated package is intentionally tested as a standalone package, not as a
-full mirror of every source-project test tree.
+Run the full source suite in the original workspace. Use the welded artifact
+lane to exercise the generated package as a regular Mix project, including
+its own tests and the component suites explicitly selected for verification.
+Hex archive tests inspect the actual package allowlist independently.
 
-That means:
+Component verification requires test roots and test-only compiler roots to be
+separate from published runtime roots. An overlap is rejected rather than
+including fixtures in the Hex package. Each selected component runs its own
+suite and supplies its own test configuration. A project reached only through a
+component's test dependency contributes its ordinary compiler roots, includes,
+private assets and package dependencies to the verification project. Its own
+test paths, helpers, test-only dependencies and private configuration stay in
+the source workspace. Its files are excluded from the Hex package. Selected
+runtime component configuration follows the generated configuration pipeline.
 
-- source-repo tests remain the place for the full source-level suite
-- welded artifact tests remain the place for package-level correctness
+Monolith mode supports the conventional `lib`, `src`, `include` and
+`test/support` compiler roots. It transforms `test/test_helper.exs` once per
+selected project. A nested helper may consist solely of a `Code.require_file`
+delegation to that canonical helper. Other helper locations or custom compiler
+roots fail explicitly; use package projection to preserve independent test
+layouts. Live guards digest canonical and delegated helpers.
 
 ## Verification Goal
 
