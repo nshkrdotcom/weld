@@ -28,7 +28,7 @@ defmodule Weld.Release do
     end
 
     if source_revision, do: Git.ensure_clean_repo!(repo_root)
-    context = if not opts[:no_cache], do: opts[:reuse]
+    context = unless opts[:no_cache], do: opts[:reuse]
     input = ReleaseInputs.fingerprint(plan, source_revision, context)
     receipt = Output.path(repo_root, ["cache", "release", plan.artifact.id, "prepare.receipt"])
 
