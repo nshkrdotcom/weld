@@ -62,12 +62,16 @@ not imply that a tracked projection commit was released.
 
 ## Publish
 
-Run `mix hex.publish` from the prepared bundle's `project/` directory after
-inspection. Across all projection modes, `weld.verify` exercises
-`mix hex.publish --dry-run --yes` whenever both `verify.hex_build` and
-`verify.hex_publish` are enabled.
+Run `mix release.stage` after inspecting the prepared bundle. Weld validates
+the bundle and prints a writable copy of its project under
+`.weld/publish/<artifact>/<identity>/project/`. Enter that directory, run
+`mix deps.get`, and publish with `mix hex.publish`. Mix can generate docs and
+build output there while the verified bundle remains intact for archiving.
 
-Publish is the only release step that requires a tarball.
+Staging requires a prepared Hex tarball. Weld reuses an unchanged workspace
+and refuses to overwrite a changed one. Move or remove that workspace before
+restaging. Across all projection modes, verification runs the Hex dry run
+when both `verify.hex_build` and `verify.hex_publish` are enabled.
 
 ## Archive
 
@@ -145,4 +149,6 @@ mix release.archive build_support/weld.exs --artifact weld
 mix release.track build_support/weld.exs --artifact weld
 ```
 
-Preparation exercises the Hex publish dry run. A real tag, push or package publication is a separate maintainer action.
+Weld's root Mix project also builds the public Weld package directly.
+To release Weld itself, publish with `mix hex.publish` from the source
+checkout after validating the committed release version.

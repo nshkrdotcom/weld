@@ -16,7 +16,7 @@ lock = if File.regular?(Path.join(root, "mix.lock")), do: ["mix.lock"], else: []
       package: [
         name: "weld",
         otp_app: :weld,
-        version: "0.17.0",
+        version: "0.17.1",
         elixir: "~> 1.18",
         description: "Deterministic Mix project composition and release preparation"
       ],

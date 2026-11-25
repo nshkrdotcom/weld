@@ -174,6 +174,12 @@ defmodule Weld do
     |> Release.bundle_path()
   end
 
+  @doc "Stages the verified current release for publication without changing its bundle."
+  @spec release_stage!(Path.t(), keyword()) :: %{project_path: Path.t()}
+  def release_stage!(manifest_path, opts \\ []) do
+    with_plan!(manifest_path, opts, &Release.stage!/1)
+  end
+
   @spec release_archive!(Path.t(), keyword()) :: map()
   def release_archive!(manifest_path, opts \\ []) do
     with_plan!(manifest_path, opts, &Release.archive!/1)

@@ -37,6 +37,32 @@ defmodule Weld.ReleaseTest do
     refute File.exists?(Path.join(prepared.project_path, "doc"))
     refute File.exists?(Path.join(prepared.project_path, "fixture_bundle-0.1.0.tar"))
 
+    publish = Weld.release_stage!(manifest_path)
+
+    assert publish.project_path ==
+             Path.join([
+               repo_root,
+               ".weld",
+               "publish",
+               "fixture_bundle",
+               prepared.identity,
+               "project"
+             ])
+
+    assert Weld.Hash.content_identity(publish.project_path) ==
+             Weld.Hash.content_identity(prepared.project_path)
+
+    assert Weld.release_stage!(manifest_path).project_path == publish.project_path
+    File.mkdir!(Path.join(publish.project_path, "doc"))
+    File.write!(Path.join(publish.project_path, "doc/index.html"), "generated documentation")
+
+    assert_raise Weld.Error, ~r/publish workspace has changed/, fn ->
+      Weld.release_stage!(manifest_path)
+    end
+
+    assert File.regular?(Path.join(publish.project_path, "doc/index.html"))
+    refute File.exists?(Path.join(prepared.project_path, "doc"))
+
     archived = Weld.release_archive!(manifest_path)
 
     assert File.dir?(archived.archive_path)
@@ -143,8 +169,16 @@ defmodule Weld.ReleaseTest do
     manifest_path = Path.join(repo_root, "packaging/weld/fixture_bundle.exs")
     FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
+    assert_raise Weld.Error, ~r/no Hex archive/, fn ->
+      Weld.release_stage!(manifest_path)
+    end
+
     bundle = Weld.release_bundle_path!(manifest_path)
     File.write!(Path.join(bundle, "project/README.md"), "changed after prepare")
+
+    assert_raise Weld.Error, ~r/failed integrity verification/, fn ->
+      Weld.release_stage!(manifest_path)
+    end
 
     assert_raise Weld.Error, ~r/failed integrity verification/, fn ->
       Weld.release_track!(manifest_path)

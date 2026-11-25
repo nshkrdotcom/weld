@@ -51,17 +51,12 @@ Important subtrees:
 
 ## Release Handoff
 
-Use the prepared bundle selected by
-`.weld/releases/<artifact>/CURRENT` as the release input. The documented Hex
-handoff is the bundle's `project/` directory. Weld prepares, tracks, and
-archives releases. Hex handles publication.
-
-Check that the publish workflow preserves the prepared bundle's integrity.
-Weld 0.17.0 hashes the entire prepared `project/` tree when tracking or
-archiving. Build outputs created there during Hex publication can invalidate
-the bundle. Report this gap explicitly and identify any writable copy as a
-workaround. Keep generated release work inside the checkout's `.weld/`
-directory.
+Use `mix release.stage` to stage a verified generated package for Hex. Publish
+from the printed `.weld/publish/<artifact>/<identity>/project/` directory.
+Keep the prepared bundle selected by `.weld/releases/<artifact>/CURRENT` intact
+for tracking and archiving. Keep generated release work inside the checkout's
+`.weld/` directory. Weld's own root Mix project can publish directly from its
+source checkout.
 
 ## Documentation Homes
 

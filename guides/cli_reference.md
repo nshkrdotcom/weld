@@ -106,6 +106,18 @@ Tracks the prepared bundle on a projection branch. Defaults to
 `projection/<package_name>` and creates the first branch as an orphan by
 default.
 
+## Release Stage
+
+```bash
+mix weld.release.stage [manifest_path] [--artifact name]
+mix release.stage [manifest_path] [--artifact name]
+```
+
+Checks the current prepared bundle and prints its writable Hex workspace under
+`.weld/publish/<artifact>/<identity>/project/`. An unchanged workspace is
+reused. If Mix has already written build output there, move or remove the
+workspace before restaging.
+
 ## Release Archive
 
 ```bash

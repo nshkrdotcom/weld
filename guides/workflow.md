@@ -37,7 +37,7 @@ validation.
    share from a separate Mix consumer.
 5. From a clean committed revision, run `mix release.prepare` to verify and write `.weld/releases/<artifact>/<identity>/`.
 6. Optionally run `mix release.track` to update `projection/<package_name>` (with optional `--tag` and `--push`).
-7. When publishing to Hex, run `mix hex.publish` inside `.weld/releases/<artifact>/<identity>/project/`.
+7. Run `mix release.stage` and publish with `mix hex.publish` from the printed workspace.
 8. Run `mix release.archive` to record the released bundle under `.weld/archive/<artifact>/<identity>/`.
 
 ## Disposable Versus Durable Output
@@ -48,6 +48,7 @@ All Weld-owned files live under `<checkout_root>/.weld/`:
   - `.weld/live/<artifact>/` — local symlinked development view
   - `.weld/full/<artifact>/project/` — latest full projection working copy
   - `.weld/cache/<projection_id>/<toolchain>/` — warm dependency checkouts and compiled build artifacts used by `mix weld.verify` (delete while idle to force a cold verification run)
+  - `.weld/publish/<artifact>/<identity>/project/` — writable copy for publishing a verified release
   - `.weld/staging/`, `.weld/smoke/`, `.weld/worktrees/` — ephemeral mutation, smoke-consumer, and Git worktree directories
 - **Durable release records:**
   - `.weld/releases/<artifact>/<identity>/` and `CURRENT` — immutable verified release bundle (`project/`, `docs/`, `release.json`, and optional Hex `.tar`)

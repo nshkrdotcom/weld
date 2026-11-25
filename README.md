@@ -47,12 +47,12 @@ Every mode supports two projection kinds:
 
 ## Installation For Maintainers
 
-These examples target Weld 0.17.0. Resolve the Hex dependency once that version is published. Add it to the workspace `mix.exs` or to a dedicated maintainer project such as `tools/maintainer/mix.exs`.
+These examples target Weld 0.17.1. Resolve the Hex dependency once that version is published. Add it to the workspace `mix.exs` or to a dedicated maintainer project such as `tools/maintainer/mix.exs`.
 
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.17.0", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.17.1", only: [:dev, :test], runtime: false}
   ]
 end
 ```
@@ -78,6 +78,7 @@ mix weld.verify
 mix weld.agents.verify
 mix release.prepare
 mix release.track
+mix release.stage
 mix release.archive
 mix weld.affected --task verify.all --base main --head HEAD
 ```
@@ -98,6 +99,7 @@ All Weld-managed state lives under `<checkout_root>/.weld/`, serialized by an ex
   releases/<artifact>/
     CURRENT                           # pointer to the latest verified <identity>
     <identity>/                       # immutable release.json, project/, docs/, *.tar
+  publish/<artifact>/<identity>/project/ # writable Hex publish workspace
   archive/<artifact>/<identity>/      # archived post-release bundle copy
   staging/                            # atomic staging directories during mutation
   smoke/                              # temporary consumer smoke-test projects
@@ -168,7 +170,7 @@ The standard release flow separates deterministic bundle preparation from creden
 1. Run the source workspace's own test and quality gates on a clean Git working tree.
 2. Run `mix release.prepare` to verify and write `.weld/releases/<artifact>/<identity>/`.
 3. Optionally run `mix release.track` to update the orphan `projection/<package_name>` branch (and optionally `--tag` / `--push`).
-4. When publishing to Hex, run `mix hex.publish` from the prepared bundle's `project/` directory.
+4. Run `mix release.stage`, then run `mix hex.publish` from the printed publish workspace.
 5. Run `mix release.archive` to preserve the verified bundle under `.weld/archive/<artifact>/<identity>/`.
 
 Prepared `project/` trees and tracked Git projections retain `weld.provenance.json` and `projection.lock.json` for auditability; Hex tarballs omit `projection.lock.json`.

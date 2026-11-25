@@ -10,12 +10,12 @@ packages.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.17.0", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.17.1", only: [:dev, :test], runtime: false}
   ]
 end
 ```
 
-Resolve this Hex dependency after Weld 0.17.0 is published. To try a release
+Resolve this Hex dependency after Weld 0.17.1 is published. To try a release
 candidate, point a disposable maintainer Mix project at the candidate checkout
 with a Weld path dependency and pass your manifest's absolute path to the tasks
 below.
@@ -155,8 +155,9 @@ From a clean committed Git tree:
 ```bash
 mix release.prepare
 mix release.track
-# Optional: cd into the prepared project printed by release.prepare and run:
-# mix hex.publish --yes
+mix release.stage
+# Enter the printed workspace to run mix deps.get and mix hex.publish.
+# Return to the maintainer project to archive after publication.
 mix release.archive
 ```
 

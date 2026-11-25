@@ -3,10 +3,10 @@ defmodule Weld.ReleaseMetadataTest do
 
   @repo_root Path.expand("../..", __DIR__)
 
-  test "0.17.0 package metadata is release complete and narrowly allowlisted" do
+  test "0.17.1 package metadata is release complete and narrowly allowlisted" do
     project = Mix.Project.config()
 
-    assert project[:version] == "0.17.0"
+    assert project[:version] == "0.17.1"
     manifest = Weld.Manifest.load!(Path.join(@repo_root, "build_support/weld.exs"))
     artifact = Weld.Manifest.artifact!(manifest, :weld)
     assert artifact.mode == :source_project
@@ -56,6 +56,7 @@ defmodule Weld.ReleaseMetadataTest do
 
     assert license =~ "MIT License"
     assert license =~ "Copyright (c) 2026 nshkrdotcom"
+    assert changelog =~ "## [0.17.1] - 2026-11-24"
     assert changelog =~ "## [0.17.0] - 2026-11-24"
     assert changelog =~ "## [0.16.0] - 2026-11-24"
     assert changelog =~ "## [0.15.0] - 2026-11-24"

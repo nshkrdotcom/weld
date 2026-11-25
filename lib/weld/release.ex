@@ -1,6 +1,6 @@
 defmodule Weld.Release do
   @moduledoc """
-  Prepares and archives deterministic welded release bundles.
+  Prepares, stages, and archives deterministic welded release bundles.
   """
 
   alias Weld.DocsPreview
@@ -200,6 +200,52 @@ defmodule Weld.Release do
 
     unless Git.revision(root) == revision do
       raise Error, "source revision changed during release preparation"
+    end
+  end
+
+  @doc "Stages a verified release project as a writable workspace for Hex."
+  @spec stage!(Plan.t()) :: %{project_path: Path.t()}
+  def stage!(%Plan{} = plan) do
+    Output.with_lock(plan.manifest.repo_root, fn -> stage_locked!(plan) end)
+  end
+
+  defp stage_locked!(plan) do
+    root = plan.manifest.repo_root
+    bundle = bundle_path(plan)
+    metadata = validate_bundle!(plan, bundle)
+
+    unless is_binary(metadata["tarball_path"]) do
+      raise Error, "prepared release has no Hex archive: #{bundle}"
+    end
+
+    parts = ["publish", plan.artifact.id, metadata["identity"]]
+    target = Output.path(root, parts)
+    project = Output.path(root, parts ++ ["project"])
+
+    if File.exists?(target) do
+      validate_publish_project!(project, metadata)
+    else
+      staging = Output.temporary!(root, "staging")
+
+      try do
+        copy = Path.join(staging, "project")
+        File.cp_r!(Path.join(bundle, "project"), copy)
+        validate_publish_project!(copy, metadata)
+        File.mkdir_p!(Path.dirname(target))
+        File.rename!(staging, target)
+      after
+        File.rm_rf!(staging)
+      end
+    end
+
+    %{project_path: project}
+  end
+
+  defp validate_publish_project!(project, metadata) do
+    Output.reject_tree_links!(project)
+
+    unless valid_project?(project, metadata, metadata["integrity"] || metadata["handoff"]) do
+      raise Error, "publish workspace has changed: #{project}"
     end
   end
 
@@ -434,11 +480,14 @@ defmodule Weld.Release do
 
     is_map(integrity) and
       valid_archive?(archive, metadata["tarball_path"], archive_name, integrity["archive_sha256"]) and
-      File.dir?(project) and Hash.sha256_tree(project) == integrity["project_sha256"] and
-      valid_lock?(project, metadata) and
-      match_identity?(project, integrity["project_identity"]) and
+      valid_project?(project, metadata, integrity) and
       valid_docs?(docs, metadata["integrity"]) and
       match_identity?(docs, integrity["docs_identity"])
+  end
+
+  defp valid_project?(project, metadata, integrity) do
+    File.dir?(project) and Hash.sha256_tree(project) == integrity["project_sha256"] and
+      valid_lock?(project, metadata) and match_identity?(project, integrity["project_identity"])
   end
 
   defp valid_lock?(project, %{"lock_sha256" => digest}) do
