@@ -16,9 +16,11 @@ defmodule Weld do
 
   alias Weld.Affected
   alias Weld.Graph
+  alias Weld.Manifest
   alias Weld.Plan
   alias Weld.Projector
   alias Weld.Release
+  alias Weld.ReleaseStatus
   alias Weld.Verifier
 
   @spec version() :: String.t()
@@ -167,22 +169,65 @@ defmodule Weld do
     with_plan!(manifest_path, opts, &Release.prepare!(&1, opts))
   end
 
+  @spec artifact_ids!(Path.t()) :: [String.t()]
+  def artifact_ids!(manifest_path) do
+    manifest_path
+    |> Manifest.load!()
+    |> Map.fetch!(:artifacts)
+    |> Map.keys()
+    |> Enum.sort()
+  end
+
   @spec release_bundle_path!(Path.t(), keyword()) :: Path.t()
   def release_bundle_path!(manifest_path, opts \\ []) do
     manifest_path
     |> Plan.build!(opts)
-    |> Release.bundle_path()
+    |> Release.bundle_path(opts[:identity])
   end
 
-  @doc "Stages the verified current release for publication without changing its bundle."
-  @spec release_stage!(Path.t(), keyword()) :: %{project_path: Path.t()}
+  @doc "Stages the verified current or pinned release for publication without changing its bundle."
+  @spec release_stage!(Path.t(), keyword()) :: map()
   def release_stage!(manifest_path, opts \\ []) do
-    with_plan!(manifest_path, opts, &Release.stage!/1)
+    with_plan!(manifest_path, opts, &Release.stage!(&1, opts))
+  end
+
+  @doc "Stages an isolated workspace, checks rebuilt archive bytes, and delegates interactively to Hex."
+  @spec release_publish!(Path.t(), keyword()) :: map()
+  def release_publish!(manifest_path, opts \\ []) do
+    manifest_path
+    |> Plan.build!(opts)
+    |> Release.publish!(opts)
+  end
+
+  @doc "Returns read-only release status for one or all artifacts."
+  @spec release_status!(Path.t(), keyword()) :: map() | [map()]
+  def release_status!(manifest_path, opts \\ []) do
+    if opts[:all] == true do
+      if opts[:artifact], do: raise(Weld.Error, "pass either --artifact or --all, not both")
+
+      manifest_path
+      |> artifact_ids!()
+      |> Enum.map(fn id ->
+        plan = Plan.build!(manifest_path, Keyword.put(opts, :artifact, id))
+        ReleaseStatus.status(plan, opts)
+      end)
+    else
+      manifest_path
+      |> Plan.build!(opts)
+      |> ReleaseStatus.status(opts)
+    end
+  end
+
+  @doc "Verifies a Git tag's Weld receipt against its target commit and optional local evidence."
+  @spec release_verify_tag!(Path.t(), String.t(), keyword()) :: map()
+  def release_verify_tag!(manifest_path, tag, opts \\ []) do
+    plan = Plan.build!(manifest_path, opts)
+    ReleaseStatus.verify_tag(plan.manifest.repo_root, tag, Keyword.put(opts, :plan, plan))
   end
 
   @spec release_archive!(Path.t(), keyword()) :: map()
   def release_archive!(manifest_path, opts \\ []) do
-    with_plan!(manifest_path, opts, &Release.archive!/1)
+    with_plan!(manifest_path, opts, &Release.archive!(&1, opts))
   end
 
   @spec release_track!(Path.t(), keyword()) :: map()

@@ -51,12 +51,27 @@ Important subtrees:
 
 ## Release Handoff
 
-Use `mix release.stage` to stage a verified generated package for Hex. Publish
-from the printed `.weld/publish/<artifact>/<identity>/project/` directory.
-Keep the prepared bundle selected by `.weld/releases/<artifact>/CURRENT` intact
-for tracking and archiving. Keep generated release work inside the checkout's
-`.weld/` directory. Weld's own root Mix project can publish directly from its
-source checkout.
+Use the canonical Weld 0.18.0 release sequence—never invent scratch directories
+outside `.weld/`, manual `CURRENT`/`jq` shell parsing, or out-of-band publish
+workarounds:
+
+```bash
+mix release.prepare [--artifact <name> | --all]
+mix release.status [--artifact <name> | --all] [--format json]
+mix release.track [--artifact <name>] [--identity <sha>] --tag-release --push
+mix release.publish [--artifact <name>] [--identity <sha>] [--tag <tag>]
+mix release.archive [--artifact <name>] --identity <sha>
+```
+
+- `.weld/` is local-only build/release state (never committed).
+- `projection/<package>` commits and annotated tags carry `weld.receipt/v1`
+  trailers (bundle identity + project/docs/archive SHA-256) and are the
+  Git-durable release record. Verify any tag with `mix release.verify_tag <tag>`.
+- For manual staging instead of `mix release.publish`, use
+  `mix release.stage [--fresh] [--identity <sha>]` (use `--path-only` for
+  scripts). Keep `.weld/releases/<artifact>/<identity>/` intact for tracking
+  and archiving.
+- Weld's own root Mix project can publish directly from its source checkout.
 
 ## Documentation Homes
 

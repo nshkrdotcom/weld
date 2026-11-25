@@ -50,6 +50,59 @@ defmodule Weld.Git do
     end
   end
 
+  @spec dirty?(Path.t()) :: boolean()
+  def dirty?(repo_root) do
+    case run(repo_root, ["status", "--short"]) do
+      {:ok, ""} -> false
+      {:ok, _output} -> true
+      {:error, _reason} -> false
+    end
+  end
+
+  @spec commit_message(Path.t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def commit_message(repo_root, ref) do
+    run(repo_root, ["show", "-s", "--format=%B", ref])
+  end
+
+  @spec rev_parse(Path.t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def rev_parse(repo_root, ref) do
+    run(repo_root, ["rev-parse", "--verify", ref])
+  end
+
+  @spec tag_exists?(Path.t(), String.t()) :: boolean()
+  def tag_exists?(repo_root, tag) do
+    match?({:ok, _}, run(repo_root, ["show-ref", "--verify", "--quiet", "refs/tags/#{tag}"]))
+  end
+
+  @spec tag_info(Path.t(), String.t()) ::
+          {:ok,
+           %{type: :annotated | :lightweight, target_sha: String.t(), message: String.t() | nil}}
+          | :missing
+  def tag_info(repo_root, tag) do
+    ref = "refs/tags/#{tag}"
+
+    with {:ok, obj_type} <- run(repo_root, ["cat-file", "-t", ref]),
+         {:ok, target_sha} <- run(repo_root, ["rev-parse", "--verify", "#{ref}^{commit}"]) do
+      {:ok, build_tag_info(repo_root, ref, obj_type, target_sha)}
+    else
+      _ -> :missing
+    end
+  end
+
+  defp build_tag_info(repo_root, ref, "tag", target_sha) do
+    message =
+      case run(repo_root, ["for-each-ref", "--format=%(contents)", ref]) do
+        {:ok, contents} -> contents
+        {:error, _} -> nil
+      end
+
+    %{type: :annotated, target_sha: target_sha, message: message}
+  end
+
+  defp build_tag_info(_repo_root, _ref, _other, target_sha) do
+    %{type: :lightweight, target_sha: target_sha, message: nil}
+  end
+
   @spec ensure_clean_repo!(Path.t()) :: :ok
   def ensure_clean_repo!(repo_root) do
     case run(repo_root, ["status", "--short"]) do
@@ -117,15 +170,27 @@ defmodule Weld.Git do
     end
   end
 
-  @spec commit_all!(Path.t(), String.t()) :: :ok
-  def commit_all!(repo_root, message) do
-    run!(repo_root, ["commit", "-m", message])
+  @spec commit_all!(Path.t(), String.t(), keyword()) :: :ok
+  def commit_all!(repo_root, message, opts \\ []) do
+    args =
+      if Keyword.get(opts, :allow_empty, false),
+        do: ["commit", "--allow-empty", "-m", message],
+        else: ["commit", "-m", message]
+
+    run!(repo_root, args)
     :ok
   end
 
-  @spec create_tag!(Path.t(), String.t()) :: :ok
-  def create_tag!(repo_root, tag) do
+  @spec create_tag!(Path.t(), String.t(), String.t() | nil) :: :ok
+  def create_tag!(repo_root, tag, message \\ nil)
+
+  def create_tag!(repo_root, tag, nil) do
     run!(repo_root, ["tag", tag])
+    :ok
+  end
+
+  def create_tag!(repo_root, tag, message) when is_binary(message) do
+    run!(repo_root, ["tag", "-a", tag, "-m", message])
     :ok
   end
 

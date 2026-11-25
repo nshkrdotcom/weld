@@ -35,25 +35,27 @@ validation.
 4. Run `mix weld.project` and `mix weld.verify` for each artifact while
    iterating on packaging configuration. Compile any live view you intend to
    share from a separate Mix consumer.
-5. From a clean committed revision, run `mix release.prepare` to verify and write `.weld/releases/<artifact>/<identity>/`.
-6. Optionally run `mix release.track` to update `projection/<package_name>` (with optional `--tag` and `--push`).
-7. Run `mix release.stage` and publish with `mix hex.publish` from the printed workspace.
-8. Run `mix release.archive` to record the released bundle under `.weld/archive/<artifact>/<identity>/`.
+5. From a clean committed revision, run `mix release.prepare` (or `--all`) to verify and write `.weld/releases/<artifact>/<identity>/`.
+6. Run `mix release.status` (or `--all`) to confirm `ready` state, expected `archive_sha256`, and zero `docs.source_ref` warnings.
+7. Optionally run `mix release.track --tag-release --push` to record `weld.receipt/v1` trailers on `projection/<package_name>` and an annotated release tag.
+8. Run `mix release.publish` (or `mix release.stage --fresh` for manual `mix hex.publish`) to verify a local Hex rebuild against the prepared tarball SHA-256 and hand off interactively to Hex.
+9. Run `mix release.archive --identity <sha>` using the pinned identity printed after publish to save the bundle under `.weld/archive/<artifact>/<identity>/`.
 
-## Disposable Versus Durable Output
+## Local `.weld/` State Versus Git-Durable Records
 
-All Weld-owned files live under `<checkout_root>/.weld/`:
+All Weld-owned local files live under `<checkout_root>/.weld/` (gitignored and machine-local):
 
 - **Disposable working state:**
   - `.weld/live/<artifact>/` — local symlinked development view
   - `.weld/full/<artifact>/project/` — latest full projection working copy
   - `.weld/cache/<projection_id>/<toolchain>/` — warm dependency checkouts and compiled build artifacts used by `mix weld.verify` (delete while idle to force a cold verification run)
-  - `.weld/publish/<artifact>/<identity>/project/` — writable copy for publishing a verified release
+  - `.weld/publish/<artifact>/<identity>/` — writable workspaces for `release.stage` and per-run `release.publish`
   - `.weld/staging/`, `.weld/smoke/`, `.weld/worktrees/` — ephemeral mutation, smoke-consumer, and Git worktree directories
-- **Durable release records:**
+- **Local verified release storage (deleting `.weld/` removes the only local copy of built tarballs and docs):**
   - `.weld/releases/<artifact>/<identity>/` and `CURRENT` — immutable verified release bundle (`project/`, `docs/`, `release.json`, and optional Hex `.tar`)
-  - `.weld/archive/<artifact>/<identity>/` — post-publication archive copy
-  - `projection/<package_name>` commits and tags — durable projected-source Git history when tracked
+  - `.weld/archive/<artifact>/<identity>/` — post-publication local archive copy
+- **Git-durable release records:**
+  - `projection/<package_name>` commits and annotated tags — carry `weld.receipt/v1` trailers (`Weld-Identity`, `Weld-Project-SHA256`, `Weld-Docs-SHA256`, `Weld-Archive-SHA256`, `Weld-Source-Revision`), verifiable from any clone with `mix release.verify_tag <tag>`
 
 Update any scripts still reading legacy `dist/` directories before retiring
 them. See [Source-Project Artifacts](source_projects.md) for lock ownership and

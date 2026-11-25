@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Weld.Release.Prepare do
   alias Weld.TaskSupport
 
   @moduledoc """
-  Prepare a deterministic release bundle for the welded artifact.
+  Prepare deterministic release bundles for one or all welded artifacts.
   """
 
   @shortdoc "Prepare a welded release bundle"
@@ -12,22 +12,42 @@ defmodule Mix.Tasks.Weld.Release.Prepare do
   @impl Mix.Task
   def run(args) do
     {opts, positional, invalid} =
-      OptionParser.parse(args, strict: [artifact: :string, reuse: :string, cache: :boolean])
+      OptionParser.parse(args,
+        strict: [artifact: :string, all: :boolean, reuse: :string, cache: :boolean]
+      )
 
     usage =
-      "Usage: mix weld.release.prepare [manifest_path] [--artifact name] [--reuse context] [--no-cache]"
+      "Usage: mix weld.release.prepare [manifest_path] [--artifact name | --all] [--reuse context] [--no-cache]"
 
     TaskSupport.reject_invalid!(invalid)
+    if opts[:artifact] && opts[:all], do: Mix.raise("Pass either --artifact or --all, not both")
     manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
 
-    opts = Keyword.put(opts, :no_cache, opts[:cache] == false)
-    result = Weld.release_prepare!(manifest_path, opts)
+    base_opts = Keyword.put(opts, :no_cache, opts[:cache] == false)
+
+    if opts[:all] do
+      for id <- Weld.artifact_ids!(manifest_path) do
+        result = Weld.release_prepare!(manifest_path, Keyword.put(base_opts, :artifact, id))
+        print_result(result)
+      end
+    else
+      result = Weld.release_prepare!(manifest_path, base_opts)
+      print_result(result)
+    end
+  after
+    Mix.Task.reenable("weld.release.prepare")
+  end
+
+  defp print_result(result) do
     action = if result.reused?, do: "Reused release bundle in", else: "Prepared release bundle in"
     Mix.shell().info("#{action} #{result.bundle_path}")
+    Mix.shell().info("Identity #{result.identity}")
     Mix.shell().info("Project #{result.project_path}")
     Mix.shell().info("Docs #{Path.join(result.docs_path, "index.html")}")
     if result.tarball_path, do: Mix.shell().info("Archive #{result.tarball_path}")
-  after
-    Mix.Task.reenable("weld.release.prepare")
+
+    Enum.each(result.warnings, fn warning ->
+      Mix.shell().error("Warning: #{warning}")
+    end)
   end
 end

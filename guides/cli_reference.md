@@ -87,42 +87,74 @@ Verifies root and nested `AGENTS.md` files for runtime-environment guidance.
 ## Release Prepare
 
 ```bash
-mix weld.release.prepare [manifest_path] [--artifact name] [--reuse context] [--no-cache]
-mix release.prepare [manifest_path] [--artifact name] [--reuse context] [--no-cache]
+mix weld.release.prepare [manifest_path] [--artifact name | --all] [--reuse context] [--no-cache]
+mix release.prepare [manifest_path] [--artifact name | --all] [--reuse context] [--no-cache]
 ```
 
-Generates, verifies, and bundles the welded artifact. The prepared bundle always
-contains the projected project tree and metadata, and it also contains the
-tarball when `verify.hex_build` is enabled.
+Generates, verifies, and bundles one or all welded artifacts. The prepared
+bundle always contains the projected project tree and metadata, and it also
+contains the tarball when `verify.hex_build` is enabled.
+
+## Release Status
+
+```bash
+mix weld.release.status [manifest_path] [--artifact name | --all] [--identity sha] [--format json]
+mix release.status [manifest_path] [--artifact name | --all] [--identity sha] [--format json]
+```
+
+Shows read-only local release status, freshness reason codes, bundle identity,
+expected `archive_sha256`, publish workspace state, archive state, and local
+`projection/*` receipt alignment.
 
 ## Release Track
 
 ```bash
-mix weld.release.track [manifest_path] [--artifact name] [--branch name] [--remote origin] [--tag tag] [--push]
-mix release.track [manifest_path] [--artifact name] [--branch name] [--remote origin] [--tag tag] [--push]
+mix weld.release.track [manifest_path] [--artifact name] [--identity sha] [--branch name] [--remote origin] [--tag tag | --tag-release] [--push]
+mix release.track [manifest_path] [--artifact name] [--identity sha] [--branch name] [--remote origin] [--tag tag | --tag-release] [--push]
 ```
 
-Tracks the prepared bundle on a projection branch. Defaults to
-`projection/<package_name>` and creates the first branch as an orphan by
-default.
+Tracks the prepared bundle on a projection branch with `weld.receipt/v1`
+trailers and optional annotated release tags (`--tag-release` defaults to
+`<package>-v<version>`).
+
+## Release Verify Tag
+
+```bash
+mix weld.release.verify_tag <tag> [manifest_path] [--artifact name] [--identity sha] [--tarball path] [--format json]
+mix release.verify_tag <tag> [manifest_path] [--artifact name] [--identity sha] [--tarball path] [--format json]
+```
+
+Verifies an annotated release tag's `weld.receipt/v1` trailers against its
+target commit and optional local bundle or tarball.
 
 ## Release Stage
 
 ```bash
-mix weld.release.stage [manifest_path] [--artifact name]
-mix release.stage [manifest_path] [--artifact name]
+mix weld.release.stage [manifest_path] [--artifact name] [--identity sha] [--fresh] [--path-only]
+mix release.stage [manifest_path] [--artifact name] [--identity sha] [--fresh] [--path-only]
 ```
 
-Checks the current prepared bundle and prints its writable Hex workspace under
-`.weld/publish/<artifact>/<identity>/project/`. An unchanged workspace is
-reused. If Mix has already written build output there, move or remove the
-workspace before restaging.
+Validates the current or pinned bundle and stages a writable Hex workspace
+under `.weld/publish/<artifact>/<identity>/project/`. Pass `--fresh` to
+atomically reset a workspace that already contains Mix build or docs output.
+Pass `--path-only` for scriptable path-only output.
+
+## Release Publish
+
+```bash
+mix weld.release.publish [manifest_path] [--artifact name] [--identity sha] [--tag tag] [--allow-stale]
+mix release.publish [manifest_path] [--artifact name] [--identity sha] [--tag tag] [--allow-stale]
+```
+
+Pins a verified bundle identity, stages an isolated per-invocation workspace,
+verifies a local `mix hex.build` matches the prepared tarball SHA-256, and
+hands off interactively to `mix hex.publish`.
 
 ## Release Archive
 
 ```bash
-mix weld.release.archive [manifest_path] [--artifact name]
-mix release.archive [manifest_path] [--artifact name]
+mix weld.release.archive [manifest_path] [--artifact name | --all] [--identity sha]
+mix release.archive [manifest_path] [--artifact name | --all] [--identity sha]
 ```
 
 Copies the prepared bundle into the archive surface after publish succeeds.

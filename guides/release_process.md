@@ -46,37 +46,64 @@ independently. The EPUB remains outside the prepared docs preview.
 ## Track
 
 ```bash
-mix release.track
+mix release.track --tag-release --push
 ```
 
 This command:
 
-- reads the prepared release bundle
-- updates `projection/<package_name>` by default
-- creates the first projection branch as an orphan by default
-- optionally tags and pushes that projection commit
+- reads the verified `CURRENT` (or `--identity <sha>`) release bundle
+- updates `projection/<package_name>` by default with `weld.receipt/v1` trailers
+  (`Weld-Identity`, `Weld-Project-SHA256`, `Weld-Docs-SHA256`,
+  `Weld-Archive-SHA256`, `Weld-Source-Revision`, `Weld-Tool-Version`)
+- creates an `--allow-empty` receipt commit if the bundle identity changed on an
+  unchanged projection tree, or reuses the branch tip on an exact retry
+- creates an **annotated** tag (`--tag <tag>` or `--tag-release` for
+  `<package>-v<version>`) carrying the same receipt, rejecting conflicting or
+  legacy lightweight tags before moving refs
 
-Tracking is for durable projected-source history, including unreleased and
-pre-release snapshots. It is not a substitute for Hex publication and it does
-not imply that a tracked projection commit was released.
+Verify any tag receipt against its target commit and local bundle/tarball with
+`mix release.verify_tag <tag>`. A pre-publish tag records the verified prepared
+bundle; Hex publication is a separate outcome.
+
+## Status
+
+```bash
+mix release.status [--artifact <name> | --all] [--format json]
+```
+
+Read-only local inspection of prepared bundle integrity, freshness (`ready` vs
+`stale` reason codes), expected `archive_sha256`, publish workspace state,
+archive state, and local `projection/*` alignment.
 
 ## Publish
 
-Run `mix release.stage` after inspecting the prepared bundle. Weld validates
-the bundle and prints a writable copy of its project under
-`.weld/publish/<artifact>/<identity>/project/`. Enter that directory, run
-`mix deps.get`, and publish with `mix hex.publish`. Mix can generate docs and
-build output there while the verified bundle remains intact for archiving.
+Recommended interactive handoff:
 
-Staging requires a prepared Hex tarball. Weld reuses an unchanged workspace
-and refuses to overwrite a changed one. Move or remove that workspace before
-restaging. Across all projection modes, verification runs the Hex dry run
-when both `verify.hex_build` and `verify.hex_publish` are enabled.
+```bash
+mix release.publish [--artifact <name>] [--identity <sha>] [--tag <tag>]
+```
+
+Weld pins the verified bundle identity, verifies freshness (pass `--allow-stale`
+only for `head_moved` / `dirty_worktree`), checks `--tag` receipt agreement when
+given, stages an isolated per-run workspace under `.weld/publish/`, releases
+`.weld/.lock`, runs `mix deps.get --check-locked` and a local `mix hex.build` to
+confirm the rebuilt tarball matches the prepared `archive_sha256`, and hands
+stdio directly to `mix hex.publish`. Weld never owns Hex credentials or retries.
+
+For manual staging, run `mix release.stage [--fresh] [--identity <sha>]` (use
+`--path-only` for scripts). `--fresh` atomically replaces a dirty publish
+workspace.
+
+**Recovery:** If `release.track --push` succeeded and `mix hex.publish` fails or
+is cancelled, fix the issue and retry `mix release.publish --identity <sha>`
+(or prepare a new version if source changed). If Hex accepted the upload and
+archiving failed, run `mix release.archive --identity <sha>` directly against
+the intact `.weld/releases/<artifact>/<sha>/` bundle.
 
 ## Archive
 
 ```bash
-mix release.archive
+mix release.archive [--artifact <name> | --all] [--identity <sha>]
 ```
 
 These wrappers delegate to the Weld release tasks and use the same manifest

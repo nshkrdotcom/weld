@@ -1,7 +1,7 @@
 defmodule Weld.MixProject do
   use Mix.Project
 
-  @version "0.17.1"
+  @version "0.18.0"
 
   def project do
     [
@@ -96,6 +96,8 @@ defmodule Weld.MixProject do
           Weld.Projector,
           Weld.Verifier,
           Weld.Release,
+          Weld.ReleaseReceipt,
+          Weld.ReleaseStatus,
           Weld.Lockfile,
           Weld.SmokeApp,
           Weld.Affected,
@@ -121,10 +123,18 @@ defmodule Weld.MixProject do
           Mix.Tasks.Weld.Project,
           Mix.Tasks.Weld.Verify,
           Mix.Tasks.Weld.Release.Prepare,
+          Mix.Tasks.Weld.Release.Status,
           Mix.Tasks.Weld.Release.Track,
+          Mix.Tasks.Weld.Release.VerifyTag,
+          Mix.Tasks.Weld.Release.Stage,
+          Mix.Tasks.Weld.Release.Publish,
           Mix.Tasks.Weld.Release.Archive,
           Mix.Tasks.Release.Prepare,
+          Mix.Tasks.Release.Status,
           Mix.Tasks.Release.Track,
+          Mix.Tasks.Release.VerifyTag,
+          Mix.Tasks.Release.Stage,
+          Mix.Tasks.Release.Publish,
           Mix.Tasks.Release.Archive
         ]
       ],

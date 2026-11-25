@@ -11,14 +11,31 @@ defmodule Mix.Tasks.Weld.Release.Archive do
 
   @impl Mix.Task
   def run(args) do
-    {opts, positional, invalid} = OptionParser.parse(args, strict: [artifact: :string])
+    {opts, positional, invalid} =
+      OptionParser.parse(args, strict: [artifact: :string, all: :boolean, identity: :string])
 
-    usage = "Usage: mix weld.release.archive [manifest_path] [--artifact name]"
+    usage =
+      "Usage: mix weld.release.archive [manifest_path] [--artifact name | --all] [--identity sha]"
+
     TaskSupport.reject_invalid!(invalid)
+    if opts[:artifact] && opts[:all], do: Mix.raise("Pass either --artifact or --all, not both")
+    if opts[:all] && opts[:identity], do: Mix.raise("--identity cannot be combined with --all")
     manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
 
-    result = Weld.release_archive!(manifest_path, artifact: opts[:artifact])
-    Mix.shell().info("Archived release bundle in #{result.archive_path}")
+    if opts[:all] do
+      for id <- Weld.artifact_ids!(manifest_path) do
+        result = Weld.release_archive!(manifest_path, artifact: id)
+        Mix.shell().info("Archived #{id} (#{result.identity}) in #{result.archive_path}")
+      end
+    else
+      result =
+        Weld.release_archive!(manifest_path,
+          artifact: opts[:artifact],
+          identity: opts[:identity]
+        )
+
+      Mix.shell().info("Archived release bundle in #{result.archive_path}")
+    end
   after
     Mix.Task.reenable("weld.release.archive")
   end

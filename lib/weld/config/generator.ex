@@ -241,12 +241,19 @@ defmodule Weld.Config.Generator do
   end
 
   defp write_runtime_file!(config_root, staged) do
-    if Enum.any?(staged, &("runtime.exs" in &1.files)) do
+    runtime_entries = Enum.filter(staged, &("runtime.exs" in &1.files))
+
+    if runtime_entries != [] do
       path = Path.join(config_root, "runtime.exs")
+
+      evals =
+        Enum.map_join(runtime_entries, "\n", fn entry ->
+          "Code.eval_file(Path.expand(\"runtime_sources/#{entry.slug}/runtime.exs\", __DIR__))"
+        end)
 
       FilePlan.generated(
         path,
-        SourceFormatter.format!("import Config\n\n" <> render_imports(staged, "runtime.exs")),
+        SourceFormatter.format!("import Config\n\n" <> evals),
         :metadata,
         config_inputs(staged)
       )

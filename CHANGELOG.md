@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-11-25
+
+### Added
+
+- Embed versioned `weld.receipt/v1` Git trailers (package, version, artifact,
+  bundle identity, source revision, project/docs/archive SHA-256, and tool
+  version) in `projection/*` commits and annotated `--tag` / `--tag-release`
+  tags. Create receipt-bearing same-tree commits when bundle identity changes
+  without projection tree edits, and reject conflicting or legacy lightweight
+  tags before moving refs.
+- Add `mix release.verify_tag <tag>` (`mix weld.release.verify_tag`) to verify
+  tag and commit receipts against optional local bundles or tarballs.
+- Add read-only `mix release.status [--artifact name | --all] [--format json]`
+  with shared two-layer integrity and freshness classification (`ready`,
+  `stale` reason codes, `unprepared`, `corrupt_bundle`, local projection sync).
+- Add `mix release.publish` (`mix weld.release.publish`) to pin a verified
+  bundle identity, stage an isolated per-invocation workspace, verify a local
+  `mix hex.build` matches the prepared tarball SHA-256, and hand off
+  interactively to `mix hex.publish` without holding `.weld/.lock`.
+- Add `--identity <sha>` pinning across `release.track`, `release.stage`,
+  `release.publish`, and `release.archive`, `--fresh` and `--path-only` on
+  `release.stage`, `--all` on `release.prepare` and `release.archive`, and
+  early `docs.source_ref` warnings for projected packages.
+
+### Fixed
+
+- Evaluate staged component `config/runtime.exs` files via `Code.eval_file/1`
+  in deterministic order instead of emitting forbidden `import_config/1` calls
+  inside generated `config/runtime.exs`, preserving `Config.Reader`, lexical
+  isolation, and accurate `__DIR__`.
+
 ## [0.17.1] - 2026-11-24
 
 - Stage a verified project for Hex with `mix release.stage`. Mix and Hex write
