@@ -86,7 +86,11 @@ mix release.archive --identity <sha>
 mix weld.affected --task verify.all --base main --head HEAD
 ```
 
-Pass an explicit manifest path (and `--artifact <name>` when a manifest defines multiple artifacts) when running from a nested maintainer project or a repo with multiple manifests.
+Start with `mix release.status` to list the repository's release artifacts and
+see their source roots, projection paths, bundle identities, and default tags.
+Use `--artifact <name>` to select an artifact for a release operation in a
+multi-artifact repository. Pass the manifest path explicitly when discovery
+finds multiple manifests or the manifest is in a custom location.
 
 ## Repository-Root `.weld/` Layout
 
@@ -172,9 +176,10 @@ The standard release flow separates deterministic bundle preparation from creden
 
 1. Run the source workspace's own test and quality gates on a clean Git working tree.
 2. Run `mix release.prepare` to verify and write `.weld/releases/<artifact>/<identity>/`.
-3. Optionally run `mix release.track` to update the orphan `projection/<package_name>` branch (and optionally `--tag` / `--push`).
-4. Run `mix release.stage`, then run `mix hex.publish` from the printed publish workspace.
-5. Run `mix release.archive` to preserve the verified bundle under `.weld/archive/<artifact>/<identity>/`.
+3. Run `mix release.status` to confirm the artifact and bundle identity.
+4. Run `mix release.track --identity <sha> --tag-release --push` to record it on `projection/<package_name>` and create the annotated release tag.
+5. Run `mix release.publish --identity <sha> --tag <tag>` for the interactive Hex handoff.
+6. Run `mix release.archive --identity <sha>` to preserve the same verified bundle under `.weld/archive/<artifact>/<identity>/`.
 
 Prepared `project/` trees and tracked Git projections retain `weld.provenance.json` and `projection.lock.json` for auditability; Hex tarballs omit `projection.lock.json`.
 

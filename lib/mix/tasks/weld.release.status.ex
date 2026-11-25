@@ -45,26 +45,35 @@ defmodule Mix.Tasks.Weld.Release.Status do
         list -> " (#{Enum.map_join(list, ", ", &Atom.to_string/1)})"
       end
 
-    projection =
-      if entry.projection.exists do
-        sync = if entry.projection.matches_identity, do: "matches", else: "differs"
-        "#{entry.projection.branch} [local, #{sync}]"
-      else
-        "#{entry.projection.branch} [local, absent]"
-      end
-
     Mix.shell().info("""
     Artifact: #{entry.artifact} (#{entry.package} #{entry.version})
+    Mode: #{entry.mode} (#{Enum.join(entry.roots, ", ")})
+    Manifest: #{entry.manifest_path}
+    Full projection: #{entry.paths.full_project}
+    Release directory: #{entry.paths.releases}
+    Bundle: #{entry.paths.bundle || "none"}
+    Default tag: #{entry.default_tag}
     State: #{entry.state}#{reasons}
     Identity: #{entry.identity || "none"}
     Archive SHA-256: #{entry.archive_sha256 || "none"}
-    Publish workspace: #{entry.publish_workspace}
-    Archived: #{entry.archived}
-    Projection: #{projection}
+    Publish workspace: #{entry.publish_workspace} (#{entry.paths.publish_project || "none"})
+    Archived: #{entry.archived} (#{entry.paths.archive || "none"})
+    Projection: #{format_projection(entry.projection)}
+    Projection tree matches bundle: #{entry.projection.tree_matches |> inspect()}
+    Projection receipt identity: #{entry.projection.receipt_identity || "none"}
     """)
 
     Enum.each(entry.warnings, fn warning ->
       Mix.shell().error("Warning: #{warning}")
     end)
+  end
+
+  defp format_projection(projection) do
+    if projection.exists do
+      sync = if projection.matches_identity, do: "matches", else: "differs"
+      "#{projection.branch} [local, #{sync}]"
+    else
+      "#{projection.branch} [local, absent]"
+    end
   end
 end

@@ -37,13 +37,20 @@ defmodule Mix.Tasks.Weld.Release.Stage do
     else
       Mix.shell().info("Staged #{result.package} #{result.version} (#{result.identity})")
       Mix.shell().info("Project #{result.project_path}")
-      Mix.shell().info("Expected archive SHA-256 #{result.archive_sha256}")
+      Mix.shell().info("Expected archive SHA-256 #{result.archive_sha256 || "none"}")
 
-      Mix.shell().info(
-        "Next: cd #{result.project_path} && mix deps.get --check-locked && mix hex.publish"
-      )
+      if result.archive_sha256, do: print_publish_command(result.project_path)
     end
   after
     Mix.Task.reenable("weld.release.stage")
+  end
+
+  defp print_publish_command(project_path) do
+    deps =
+      if File.regular?(Path.join(project_path, "mix.lock")),
+        do: "mix deps.get --check-locked && ",
+        else: ""
+
+    Mix.shell().info("Next: cd #{TaskSupport.shell_arg(project_path)} && #{deps}mix hex.publish")
   end
 end

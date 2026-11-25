@@ -202,27 +202,30 @@ defmodule Weld do
   @doc "Returns read-only release status for one or all artifacts."
   @spec release_status!(Path.t(), keyword()) :: map() | [map()]
   def release_status!(manifest_path, opts \\ []) do
-    if opts[:all] == true do
-      if opts[:artifact], do: raise(Weld.Error, "pass either --artifact or --all, not both")
+    manifest = Manifest.load!(manifest_path)
 
-      manifest_path
-      |> artifact_ids!()
-      |> Enum.map(fn id ->
-        plan = Plan.build!(manifest_path, Keyword.put(opts, :artifact, id))
-        ReleaseStatus.status(plan, opts)
-      end)
-    else
-      manifest_path
+    if opts[:artifact] do
+      if opts[:all], do: raise(Weld.Error, "pass either --artifact or --all, not both")
+
+      manifest
       |> Plan.build!(opts)
       |> ReleaseStatus.status(opts)
+    else
+      manifest.artifacts
+      |> Map.keys()
+      |> Enum.sort()
+      |> Enum.map(fn id ->
+        plan = Plan.build!(manifest, Keyword.put(opts, :artifact, id))
+        ReleaseStatus.status(plan, opts)
+      end)
     end
   end
 
   @doc "Verifies a Git tag's Weld receipt against its target commit and optional local evidence."
-  @spec release_verify_tag!(Path.t(), String.t(), keyword()) :: map()
+  @spec release_verify_tag!(Path.t(), String.t(), keyword()) :: ReleaseStatus.tag_result()
   def release_verify_tag!(manifest_path, tag, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
-    ReleaseStatus.verify_tag(plan.manifest.repo_root, tag, Keyword.put(opts, :plan, plan))
+    manifest = Manifest.load!(manifest_path)
+    ReleaseStatus.verify_tag(manifest.repo_root, tag, opts)
   end
 
   @spec release_archive!(Path.t(), keyword()) :: map()

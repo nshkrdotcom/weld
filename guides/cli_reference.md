@@ -95,6 +95,9 @@ Generates, verifies, and bundles one or all welded artifacts. The prepared
 bundle always contains the projected project tree and metadata, and it also
 contains the tarball when `verify.hex_build` is enabled.
 
+With `--all`, Weld attempts each artifact, prints per-artifact results, and
+exits with an error if any artifact failed. Successful bundles remain available.
+
 ## Release Status
 
 ```bash
@@ -102,9 +105,12 @@ mix weld.release.status [manifest_path] [--artifact name | --all] [--identity sh
 mix release.status [manifest_path] [--artifact name | --all] [--identity sha] [--format json]
 ```
 
-Shows read-only local release status, freshness reason codes, bundle identity,
-expected `archive_sha256`, publish workspace state, archive state, and local
-`projection/*` receipt alignment.
+Lists every manifest artifact in artifact ID order by default. JSON returns an
+array for the inventory and an object with `--artifact`. Each entry includes
+the artifact's mode, source roots, manifest path, local projection and release
+paths, default tag, bundle identity, integrity and freshness state, and local
+projection branch tree and receipt alignment. Paths identify the expected locations
+even when their outputs have yet to be generated.
 
 ## Release Track
 
@@ -125,7 +131,10 @@ mix release.verify_tag <tag> [manifest_path] [--artifact name] [--identity sha] 
 ```
 
 Verifies an annotated release tag's `weld.receipt/v1` trailers against its
-target commit and optional local bundle or tarball.
+target commit and optional local bundle or tarball. The receipt selects the
+artifact and identity. Weld checks the prepared bundle first, then the archived
+copy if the prepared bundle is absent. Explicit `--artifact` and `--identity`
+act as assertions.
 
 ## Release Stage
 
@@ -142,8 +151,8 @@ Pass `--path-only` for scriptable path-only output.
 ## Release Publish
 
 ```bash
-mix weld.release.publish [manifest_path] [--artifact name] [--identity sha] [--tag tag] [--allow-stale]
-mix release.publish [manifest_path] [--artifact name] [--identity sha] [--tag tag] [--allow-stale]
+mix weld.release.publish [manifest_path] [--artifact name] [--identity sha] [--tag tag] [--allow-stale] [--dry-run]
+mix release.publish [manifest_path] [--artifact name] [--identity sha] [--tag tag] [--allow-stale] [--dry-run]
 ```
 
 Pins a verified bundle identity, stages an isolated per-invocation workspace,

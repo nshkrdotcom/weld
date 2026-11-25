@@ -37,6 +37,15 @@ defmodule Weld.ReleaseTest do
     refute File.exists?(Path.join(prepared.project_path, "doc"))
     refute File.exists?(Path.join(prepared.project_path, "fixture_bundle-0.1.0.tar"))
 
+    dry_run =
+      Weld.release_publish!(manifest_path,
+        identity: prepared.identity,
+        dry_run: true
+      )
+
+    assert dry_run.completed?
+    assert dry_run.archive_sha256 == Weld.Hash.sha256_file(prepared.tarball_path)
+
     publish = Weld.release_stage!(manifest_path)
 
     assert publish.project_path ==
@@ -62,6 +71,10 @@ defmodule Weld.ReleaseTest do
 
     assert File.regular?(Path.join(publish.project_path, "doc/index.html"))
     refute File.exists?(Path.join(prepared.project_path, "doc"))
+
+    refreshed = Weld.release_stage!(manifest_path, fresh: true)
+    assert refreshed.refreshed?
+    assert File.regular?(Path.join(dry_run.project_path, "doc/index.html"))
 
     archived = Weld.release_archive!(manifest_path)
 

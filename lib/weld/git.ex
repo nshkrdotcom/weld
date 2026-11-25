@@ -69,6 +69,49 @@ defmodule Weld.Git do
     run(repo_root, ["rev-parse", "--verify", ref])
   end
 
+  @doc false
+  def tree_matches?(repo_root, ref, project) do
+    with {:ok, format} <- run(repo_root, ["rev-parse", "--show-object-format"]),
+         {:ok, algorithm} <- object_hash_algorithm(format),
+         {raw_tree, 0} <-
+           System.cmd("git", ["ls-tree", "--full-tree", "-r", "-z", ref], cd: repo_root) do
+      files =
+        project
+        |> Weld.Hash.list_files()
+        |> Map.new(fn path -> {Path.relative_to(path, project), path} end)
+
+      entries = :binary.split(raw_tree, <<0>>, [:global, :trim])
+
+      length(entries) == map_size(files) and
+        Enum.all?(entries, &matching_blob?(&1, files, algorithm))
+    else
+      _ -> nil
+    end
+  end
+
+  defp object_hash_algorithm("sha1"), do: {:ok, :sha}
+  defp object_hash_algorithm("sha256"), do: {:ok, :sha256}
+  defp object_hash_algorithm(_format), do: :unknown
+
+  defp matching_blob?(entry, files, algorithm) do
+    with [header, name] <- :binary.split(entry, "\t"),
+         [mode, "blob", oid] <- String.split(header),
+         {:ok, path} <- Map.fetch(files, name),
+         {:ok, %{mode: file_mode, size: size}} <- File.stat(path) do
+      expected_mode = if Bitwise.band(file_mode, 0o100) == 0, do: "100644", else: "100755"
+      hash = :crypto.hash_update(:crypto.hash_init(algorithm), "blob #{size}\0")
+
+      mode == expected_mode and
+        path
+        |> File.stream!(64_000, [])
+        |> Enum.reduce(hash, &:crypto.hash_update(&2, &1))
+        |> :crypto.hash_final()
+        |> Base.encode16(case: :lower) == oid
+    else
+      _ -> false
+    end
+  end
+
   @spec tag_exists?(Path.t(), String.t()) :: boolean()
   def tag_exists?(repo_root, tag) do
     match?({:ok, _}, run(repo_root, ["show-ref", "--verify", "--quiet", "refs/tags/#{tag}"]))
@@ -185,18 +228,33 @@ defmodule Weld.Git do
   def create_tag!(repo_root, tag, message \\ nil)
 
   def create_tag!(repo_root, tag, nil) do
-    run!(repo_root, ["tag", tag])
+    run!(repo_root, ["tag", "--", tag])
     :ok
   end
 
   def create_tag!(repo_root, tag, message) when is_binary(message) do
-    run!(repo_root, ["tag", "-a", tag, "-m", message])
+    run!(repo_root, ["tag", "-a", "-m", message, "--", tag])
     :ok
   end
 
   @spec push_branch!(Path.t(), String.t(), String.t()) :: :ok
   def push_branch!(repo_root, remote, branch) do
     run!(repo_root, ["push", "--set-upstream", remote, branch])
+    :ok
+  end
+
+  @doc false
+  def push_release!(repo_root, remote, branch, tag) do
+    run!(repo_root, [
+      "push",
+      "--atomic",
+      "--set-upstream",
+      "--",
+      remote,
+      "refs/heads/#{branch}",
+      "refs/tags/#{tag}"
+    ])
+
     :ok
   end
 

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.18.0] - 2026-11-25
+## [0.18.0] - 2026-11-24
 
 ### Added
 
@@ -16,14 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without projection tree edits, and reject conflicting or legacy lightweight
   tags before moving refs.
 - Add `mix release.verify_tag <tag>` (`mix weld.release.verify_tag`) to verify
-  tag and commit receipts against optional local bundles or tarballs.
+  tag and commit receipts against optional local bundles or tarballs. The
+  receipt selects the artifact and identity, including in multi-artifact repos.
 - Add read-only `mix release.status [--artifact name | --all] [--format json]`
   with shared two-layer integrity and freshness classification (`ready`,
   `stale` reason codes, `unprepared`, `corrupt_bundle`, local projection sync).
+  Lists all artifacts by default and reports source roots, default tags, and
+  projection and bundle paths in text and JSON.
 - Add `mix release.publish` (`mix weld.release.publish`) to pin a verified
   bundle identity, stage an isolated per-invocation workspace, verify a local
   `mix hex.build` matches the prepared tarball SHA-256, and hand off
-  interactively to `mix hex.publish` without holding `.weld/.lock`.
+  interactively to `mix hex.publish` without holding `.weld/.lock`. Pass
+  `--dry-run` to validate the handoff without uploading.
 - Add `--identity <sha>` pinning across `release.track`, `release.stage`,
   `release.publish`, and `release.archive`, `--fresh` and `--path-only` on
   `release.stage`, `--all` on `release.prepare` and `release.archive`, and

@@ -71,16 +71,25 @@ bundle; Hex publication is a separate outcome.
 mix release.status [--artifact <name> | --all] [--format json]
 ```
 
-Read-only local inspection of prepared bundle integrity, freshness (`ready` vs
-`stale` reason codes), expected `archive_sha256`, publish workspace state,
-archive state, and local `projection/*` alignment.
+Run `mix release.status` from a fresh checkout to see every Weld artifact.
+Each entry connects the checked-in manifest and source roots to the package,
+default projection branch and release tag, and expected paths under `.weld/`.
+Once prepared, it reports the bundle identity, freshness, archive SHA-256,
+publish workspace and archive state. Use `--format json` to read these fields
+from scripts, then pass the artifact and full identity to release tasks.
+
+Keep the artifact inventory in the checked-in manifest. Link to it from the
+repository README or agent instructions so maintainers can find it without
+first generating `.weld/`. The local directories are grouped by artifact ID
+and immutable bundle identity. A verified Git tag identifies the same artifact
+and identity even after local outputs are gone.
 
 ## Publish
 
 Recommended interactive handoff:
 
 ```bash
-mix release.publish [--artifact <name>] [--identity <sha>] [--tag <tag>]
+mix release.publish [--artifact <name>] [--identity <sha>] [--tag <tag>] [--dry-run]
 ```
 
 Weld pins the verified bundle identity, verifies freshness (pass `--allow-stale`
@@ -88,11 +97,16 @@ only for `head_moved` / `dirty_worktree`), checks `--tag` receipt agreement when
 given, stages an isolated per-run workspace under `.weld/publish/`, releases
 `.weld/.lock`, runs `mix deps.get --check-locked` and a local `mix hex.build` to
 confirm the rebuilt tarball matches the prepared `archive_sha256`, and hands
-stdio directly to `mix hex.publish`. Weld never owns Hex credentials or retries.
+stdio to Hex for prompts and credentials. Declining confirmation stops the
+handoff. Pass `--dry-run` to run the same local checks and Hex's publication
+dry run without uploading. When Hex stages a release for approval, wait for
+Hex to confirm publication before archiving.
 
 For manual staging, run `mix release.stage [--fresh] [--identity <sha>]` (use
 `--path-only` for scripts). `--fresh` atomically replaces a dirty publish
-workspace.
+workspace. Prepare, track, and publish print the next command with the selected
+manifest, artifact, and full identity. Tagged tracking pushes the branch and
+tag together in one atomic Git transaction.
 
 **Recovery:** If `release.track --push` succeeded and `mix hex.publish` fails or
 is cancelled, fix the issue and retry `mix release.publish --identity <sha>`

@@ -13,7 +13,7 @@ A source project remains independently consumable with ordinary Mix.
   `github:` with `subdir:` for a nested package, or via Hex after release.
 - **Maintainer isolation:** A separate maintainer project, such as
   `tools/maintainer/mix.exs`, can declare
-  `{:weld, "~> 0.17.1", runtime: false}` after publication and pass the
+  `{:weld, "~> 0.18.0", runtime: false}` after publication and pass the
   manifest path explicitly.
 - **Projected views:** When maintainers or local/CI consumers want a symlinked development surface, an isolated portable copy, a verified release bundle, or a tracked `projection/<package_name>` branch, Weld projects those views from `build_support/weld.exs` under `.weld/`.
 

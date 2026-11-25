@@ -23,10 +23,10 @@ defmodule Mix.Tasks.Weld.Release.Archive do
     manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
 
     if opts[:all] do
-      for id <- Weld.artifact_ids!(manifest_path) do
+      TaskSupport.each_release_artifact!(manifest_path, fn id ->
         result = Weld.release_archive!(manifest_path, artifact: id)
         Mix.shell().info("Archived #{id} (#{result.identity}) in #{result.archive_path}")
-      end
+      end)
     else
       result =
         Weld.release_archive!(manifest_path,

@@ -19,12 +19,13 @@ defmodule Mix.Tasks.Weld.Release.Publish do
           artifact: :string,
           identity: :string,
           tag: :string,
-          allow_stale: :boolean
+          allow_stale: :boolean,
+          dry_run: :boolean
         ]
       )
 
     usage =
-      "Usage: mix weld.release.publish [manifest_path] [--artifact name] [--identity sha] [--tag tag] [--allow-stale]"
+      "Usage: mix weld.release.publish [manifest_path] [--artifact name] [--identity sha] [--tag tag] [--allow-stale] [--dry-run]"
 
     TaskSupport.reject_invalid!(invalid)
     manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
@@ -35,19 +36,26 @@ defmodule Mix.Tasks.Weld.Release.Publish do
       Mix.shell().error("Warning: #{warning}")
     end)
 
-    if result.published? do
-      artifact_flag = if opts[:artifact], do: " --artifact #{opts[:artifact]}", else: ""
+    unless result.completed? do
+      Mix.raise("mix hex.publish exited with status #{result.exit_status}; archive step skipped")
+    end
+
+    if opts[:dry_run] do
+      Mix.shell().info(
+        "Hex dry run passed for #{result.package} #{result.version} (#{result.identity})"
+      )
+    else
+      next =
+        TaskSupport.release_command("archive", manifest_path, result.artifact, result.identity)
 
       Mix.shell().info(
         "Hex publish exited 0 for #{result.package} #{result.version} (#{result.identity})"
       )
 
-      Mix.shell().info("Expected archive SHA-256: #{result.archive_sha256}")
-
-      Mix.shell().info("Next: mix release.archive#{artifact_flag} --identity #{result.identity}")
-    else
-      Mix.raise("mix hex.publish exited with status #{result.exit_status}; archive step skipped")
+      Mix.shell().info("After Hex confirms publication: #{next}")
     end
+
+    Mix.shell().info("Expected archive SHA-256: #{result.archive_sha256}")
   after
     Mix.Task.reenable("weld.release.publish")
   end

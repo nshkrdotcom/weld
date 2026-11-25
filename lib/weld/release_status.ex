@@ -14,6 +14,18 @@ defmodule Weld.ReleaseStatus do
           | :missing_bundle
           | :corrupt_bundle
 
+  @type evidence :: :match | :mismatch | :missing_local | :not_checked
+  @type tag_result :: %{
+          required(:tag) => String.t(),
+          required(:status) => :match | :mismatch | :missing_local | :missing_tag | :legacy_tag,
+          required(:message) => String.t(),
+          optional(:target_sha) => String.t(),
+          optional(:tag_receipt) => map() | nil,
+          optional(:commit_receipt) => map() | nil,
+          optional(:local_bundle) => evidence(),
+          optional(:local_tarball) => evidence()
+        }
+
   @spec status(Plan.t(), keyword()) :: map()
   def status(%Plan{} = plan, opts \\ []) do
     repo_root = plan.manifest.repo_root
@@ -95,7 +107,7 @@ defmodule Weld.ReleaseStatus do
     |> Enum.reverse()
   end
 
-  @spec verify_tag(Path.t(), String.t(), keyword()) :: map()
+  @spec verify_tag(Path.t(), String.t(), keyword()) :: tag_result()
   def verify_tag(repo_root, tag, opts \\ []) do
     case ReleaseReceipt.from_tag(repo_root, tag) do
       :missing ->
@@ -142,7 +154,7 @@ defmodule Weld.ReleaseStatus do
 
     case commit_result do
       {:ok, commit_receipt} when commit_receipt == tag_receipt ->
-        compare_local_evidence(tag, target_sha, tag_receipt, commit_receipt, opts)
+        compare_local_evidence(repo_root, tag, target_sha, tag_receipt, commit_receipt, opts)
 
       {:ok, commit_receipt} ->
         %{
@@ -166,15 +178,15 @@ defmodule Weld.ReleaseStatus do
     end
   end
 
-  defp compare_local_evidence(tag, target_sha, tag_receipt, commit_receipt, opts) do
-    bundle_check = check_bundle_evidence(tag_receipt, opts[:plan], opts[:identity])
+  defp compare_local_evidence(repo_root, tag, target_sha, tag_receipt, commit_receipt, opts) do
+    bundle_check = check_bundle_evidence(repo_root, tag_receipt, opts)
     tarball_check = check_tarball_evidence(tag_receipt, opts[:tarball])
 
     status =
       cond do
         :mismatch in [bundle_check, tarball_check] -> :mismatch
-        bundle_check == :missing_local and is_nil(opts[:tarball]) -> :missing_local
         tarball_check == :missing_local -> :missing_local
+        bundle_check == :missing_local and tarball_check != :match -> :missing_local
         true -> :match
       end
 
@@ -190,30 +202,55 @@ defmodule Weld.ReleaseStatus do
     }
   end
 
-  defp check_bundle_evidence(_receipt, nil, _identity), do: :not_checked
+  defp check_bundle_evidence(repo_root, receipt, opts) do
+    artifact = receipt[:artifact]
+    identity = receipt[:identity]
 
-  defp check_bundle_evidence(receipt, %Plan{} = plan, identity_opt) do
-    expected = identity_opt || receipt[:identity]
-    bundle = Output.path(plan.manifest.repo_root, ["releases", plan.artifact.id, expected])
+    cond do
+      not is_binary(artifact) or not Regex.match?(~r/\A[a-zA-Z0-9][a-zA-Z0-9_-]*\z/, artifact) ->
+        :mismatch
 
-    if File.dir?(bundle) do
-      try do
-        metadata = validate_bundle_integrity!(bundle, expected)
-        integrity = metadata["integrity"] || %{}
+      opts[:artifact] && opts[:artifact] != artifact ->
+        :mismatch
 
-        if metadata["identity"] == receipt[:identity] and
-             integrity["archive_sha256"] == receipt[:archive_sha256] and
-             integrity["project_sha256"] == receipt[:project_sha256] do
-          :match
-        else
-          :mismatch
-        end
-      rescue
-        Error -> :mismatch
-      end
+      opts[:identity] && opts[:identity] != identity ->
+        :mismatch
+
+      true ->
+        check_local_bundle(repo_root, artifact, identity, receipt)
+    end
+  end
+
+  defp check_local_bundle(repo_root, artifact, identity, receipt) do
+    bundle =
+      Enum.find_value(["releases", "archive"], fn kind ->
+        path = Output.path(repo_root, [kind, artifact, identity])
+        if File.exists?(path), do: path
+      end)
+
+    if bundle do
+      metadata = validate_bundle_integrity!(bundle, identity)
+      integrity = metadata["integrity"] || metadata["handoff"] || %{}
+      package = metadata["package"]
+
+      expected = %{
+        artifact: metadata["artifact"],
+        package: package["name"],
+        version: package["version"],
+        source_revision: metadata["source_revision"],
+        tool_version: metadata["weld_version"] || receipt[:tool_version],
+        archive_sha256: integrity["archive_sha256"],
+        project_sha256: integrity["project_sha256"],
+        docs_sha256: integrity["docs_sha256"]
+      }
+
+      fields = Map.new(expected, fn {key, _value} -> {key, receipt[key]} end)
+      if expected == fields, do: :match, else: :mismatch
     else
       :missing_local
     end
+  rescue
+    Error -> :mismatch
   end
 
   defp check_tarball_evidence(_receipt, nil), do: :not_checked
@@ -279,6 +316,11 @@ defmodule Weld.ReleaseStatus do
 
     %{
       artifact: plan.artifact.id,
+      mode: plan.artifact.mode,
+      roots: plan.artifact.roots,
+      manifest_path: plan.manifest.manifest_path,
+      default_tag: Release.default_tag(plan),
+      paths: release_paths(plan, identity),
       package: plan.artifact.package.name,
       version: plan.artifact.package.version,
       state: state,
@@ -293,7 +335,7 @@ defmodule Weld.ReleaseStatus do
       docs_sha256: integrity["docs_sha256"],
       publish_workspace: publish_workspace_state(plan, identity, metadata),
       archived: archived?(plan, identity),
-      projection: projection_status(plan, identity),
+      projection: projection_status(plan, identity, Path.join(bundle, "project")),
       warnings: warnings
     }
   rescue
@@ -304,6 +346,11 @@ defmodule Weld.ReleaseStatus do
   defp empty_status(plan, state, reasons, current_revision, warnings, identity \\ nil) do
     %{
       artifact: plan.artifact.id,
+      mode: plan.artifact.mode,
+      roots: plan.artifact.roots,
+      manifest_path: plan.manifest.manifest_path,
+      default_tag: Release.default_tag(plan),
+      paths: release_paths(plan, identity),
       package: plan.artifact.package.name,
       version: plan.artifact.package.version,
       state: state,
@@ -318,8 +365,23 @@ defmodule Weld.ReleaseStatus do
       docs_sha256: nil,
       publish_workspace: :none,
       archived: false,
-      projection: projection_status(plan, identity),
+      projection: projection_status(plan, identity, nil),
       warnings: warnings
+    }
+  end
+
+  defp release_paths(plan, identity) do
+    root = Path.join(Output.checkout(plan.manifest.repo_root), ".weld")
+    artifact = plan.artifact.id
+    releases = Path.join([root, "releases", artifact])
+
+    %{
+      releases: releases,
+      bundle: identity && Path.join(releases, identity),
+      live_project: Path.join([root, "live", artifact]),
+      full_project: Path.join([root, "full", artifact, "project"]),
+      publish_project: identity && Path.join([root, "publish", artifact, identity, "project"]),
+      archive: identity && Path.join([root, "archive", artifact, identity])
     }
   end
 
@@ -361,7 +423,7 @@ defmodule Weld.ReleaseStatus do
     end
   end
 
-  defp projection_status(plan, identity) do
+  defp projection_status(plan, identity, project) do
     repo_root = plan.manifest.repo_root
     branch = "projection/#{plan.artifact.package.name}"
 
@@ -384,6 +446,7 @@ defmodule Weld.ReleaseStatus do
         exists: true,
         tip_sha: tip_sha,
         receipt_identity: receipt_id,
+        tree_matches: project && tip_sha && Git.tree_matches?(repo_root, tip_sha, project),
         matches_identity: is_binary(identity) and receipt_id == identity
       }
     else
@@ -393,6 +456,7 @@ defmodule Weld.ReleaseStatus do
         exists: false,
         tip_sha: nil,
         receipt_identity: nil,
+        tree_matches: nil,
         matches_identity: false
       }
     end
@@ -416,7 +480,8 @@ defmodule Weld.ReleaseStatus do
       match_identity?(docs, integrity["docs_identity"])
   end
 
-  defp valid_project?(project, metadata, integrity) do
+  @doc false
+  def valid_project?(project, metadata, integrity) do
     File.dir?(project) and Hash.sha256_tree(project) == integrity["project_sha256"] and
       valid_lock?(project, metadata) and match_identity?(project, integrity["project_identity"])
   end

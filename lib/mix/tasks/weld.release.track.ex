@@ -59,6 +59,16 @@ defmodule Mix.Tasks.Weld.Release.Track do
     Mix.shell().info(message)
     if result.tag, do: Mix.shell().info("Tagged #{result.tag}")
 
+    task = if result.has_tarball, do: "publish", else: "archive"
+    next = TaskSupport.release_command(task, manifest_path, result.artifact, result.identity)
+
+    tag_flag =
+      if result.has_tarball && result.tag,
+        do: " --tag #{TaskSupport.shell_arg(result.tag)}",
+        else: ""
+
+    Mix.shell().info("Next: #{next}#{tag_flag}")
+
     Enum.each(result.warnings, fn warning ->
       Mix.shell().error("Warning: #{warning}")
     end)
