@@ -107,6 +107,7 @@ defmodule Weld.Lockfile do
     build_path = Map.get(projection, :build_path)
 
     projection
+    |> Map.delete(:reused?)
     |> Map.update(:copied_files, [], fn files ->
       Enum.map(files, &portable_copied_file(&1, build_path))
     end)

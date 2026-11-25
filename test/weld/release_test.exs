@@ -10,6 +10,7 @@ defmodule Weld.ReleaseTest do
     repo_root = FixtureCase.copy_fixture("library_bundle")
     FixtureCase.init_git!(repo_root)
     manifest_path = Path.join(repo_root, "packaging/weld/fixture_bundle.exs")
+    Weld.project!(manifest_path)
     prepared = Weld.release_prepare!(manifest_path)
 
     assert File.dir?(prepared.bundle_path)
@@ -122,7 +123,7 @@ defmodule Weld.ReleaseTest do
     FixtureCase.git_output!(repo_root, ["clone", "--quiet", repo_root, checkout])
     FixtureCase.ignore_generated_files!(checkout)
     manifest_path = Path.join(checkout, "packaging/weld/fixture_bundle.exs")
-    prepared_b = Weld.release_prepare!(manifest_path)
+    prepared_b = Weld.release_prepare!(manifest_path, no_cache: true)
 
     assert Path.basename(prepared_a.bundle_path) == Path.basename(prepared_b.bundle_path)
 
