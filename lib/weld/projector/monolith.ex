@@ -64,7 +64,7 @@ defmodule Weld.Projector.Monolith do
         private ++
         helpers.operations ++ config.operations
 
-    operations = ensure_readme(operations, plan.artifact.package.name)
+    operations = ensure_readme(operations, plan.artifact, root)
 
     # A migration or configuration input affects generated configuration and the
     # Mix application even when it is not itself copied to those destinations.
@@ -178,10 +178,22 @@ defmodule Weld.Projector.Monolith do
     {acc, remaps, collisions ++ participants, mappings ++ [%{source: source, target: target}]}
   end
 
-  defp ensure_readme(operations, name) do
-    if Enum.any?(operations, &(&1.target == "README.md")),
-      do: operations,
-      else: operations ++ [FilePlan.generated("README.md", "# #{name}\n", :docs)]
+  defp ensure_readme(operations, artifact, root) do
+    case artifact.monolith_opts[:readme] do
+      nil ->
+        if Enum.any?(operations, &(&1.target == "README.md")),
+          do: operations,
+          else:
+            operations ++ [FilePlan.generated("README.md", "# #{artifact.package.name}\n", :docs)]
+
+      path ->
+        source = Output.source!(root, path)
+
+        unless File.regular?(source),
+          do: raise(Error, "monolith README must be a regular file: #{path}")
+
+        operations ++ [FilePlan.copy(source, "README.md", :docs)]
+    end
   end
 
   defp ensure_equal_layouts!(full, live) do
@@ -488,7 +500,8 @@ defmodule Weld.Projector.Monolith do
 
     output_roots =
       (plan.artifact.output.docs ++
-         plan.artifact.output.assets ++ Projector.root_tooling_candidates())
+         plan.artifact.output.assets ++
+         List.wrap(plan.artifact.monolith_opts[:readme]) ++ Projector.root_tooling_candidates())
       |> Enum.map(&Path.join(plan.manifest.repo_root, &1))
 
     Enum.uniq(component_roots ++ output_roots)

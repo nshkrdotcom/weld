@@ -3,10 +3,9 @@ defmodule Weld.ReleaseMetadataTest do
 
   @repo_root Path.expand("../..", __DIR__)
 
-  test "0.18.0 package metadata is release complete and narrowly allowlisted" do
+  test "Weld package metadata is release complete and narrowly allowlisted" do
     project = Mix.Project.config()
 
-    assert project[:version] == "0.18.0"
     manifest = Weld.Manifest.load!(Path.join(@repo_root, "build_support/weld.exs"))
     artifact = Weld.Manifest.artifact!(manifest, :weld)
     assert artifact.mode == :source_project

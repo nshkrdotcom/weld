@@ -236,6 +236,7 @@ defmodule Weld.Manifest do
   ]
 
   @monolith_opts_schema [
+    readme: [type: :string],
     shared_test_configs: [type: {:list, :any}, default: []],
     extra_test_deps: [type: {:list, :atom}, default: []],
     test_support_projects: [type: {:list, :any}, default: []]
@@ -606,9 +607,16 @@ defmodule Weld.Manifest do
           "package.docs.groups_for_extras must be a list, got: #{inspect(groups)}"
   end
 
+  @doc false
+  def docs_paths(%Artifact{mode: :monolith, monolith_opts: opts, output: output}) do
+    if opts[:readme], do: ["README.md" | output.docs], else: output.docs
+  end
+
+  def docs_paths(%Artifact{output: output}), do: output.docs
+
   defp validate_docs_output!(%Artifact{} = artifact) do
     docs = artifact.package.docs
-    output_docs = MapSet.new(artifact.output.docs)
+    output_docs = MapSet.new(docs_paths(artifact))
 
     referenced_docs =
       Map.keys(docs.extra_titles) ++
@@ -699,6 +707,12 @@ defmodule Weld.Manifest do
     else
       normalized
     end
+    |> then(fn normalized ->
+      case opts[:readme] do
+        nil -> normalized
+        path -> Keyword.put(normalized, :readme, path)
+      end
+    end)
   end
 
   defp normalize_project_refs(entries) do

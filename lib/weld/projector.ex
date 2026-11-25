@@ -10,6 +10,7 @@ defmodule Weld.Projector do
   alias Weld.Git
   alias Weld.Hash
   alias Weld.Lockfile
+  alias Weld.Manifest
   alias Weld.Output
   alias Weld.Plan
   alias Weld.Plan.Inventory
@@ -295,7 +296,7 @@ defmodule Weld.Projector do
     docs = plan.artifact.package.docs
 
     extras =
-      Enum.map(plan.artifact.output.docs, fn path ->
+      Enum.map(Manifest.docs_paths(plan.artifact), fn path ->
         case docs.extra_titles do
           %{^path => title} -> {path, [title: title]}
           _titles -> path

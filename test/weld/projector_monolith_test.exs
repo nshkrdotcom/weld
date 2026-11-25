@@ -60,6 +60,33 @@ defmodule Weld.ProjectorMonolithTest do
     refute mixfile =~ ", path:"
   end
 
+  test "uses the configured monolith README at the package root" do
+    manifest = FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
+    root = Path.expand("../..", Path.dirname(manifest))
+    readme = "# Fixture API\n\nREADME from the selected app.\n"
+    File.write!(Path.join(root, "runtime/api/README.md"), readme)
+
+    contents =
+      manifest
+      |> File.read!()
+      |> String.replace("mode: :monolith,", """
+      mode: :monolith,
+      monolith_opts: [readme: "runtime/api/README.md"],
+      """)
+      |> String.replace(~s(docs: ["README.md", "CHANGELOG.md",), ~s(docs: ["CHANGELOG.md",))
+
+    File.write!(manifest, contents)
+
+    for opts <- [[], [live: true]] do
+      result = Weld.project!(manifest, opts)
+      assert File.read!(Path.join(result.build_path, "README.md")) == readme
+      assert "README.md" in result.package_files
+
+      assert File.read!(Path.join(result.build_path, "mix.exs")) =~
+               ~s({"README.md", [title: "Overview"]})
+    end
+  end
+
   test "rejects colliding private assets in a monolith" do
     manifest = FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
     root = Path.expand("../..", Path.dirname(manifest))

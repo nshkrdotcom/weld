@@ -108,6 +108,12 @@ already declare the intended versioned package dependency. The
 
 ## Monolith Options (`monolith_opts`)
 
+- `readme` selects a regular file relative to the workspace root. Weld copies
+  it unchanged to the package root as `README.md` and includes it in HexDocs
+  extras under that name. Omit a root `README.md` from `output.docs` when this
+  option is set. Use links that work from the published README, since Weld
+  preserves its contents.
+
 Selected projects contribute tests only from their Mix `:test_paths`
 configuration, which defaults to `["test"]`. Weld preserves paths relative to
 the owning project, de-duplicates overlaps, and rejects paths outside that
