@@ -2,7 +2,7 @@ defmodule Weld.DocsPreview do
   @moduledoc false
 
   @makeup_block ~r/<code class="makeup [^"]+"[^>]*>.*?<\/code>/s
-  @makeup_group ~r/(<span class="[^"]+" data-group-id=")([0-9]{10})-([0-9]+)"/
+  @makeup_group ~r/(<span class="[^"]+" data-group-id=")(?<prefix>[0-9]{10})-([0-9]+)"/
 
   def copy!(source, target) do
     File.mkdir!(target)
@@ -33,7 +33,7 @@ defmodule Weld.DocsPreview do
     # Keep all matching delimiters in the same group. The block position keeps
     # the highlighter's page-wide selector from matching adjacent blocks.
     prefixes =
-      Regex.scan(@makeup_group, block, capture: [2])
+      Regex.scan(@makeup_group, block, capture: ["prefix"])
       |> List.flatten()
       |> Enum.uniq()
       |> Enum.with_index()
