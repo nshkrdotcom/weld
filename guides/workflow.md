@@ -22,6 +22,11 @@
   checkout.
 - **Full candidate (`.weld/full/<artifact>/project/`, all modes):** Generated with `mix weld.project` (and refreshed automatically by `mix weld.verify` and `mix release.prepare`). Contains regular copied/synthesized files, `weld.provenance.json` (`kind: "full"`, `artifact_id`), and `projection.lock.json`.
 
+An identical project command checks the source inventory and generated output
+under the checkout lock and leaves a valid projection in place. Pass
+`--no-cache` to force materialization. Unsafe source paths still fail
+validation.
+
 ## Recommended Release Sequence
 
 1. Run `mix weld.setup` once (and commit `.gitignore` if updated) so `.weld/` is ignored on a clean tree.
@@ -31,11 +36,6 @@
    iterating on packaging configuration. Compile any live view you intend to
    share from a separate Mix consumer.
 5. From a clean committed revision, run `mix release.prepare` to verify and write `.weld/releases/<artifact>/<identity>/`.
-
-An identical project command checks the source inventory and generated output
-under the checkout lock and leaves a valid projection in place. Pass
-`--no-cache` to force materialization. Unsafe source paths still fail
-validation.
 6. Optionally run `mix release.track` to update `projection/<package_name>` (with optional `--tag` and `--push`).
 7. When publishing to Hex, run `mix hex.publish` inside `.weld/releases/<artifact>/<identity>/project/`.
 8. Run `mix release.archive` to record the released bundle under `.weld/archive/<artifact>/<identity>/`.

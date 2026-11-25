@@ -47,12 +47,12 @@ Every mode supports two projection kinds:
 
 ## Installation For Maintainers
 
-These examples target Weld 0.16.0. Resolve the Hex dependency once that version is published. Add it to the workspace `mix.exs` or to a dedicated maintainer project such as `tools/maintainer/mix.exs`.
+These examples target Weld 0.17.0. Resolve the Hex dependency once that version is published. Add it to the workspace `mix.exs` or to a dedicated maintainer project such as `tools/maintainer/mix.exs`.
 
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.16.0", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.17.0", only: [:dev, :test], runtime: false}
   ]
 end
 ```
@@ -154,6 +154,12 @@ and release preparation.
 
 - **Package-projection and source-project modes:** `mix deps.get`, `mix deps.compile`, `mix compile --warnings-as-errors --no-compile-deps`, `mix test`, `mix docs --warnings-as-errors`, optional external smoke-app compilation, `mix hex.build` (when `verify.hex_build` is `true`), and `mix hex.publish --dry-run --yes` (when both `hex_build` and `hex_publish` are `true`).
 - **Monolith mode:** per-selected-project `mix test` baseline, `mix deps.get`, `mix compile --warnings-as-errors`, `mix test` (enforcing `test_count >= baseline`), `mix docs --warnings-as-errors`, `mix hex.build` (when `hex_build` is `true`), and `mix hex.publish --dry-run --yes` (when both `hex_build` and `hex_publish` are `true`).
+
+A repeated `mix weld.project` validates the source and generated output before
+reusing an unchanged view. Use `--no-cache` to rebuild it. Locked source-project
+artifacts can also opt into verified bundle reuse with
+`mix release.prepare --reuse CONTEXT`. See the [release process](guides/release_process.md)
+for eligibility and how to choose a context.
 
 Set `verify: [hex_build: false]` for internal artifacts that intentionally use non-Hex Git dependencies, or `verify: [hex_publish: false]` to build a Hex tarball without running `hex.publish --dry-run`.
 

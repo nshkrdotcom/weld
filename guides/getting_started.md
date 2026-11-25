@@ -10,12 +10,12 @@ packages.
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.16.0", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.17.0", only: [:dev, :test], runtime: false}
   ]
 end
 ```
 
-Resolve this Hex dependency after Weld 0.16.0 is published. To try a release
+Resolve this Hex dependency after Weld 0.17.0 is published. To try a release
 candidate, point a disposable maintainer Mix project at the candidate checkout
 with a Weld path dependency and pass your manifest's absolute path to the tasks
 below.

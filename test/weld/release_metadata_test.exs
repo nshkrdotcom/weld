@@ -3,10 +3,10 @@ defmodule Weld.ReleaseMetadataTest do
 
   @repo_root Path.expand("../..", __DIR__)
 
-  test "0.16.0 package metadata is release complete and narrowly allowlisted" do
+  test "0.17.0 package metadata is release complete and narrowly allowlisted" do
     project = Mix.Project.config()
 
-    assert project[:version] == "0.16.0"
+    assert project[:version] == "0.17.0"
     manifest = Weld.Manifest.load!(Path.join(@repo_root, "build_support/weld.exs"))
     artifact = Weld.Manifest.artifact!(manifest, :weld)
     assert artifact.mode == :source_project
@@ -19,7 +19,7 @@ defmodule Weld.ReleaseMetadataTest do
 
     assert project[:docs][:main] == "readme"
     assert project[:docs][:logo] == "assets/weld.svg"
-    assert project[:docs][:source_ref] == "v0.16.0"
+    assert project[:docs][:source_ref] == "v#{project[:version]}"
     assert length(project[:docs][:groups_for_extras]) == 4
 
     assert Enum.map(project[:deps], &elem(&1, 0)) == [
@@ -56,6 +56,7 @@ defmodule Weld.ReleaseMetadataTest do
 
     assert license =~ "MIT License"
     assert license =~ "Copyright (c) 2026 nshkrdotcom"
+    assert changelog =~ "## [0.17.0] - 2026-11-24"
     assert changelog =~ "## [0.16.0] - 2026-11-24"
     assert changelog =~ "## [0.15.0] - 2026-11-24"
 

@@ -5,13 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.17.0] - 2026-11-24
 
-- Validate source and output content before reusing a live or full projection.
-- Support explicit verified release reuse for locked source projects and
-  independent rebuilds with `--no-cache`.
-- Make the generated HTML release preview deterministic while retaining
-  code highlighting.
+### Added
+
+- Reuse unchanged live and full projections after validating the source
+  inventory and generated output. Pass `mix weld.project --no-cache` to
+  force materialization.
+- Use `mix release.prepare --reuse CONTEXT` to reuse an intact, verified
+  bundle for a locked source-project artifact with Hex publishing checks
+  disabled. Use `--no-cache` for an independent rebuild.
+
+### Fixed
+
+- Generate stable HTML code-highlight group IDs so independent preparations
+  can reproduce the documentation preview byte for byte.
+- Keep projection reuse metadata out of prepared bundles so an unchanged
+  projection produces the same release files whether materialized or reused.
 
 ## [0.16.0] - 2026-11-24
 
