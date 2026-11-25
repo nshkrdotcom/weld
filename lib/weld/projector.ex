@@ -13,10 +13,10 @@ defmodule Weld.Projector do
   alias Weld.Output
   alias Weld.Plan
   alias Weld.Plan.Inventory
-  alias Weld.Receipt
   alias Weld.Projector.Live
   alias Weld.Projector.Monolith
   alias Weld.Projector.SourceProject
+  alias Weld.Receipt
   alias Weld.SourceFormatter
 
   @spec project!(Plan.t(), keyword()) :: map()

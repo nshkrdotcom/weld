@@ -435,12 +435,17 @@ defmodule Weld.Release do
     is_map(integrity) and
       valid_archive?(archive, metadata["tarball_path"], archive_name, integrity["archive_sha256"]) and
       File.dir?(project) and Hash.sha256_tree(project) == integrity["project_sha256"] and
-      (not Map.has_key?(metadata, "lock_sha256") or
-         metadata["lock_sha256"] == optional_digest(Path.join(project, "mix.lock"))) and
+      valid_lock?(project, metadata) and
       match_identity?(project, integrity["project_identity"]) and
       valid_docs?(docs, metadata["integrity"]) and
       match_identity?(docs, integrity["docs_identity"])
   end
+
+  defp valid_lock?(project, %{"lock_sha256" => digest}) do
+    digest == optional_digest(Path.join(project, "mix.lock"))
+  end
+
+  defp valid_lock?(_project, _metadata), do: true
 
   defp match_identity?(_path, nil), do: true
 

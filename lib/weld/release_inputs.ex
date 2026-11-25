@@ -3,6 +3,8 @@ defmodule Weld.ReleaseInputs do
 
   alias Weld.{Hash, Output, Receipt}
 
+  @compile {:no_warn_undefined, [Hex.Repo, Hex.State]}
+
   @trust_settings ~w(unsafe_https unsafe_registry no_verify_repo_origin offline cacerts_path
                       policy_enforce_lock policy_locked_versions policy_filtered_versions config_home cache_home data_home ssl_version)a
 
@@ -34,7 +36,7 @@ defmodule Weld.ReleaseInputs do
 
   defp hex_trust do
     with {:ok, _} <- Mix.Hex.start(),
-         raw when is_map(raw) <- apply(Hex.State, :get_all, []),
+         raw when is_map(raw) <- Hex.State.get_all(),
          state = Map.new(raw, fn {name, {_source, value}} -> {name, value} end),
          false <- Enum.any?(~w(unsafe_https unsafe_registry no_verify_repo_origin)a, &state[&1]),
          repos when is_map(repos) <- state[:repos] do
@@ -44,7 +46,7 @@ defmodule Weld.ReleaseInputs do
         |> Map.keys()
         |> Enum.sort()
         |> Enum.map(fn name ->
-          repo = apply(Hex.Repo, :get_repo, [name])
+          repo = Hex.Repo.get_repo(name)
           {name, public_url(repo.url), repo.public_key, repo.trusted}
         end)
 
