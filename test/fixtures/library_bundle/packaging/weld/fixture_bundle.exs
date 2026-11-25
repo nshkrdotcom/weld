@@ -37,6 +37,7 @@
         ]
       ],
       verify: [
+        hex_publish: false,
         artifact_tests: ["packaging/weld/fixture_bundle/test"],
         smoke: [
           enabled: true,

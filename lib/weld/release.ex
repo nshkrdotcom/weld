@@ -3,19 +3,22 @@ defmodule Weld.Release do
   Prepares and archives deterministic welded release bundles.
   """
 
+  alias Weld.DocsPreview
   alias Weld.Error
   alias Weld.Git
   alias Weld.Hash
   alias Weld.Output
   alias Weld.Plan
+  alias Weld.Receipt
+  alias Weld.ReleaseInputs
   alias Weld.Verifier
 
-  @spec prepare!(Plan.t()) :: map()
-  def prepare!(%Plan{} = plan) do
-    Weld.Output.with_lock(plan.manifest.repo_root, fn -> prepare_locked!(plan) end)
+  @spec prepare!(Plan.t(), keyword()) :: map()
+  def prepare!(%Plan{} = plan, opts \\ []) do
+    Output.with_lock(plan.manifest.repo_root, fn -> prepare_locked!(plan, opts) end)
   end
 
-  defp prepare_locked!(plan) do
+  defp prepare_locked!(plan, opts) do
     plan = Plan.ensure_valid!(plan)
     repo_root = plan.manifest.repo_root
     source_revision = Git.revision(repo_root)
@@ -25,12 +28,57 @@ defmodule Weld.Release do
     end
 
     if source_revision, do: Git.ensure_clean_repo!(repo_root)
-    verification = Verifier.verify!(plan)
+    context = if not opts[:no_cache], do: opts[:reuse]
+    input = ReleaseInputs.fingerprint(plan, source_revision, context)
+    receipt = Output.path(repo_root, ["cache", "release", plan.artifact.id, "prepare.receipt"])
+
+    case reused_bundle(plan, receipt, input, source_revision) do
+      {:ok, result} ->
+        ensure_source!(repo_root, source_revision)
+        Map.put(result, :reused?, true)
+
+      :miss ->
+        prepare_new_bundle!(plan, receipt, input, source_revision, context, opts)
+    end
+  end
+
+  defp reused_bundle(_plan, _receipt, nil, _revision), do: :miss
+
+  defp reused_bundle(plan, receipt, {input, lock}, revision) do
+    with {:ok, identity} <- Receipt.read(receipt, input),
+         true <- File.regular?(current_path(plan)),
+         bundle <- bundle_path(plan),
+         ^identity <- Path.basename(bundle),
+         metadata <- validate_bundle!(plan, bundle),
+         %{"source_revision" => ^revision, "lock_sha256" => ^lock} <- metadata do
+      {:ok, prepared_result(plan, bundle, identity, metadata["tarball_path"])}
+    else
+      _ -> :miss
+    end
+  end
+
+  defp prepare_new_bundle!(plan, receipt, input, source_revision, context, opts) do
+    repo_root = plan.manifest.repo_root
+    verification = Verifier.verify!(plan, no_cache: opts[:no_cache] == true)
     ensure_source!(repo_root, source_revision)
     stage = Output.temporary!(repo_root, "staging")
 
     try do
-      finish_prepare!(plan, verification, source_revision, stage)
+      if input && ReleaseInputs.fingerprint(plan, source_revision, context) != input do
+        raise Error, "release verification inputs changed during preparation"
+      end
+
+      result = finish_prepare!(plan, verification, source_revision, stage)
+
+      if input do
+        {key, lock} = input
+
+        if optional_digest(Path.join(result.project_path, "mix.lock")) == lock do
+          Receipt.write!(receipt, key, result.identity)
+        end
+      end
+
+      Map.put(result, :reused?, false)
     after
       File.rm_rf!(stage)
     end
@@ -54,7 +102,7 @@ defmodule Weld.Release do
 
     tarball_target = maybe_copy_tarball(stage, verification.tarball_path)
     docs_path = Path.join(stage, "docs")
-    copy_docs_preview!(Path.join(verification.build_path, "doc"), docs_path)
+    DocsPreview.copy!(Path.join(verification.build_path, "doc"), docs_path)
 
     release_json =
       %{
@@ -120,24 +168,19 @@ defmodule Weld.Release do
 
     set_current!(plan, identity)
 
+    prepared_result(plan, bundle, identity, release_json.tarball_path)
+  end
+
+  defp prepared_result(plan, bundle, identity, archive) do
     %{
       identity: identity,
       bundle_path: bundle,
       docs_path: Path.join(bundle, "docs"),
       project_path: Path.join(bundle, "project"),
-      tarball_path: tarball_target && Path.join(bundle, Path.basename(tarball_target)),
+      tarball_path: archive && Path.join(bundle, archive),
       release_metadata_path: Path.join(bundle, "release.json"),
-      build_path: verification.build_path
+      build_path: Weld.Projector.build_path(plan)
     }
-  end
-
-  defp copy_docs_preview!(source, target) do
-    File.mkdir!(target)
-
-    # ExDoc's EPUB includes a random UUID, wall-clock time and ZIP timestamps.
-    for entry <- File.ls!(source), Path.extname(entry) != ".epub" do
-      File.cp_r!(Path.join(source, entry), Path.join(target, entry))
-    end
   end
 
   defp optional_digest(path), do: if(File.regular?(path), do: Hash.sha256_file(path))
@@ -392,6 +435,8 @@ defmodule Weld.Release do
     is_map(integrity) and
       valid_archive?(archive, metadata["tarball_path"], archive_name, integrity["archive_sha256"]) and
       File.dir?(project) and Hash.sha256_tree(project) == integrity["project_sha256"] and
+      (not Map.has_key?(metadata, "lock_sha256") or
+         metadata["lock_sha256"] == optional_digest(Path.join(project, "mix.lock"))) and
       match_identity?(project, integrity["project_identity"]) and
       valid_docs?(docs, metadata["integrity"]) and
       match_identity?(docs, integrity["docs_identity"])

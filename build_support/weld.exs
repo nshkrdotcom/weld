@@ -20,7 +20,7 @@ lock = if File.regular?(Path.join(root, "mix.lock")), do: ["mix.lock"], else: []
         elixir: "~> 1.18",
         description: "Deterministic Mix project composition and release preparation"
       ],
-      verify: [hex_build: true, hex_publish: true]
+      verify: [hex_build: true, hex_publish: false]
     ]
   ]
 ]

@@ -129,6 +129,9 @@ defmodule Weld.ReleaseTest do
     assert Weld.Hash.sha256_tree(prepared_a.project_path) ==
              Weld.Hash.sha256_tree(prepared_b.project_path)
 
+    assert Weld.Hash.content_identity(prepared_a.docs_path) ==
+             Weld.Hash.content_identity(prepared_b.docs_path)
+
     assert Weld.Hash.sha256_file(prepared_a.tarball_path) ==
              Weld.Hash.sha256_file(prepared_b.tarball_path)
   end

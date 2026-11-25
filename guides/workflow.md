@@ -31,6 +31,11 @@
    iterating on packaging configuration. Compile any live view you intend to
    share from a separate Mix consumer.
 5. From a clean committed revision, run `mix release.prepare` to verify and write `.weld/releases/<artifact>/<identity>/`.
+
+An identical project command checks the source inventory and generated output
+under the checkout lock and leaves a valid projection in place. Pass
+`--no-cache` to force materialization. Unsafe source paths still fail
+validation.
 6. Optionally run `mix release.track` to update `projection/<package_name>` (with optional `--tag` and `--push`).
 7. When publishing to Hex, run `mix hex.publish` inside `.weld/releases/<artifact>/<identity>/project/`.
 8. Run `mix release.archive` to record the released bundle under `.weld/archive/<artifact>/<identity>/`.

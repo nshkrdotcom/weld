@@ -14,7 +14,8 @@
       ],
       output: [
         docs: ["README.md"]
-      ]
+      ],
+      verify: [hex_publish: false]
     ]
   ]
 ]

@@ -39,7 +39,8 @@
       output: [
         docs: ["README.md", "CHANGELOG.md", "guides/release.md"],
         assets: ["LICENSE", "assets/monolith_bundle.svg"]
-      ]
+      ],
+      verify: [hex_publish: false]
     ]
   ]
 ]

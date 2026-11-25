@@ -58,7 +58,7 @@ Initializes `<checkout_root>/.weld/`, writes its ownership marker, verifies `.we
 ## Project
 
 ```bash
-mix weld.project [manifest_path] [--artifact name] [--live]
+mix weld.project [manifest_path] [--artifact name] [--live] [--no-cache]
 ```
 
 Generates a standalone full candidate under `.weld/full/<artifact>/project/`.
@@ -87,8 +87,8 @@ Verifies root and nested `AGENTS.md` files for runtime-environment guidance.
 ## Release Prepare
 
 ```bash
-mix weld.release.prepare [manifest_path] [--artifact name]
-mix release.prepare [manifest_path] [--artifact name]
+mix weld.release.prepare [manifest_path] [--artifact name] [--reuse context] [--no-cache]
+mix release.prepare [manifest_path] [--artifact name] [--reuse context] [--no-cache]
 ```
 
 Generates, verifies, and bundles the welded artifact. The prepared bundle always

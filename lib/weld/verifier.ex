@@ -10,13 +10,13 @@ defmodule Weld.Verifier do
   alias Weld.Projector
   alias Weld.SmokeApp
 
-  @spec verify!(Plan.t()) :: map()
-  def verify!(%Plan{} = plan) do
-    Weld.Output.with_lock(plan.manifest.repo_root, fn -> verify_locked!(plan) end)
+  @spec verify!(Plan.t(), keyword()) :: map()
+  def verify!(%Plan{} = plan, opts \\ []) do
+    Weld.Output.with_lock(plan.manifest.repo_root, fn -> verify_locked!(plan, opts) end)
   end
 
-  defp verify_locked!(plan) do
-    projection = Projector.project!(plan)
+  defp verify_locked!(plan, opts) do
+    projection = Projector.project!(plan, opts)
     build_path = projection.build_path
     input_identity = Hash.verification_identity(build_path, projection.verification_files)
     package_identity = Hash.package_identity(build_path, package_patterns(projection))

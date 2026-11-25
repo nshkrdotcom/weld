@@ -16,6 +16,7 @@
         docs: ["README.md"]
       ],
       verify: [
+        hex_publish: false,
         artifact_tests: ["packaging/weld/package_bootstrap_bundle/test"]
       ]
     ]

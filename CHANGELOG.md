@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- Validate source and output content before reusing a live or full projection.
+- Support explicit verified release reuse for locked source projects and
+  independent rebuilds with `--no-cache`.
+- Make the generated HTML release preview deterministic while retaining
+  code highlighting.
+
 ## [0.16.0] - 2026-11-24
 
 ### Added

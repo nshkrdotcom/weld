@@ -28,6 +28,21 @@ Prepare Git releases from a clean committed tree. For a flattened project, set
 `package.docs.source_ref` to an immutable tag on its tracked projection. That
 tag contains the paths referenced by ExDoc's source links.
 
+A repeat preparation can reuse a verified bundle for a locked source
+project that has opted out of Hex publishing checks. Pass
+`mix release.prepare --reuse local-toolchain-v1` from a clean checkout. Use a
+non-secret identifier that represents any inputs your verification reads
+outside the checkout, such as native compiler flags or service fixtures.
+Change the identifier when those inputs change. Use `--no-cache` for an
+independent rebuild. Weld checks the current source, signed registry
+configuration, implementation, toolchain and resolved lock before reuse.
+It also checks the project, docs and archive bytes. A corrupt current bundle
+fails integrity validation.
+
+HTML previews keep their code highlighting and use stable delimiter group
+IDs. Rebuilding without the cache still generates the documentation
+independently. The EPUB remains outside the prepared docs preview.
+
 ## Track
 
 ```bash

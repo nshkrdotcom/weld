@@ -164,7 +164,7 @@ defmodule Weld do
 
   @spec release_prepare!(Path.t(), keyword()) :: map()
   def release_prepare!(manifest_path, opts \\ []) do
-    with_plan!(manifest_path, opts, &Release.prepare!/1)
+    with_plan!(manifest_path, opts, &Release.prepare!(&1, opts))
   end
 
   @spec release_bundle_path!(Path.t(), keyword()) :: Path.t()

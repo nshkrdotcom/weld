@@ -25,6 +25,7 @@
         docs: ["README.md"]
       ],
       verify: [
+        hex_publish: false,
         artifact_tests: ["packaging/weld/web_bundle/test"]
       ]
     ],
@@ -40,6 +41,7 @@
         docs: ["README.md"]
       ],
       verify: [
+        hex_publish: false,
         artifact_tests: ["packaging/weld/core_bundle/test"]
       ]
     ]

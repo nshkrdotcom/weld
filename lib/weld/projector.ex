@@ -13,6 +13,7 @@ defmodule Weld.Projector do
   alias Weld.Output
   alias Weld.Plan
   alias Weld.Plan.Inventory
+  alias Weld.Receipt
   alias Weld.Projector.Live
   alias Weld.Projector.Monolith
   alias Weld.Projector.SourceProject
@@ -30,6 +31,60 @@ defmodule Weld.Projector do
     root = plan.manifest.repo_root
     validate_inputs!(plan)
     target = build_path(plan, kind)
+    receipt = Output.path(root, ["cache", "projection", plan.artifact.id, "#{kind}.receipt"])
+    revision = Git.revision(root)
+    input = input_digest(plan, revision, kind)
+
+    case reused_projection(receipt, input, target, kind, opts) do
+      {:ok, result} ->
+        Map.put(result, :reused?, true)
+
+      :miss ->
+        stage_projection!(plan, kind, target, receipt, input, revision)
+    end
+  end
+
+  defp reused_projection(receipt, input, target, kind, opts) do
+    with false <- Keyword.get(opts, :no_cache, false),
+         {:ok, {expected, %{build_path: ^target} = projection}} <- Receipt.read(receipt, input),
+         ^expected <- output_digest(target, kind) do
+      {:ok, projection}
+    else
+      _ -> :miss
+    end
+  end
+
+  defp output_digest(target, kind) do
+    Receipt.digest(Receipt.tree(target, kind == :live))
+  rescue
+    Error -> :unsafe
+  end
+
+  @doc false
+  def input_digest(plan, revision, kind) do
+    root = plan.manifest.repo_root
+
+    roots = Enum.map(plan.source_roots, & &1.source)
+
+    paths =
+      Enum.reduce(plan.source_inventory, roots, fn %{source: source}, covered ->
+        if Enum.any?(roots, &Inventory.covered?(source, &1)),
+          do: covered,
+          else: [source | covered]
+      end) ++ plan.structural_inputs
+
+    files =
+      for path <- paths |> Enum.uniq() |> Enum.sort(),
+          do: {path, root |> Output.source!(path) |> Receipt.tree()}
+
+    Receipt.digest(
+      {Receipt.implementation(), kind, revision, Git.remote_url(root), plan, files,
+       Hash.sha256_file(plan.manifest.manifest_path)}
+    )
+  end
+
+  defp stage_projection!(plan, kind, target, receipt, input, revision) do
+    root = plan.manifest.repo_root
     stage = Output.temporary!(root, "staging")
 
     try do
@@ -64,7 +119,7 @@ defmodule Weld.Projector do
           linked_files: linked,
           verification_files: inventory,
           build_path: target,
-          git_revision: Git.revision(root),
+          git_revision: revision,
           tree_digest: tree_digest
         })
 
@@ -72,8 +127,16 @@ defmodule Weld.Projector do
       lockfile = Lockfile.build(plan, projection, [])
       File.write!(Path.join(stage, lockname), Lockfile.encode!(lockfile), [:exclusive])
       reject_published_reports!(stage, projection)
+
+      unless input_digest(plan, Git.revision(root), kind) == input do
+        raise Error, "source inputs changed during projection"
+      end
+
+      digest = output_digest(stage, kind)
       Output.activate!(stage, target, &managed?(&1, plan.artifact.id, kind))
-      Map.put(projection, :lockfile_path, Path.join(target, lockname))
+      result = Map.put(projection, :lockfile_path, Path.join(target, lockname))
+      Receipt.write!(receipt, input, {digest, result})
+      Map.put(result, :reused?, false)
     after
       File.rm_rf!(stage)
     end

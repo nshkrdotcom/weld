@@ -25,7 +25,7 @@ defmodule Weld.VerifierTest do
              &(&1.task == "compile --warnings-as-errors --no-compile-deps")
            )
 
-    assert Enum.any?(result.verification_results, &(&1.task == "hex.publish --dry-run --yes"))
+    assert Enum.any?(result.verification_results, &(&1.task == "hex.build" and &1.status == :ok))
     assert Enum.any?(result.verification_results, &(&1.task == "smoke"))
   end
 
@@ -57,7 +57,8 @@ defmodule Weld.VerifierTest do
     assert Enum.any?(result.verification_results, &(&1.task == "hex.build"))
 
     assert Enum.any?(result.verification_results, fn result ->
-             result.task == "hex.publish --dry-run --yes" and result.status == :ok
+             result.task == "hex.publish --dry-run --yes" and result.status == :skipped and
+               result.reason == :artifact_opted_out
            end)
 
     baseline = Enum.find(result.verification_results, &(&1.task == "selected_tests_baseline"))
