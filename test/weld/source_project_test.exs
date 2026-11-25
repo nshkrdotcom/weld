@@ -217,19 +217,19 @@ defmodule Weld.SourceProjectTest do
     assert File.read!(lock) == "%{}\n"
     assert mix!(refreshed.build_path, ["shade"]) =~ "jade"
 
+    publish_alias = """
+    Mix.start()
+    Mix.Project.in_project(:live_probe, ".", [], fn _ ->
+      alias_fun = Keyword.fetch!(Mix.Project.config()[:aliases], :"hex.publish")
+      alias_fun.(["--dry-run", "--yes"])
+    end)
+    """
+
     {message, code} =
-      System.cmd(
-        "elixir",
-        [
-          "-e",
-          """
-          Mix.start()
-          Mix.Project.in_project(:live_probe, ".", [], fn _ ->
-            alias_fun = Keyword.fetch!(Mix.Project.config()[:aliases], :"hex.publish")
-            alias_fun.(["--dry-run", "--yes"])
-          end)
-          """
-        ], cd: refreshed.build_path, stderr_to_stdout: true)
+      System.cmd("elixir", ["-e", publish_alias],
+        cd: refreshed.build_path,
+        stderr_to_stdout: true
+      )
 
     assert code != 0
     assert message =~ "live projections cannot be packaged"
