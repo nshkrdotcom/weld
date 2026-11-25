@@ -49,6 +49,20 @@ Important subtrees:
 - Do not weaken verification behavior to make a consumer pass. Fix the
   projection or manifest model instead.
 
+## Release Handoff
+
+Use the prepared bundle selected by
+`.weld/releases/<artifact>/CURRENT` as the release input. The documented Hex
+handoff is the bundle's `project/` directory. Weld prepares, tracks, and
+archives releases. Hex handles publication.
+
+Check that the publish workflow preserves the prepared bundle's integrity.
+Weld 0.17.0 hashes the entire prepared `project/` tree when tracking or
+archiving. Build outputs created there during Hex publication can invalidate
+the bundle. Report this gap explicitly and identify any writable copy as a
+workaround. Keep generated release work inside the checkout's `.weld/`
+directory.
+
 ## Documentation Homes
 
 - `README.md` is the front door
