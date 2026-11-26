@@ -54,6 +54,11 @@ checks before it enters the bundle and again before the publication handoff.
 mix release.track --tag-release --push
 ```
 
+Create and push an annotated `v<version>` tag on the qualified source commit on
+`main`. Keep the separate package release tag on the projection commit so it
+continues to identify the Weld receipt and the packaged source shown by ExDoc.
+
+
 This command:
 
 - reads the verified `CURRENT` (or `--identity <sha>`) release bundle

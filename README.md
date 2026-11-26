@@ -184,6 +184,8 @@ The standard release flow separates deterministic bundle preparation from creden
 5. Run `mix release.publish --identity <sha> --tag <tag>` for the interactive Hex handoff.
 6. Run `mix release.archive --identity <sha>` to preserve the same verified bundle under `.weld/archive/<artifact>/<identity>/`.
 
+Also create and push an annotated `v<version>` tag on the qualified source commit on `main`. The separate `<package>-v<version>` tag points to the projection commit and carries the Weld receipt. If several packages of the same version come from the same source commit, one `v<version>` tag records that source commit.
+
 Prepared `project/` trees and tracked Git projections retain `weld.provenance.json` and `projection.lock.json` for auditability; Hex tarballs omit `projection.lock.json`.
 
 ## Guides

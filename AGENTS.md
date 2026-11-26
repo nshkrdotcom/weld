@@ -67,6 +67,7 @@ mix release.archive [--artifact <name>] --identity <sha>
 - `projection/<package>` commits and annotated tags carry `weld.receipt/v1`
   trailers (bundle identity + project/docs/archive SHA-256) and are the
   Git-durable release record. Verify any tag with `mix release.verify_tag <tag>`.
+- Tag the qualified source commit on `main` with `v<version>` and push it alongside the separate projection receipt tag.
 - For manual staging instead of `mix release.publish`, use
   `mix release.stage [--fresh] [--identity <sha>]` (use `--path-only` for
   scripts). Keep `.weld/releases/<artifact>/<identity>/` intact for tracking
