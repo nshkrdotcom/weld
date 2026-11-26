@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-11-25
+
+### Added
+
+- Add `package.docs.hook_file` and `Weld.docs_options!/2` so a single checked-in
+  HTML file can own the ExDoc `before_closing_body_tag` hook across both the
+  source checkout's `mix docs` and projected builds.
+- Add `Weld.DocsSmoke` and `mix weld.docs.check` to verify generated ExDoc HTML
+  (`index.html` presence and `exdoc:loaded` Mermaid hook integrity), and enforce
+  the check automatically in `release.prepare` and `release.publish`.
+- Add `mix weld.explain`, `mix weld.status`, `mix weld.diff`, `mix weld.doctor`,
+  `mix weld.open`, `mix weld.gc`, and AST-verified `mix weld.release.plan` with
+  `--format json` support for agent and maintainer workflows.
+
+### Fixed
+
+- Listen on ExDoc's `exdoc:loaded` window event (instead of `DOMContentLoaded`
+  only) and select `dark` vs `default` theme in the built-in Mermaid hook so
+  diagrams render across in-site ExDoc navigation and dark mode.
+
 ## [0.18.1] - 2026-11-24
 
 ### Fixed

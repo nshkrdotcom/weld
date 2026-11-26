@@ -9,10 +9,10 @@
 
 - **Workspace-root or isolated maintainer installation:**
   - In workspaces whose root `mix.exs` coordinates workspace tooling, add
-    `{:weld, "~> 0.18.0", only: [:dev, :test], runtime: false}` to that project.
+    `{:weld, "~> 0.19.0", only: [:dev, :test], runtime: false}` to that project.
   - For an independently consumable source project, a dedicated
     `tools/maintainer/mix.exs` can own
-    `{:weld, "~> 0.18.0", runtime: false}` and its lockfile.
+    `{:weld, "~> 0.19.0", runtime: false}` and its lockfile.
 - **Standard manifest locations:** Store the manifest at `build_support/weld.exs`, `build_support/weld_contract.exs`, or a single `packaging/weld/*.exs` so CLI tasks auto-discover it from the checkout root.
 - **Initialize `.weld/` once:** Run `mix weld.setup` and commit the `.weld/` entry in `.gitignore` before running clean-tree `mix release.prepare`.
 - **Canonical external dependencies:** In `:package_projection` and `:monolith` modes, declare canonical external requirements in `dependencies` whenever workspace subprojects use `:path`, `:git`, or `:github` transports that must be rewritten for publication.
@@ -25,8 +25,8 @@
 
 Keep the committed Weld dependency simple:
 
-- **Steady state:** Resolve `{:weld, "~> 0.18.0", only: [:dev, :test], runtime: false}`
-  from Hex once 0.18.0 is available.
+- **Steady state:** Resolve `{:weld, "~> 0.19.0", only: [:dev, :test], runtime: false}`
+  from Hex once 0.19.0 is available.
 - **Pre-release validation:** Use a disposable maintainer Mix project with a
   Weld path dependency and pass the workspace manifest path explicitly.
 

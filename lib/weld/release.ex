@@ -4,6 +4,7 @@ defmodule Weld.Release do
   """
 
   alias Weld.DocsPreview
+  alias Weld.DocsSmoke
   alias Weld.Error
   alias Weld.Git
   alias Weld.Hash
@@ -105,6 +106,7 @@ defmodule Weld.Release do
     tarball_target = maybe_copy_tarball(stage, verification.tarball_path)
     docs_path = Path.join(stage, "docs")
     DocsPreview.copy!(Path.join(verification.build_path, "doc"), docs_path)
+    verify_docs_smoke!(docs_path)
 
     release_json =
       %{
@@ -295,6 +297,7 @@ defmodule Weld.Release do
       tarball_name: metadata["tarball_path"],
       archive_sha256: integrity["archive_sha256"],
       project_path: project,
+      docs_path: Path.join(bundle, "docs"),
       warnings: ReleaseStatus.docs_source_ref_warnings(plan, opts[:tag])
     }
   end
@@ -319,6 +322,10 @@ defmodule Weld.Release do
   end
 
   defp run_publish_handoff!(prepared, opts) do
+    if Map.get(prepared, :docs_path) && File.dir?(prepared.docs_path) do
+      verify_docs_smoke!(prepared.docs_path)
+    end
+
     project = prepared.project_path
 
     if File.regular?(Path.join(project, "mix.lock")) do
@@ -375,6 +382,16 @@ defmodule Weld.Release do
   defp default_mix_cmd(args) do
     executable = System.find_executable("mix") || raise Error, "mix executable not found on PATH"
     {executable, args}
+  end
+
+  defp verify_docs_smoke!(docs_path) do
+    case DocsSmoke.check(docs_path) do
+      {:ok, _summary} ->
+        :ok
+
+      {:error, errors} ->
+        raise Error, "docs smoke check failed: " <> Enum.join(errors, "; ")
+    end
   end
 
   defp publish_env do

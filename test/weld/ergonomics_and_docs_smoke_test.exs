@@ -92,7 +92,11 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     tmp_dir: dir
   } do
     File.mkdir_p!(Path.join(dir, "ext"))
-    File.write!(Path.join(dir, "ext/mix.exs"), ~s({:base, "~> 0.2.0"},\n{:other, "~> 9.0"}))
+
+    File.write!(
+      Path.join(dir, "ext/mix.exs"),
+      ~s([{:base, "~> 0.2.0"}, {:other, "~> 9.0", optional: true}])
+    )
 
     artifacts = [
       %{package: "ext", version: "0.1.0", roots: ["ext"]},

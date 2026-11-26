@@ -38,7 +38,7 @@ mix weld.docs.check [docs_dir] [--format json]
 
 Checks that `index.html` exists and every page with a Mermaid block loads
 `mermaid.min.js` and listens on `exdoc:loaded`. It does not render pages, so it
-cannot prove a diagram draws. `weld.release.publish` does not run it yet.
+cannot prove a diagram draws. `release.prepare` and `release.publish` also run this check automatically on the prepared docs preview.
 
 ## Release plan
 
@@ -49,7 +49,7 @@ mix weld.release.plan [manifest_path] [--no-check] [--format json]
 Lists artifacts with depended-on packages first. For each artifact whose root
 `mix.exs` declares `{:other_package, "requirement"` on another artifact's
 package, it checks the requirement against that artifact's version and fails if
-unsatisfied. It reads `mix.exs` text with a regex and does not bump or publish.
+unsatisfied. It parses each `mix.exs` via Elixir AST (`Code.string_to_quoted!/2`); it does not modify versions or publish.
 
 ## Inspect
 

@@ -6,9 +6,10 @@ defmodule Mix.Tasks.Weld.Release.Plan do
   @moduledoc """
   Show coordinated multi-artifact release order for all artifacts in a Weld
   manifest, ordering depended-on packages first. For every artifact whose root
-  `mix.exs` declares a Hex requirement on another artifact's package, checks the
-  requirement against that artifact's version and fails if unsatisfied (use
-  `--no-check` to report only). Pass `--format json` for machine-readable output.
+  `mix.exs` declares a Hex requirement on another artifact's package (parsed via
+  Elixir AST), checks the requirement against that artifact's version and fails
+  if unsatisfied (use `--no-check` to report only). Pass `--format json` for
+  machine-readable output.
   """
 
   @shortdoc "Show coordinated multi-artifact release order"
@@ -21,7 +22,6 @@ defmodule Mix.Tasks.Weld.Release.Plan do
     TaskSupport.reject_invalid!(invalid)
     usage = "Usage: mix weld.release.plan [manifest_path] [--no-check] [--format json]"
     manifest_path = TaskSupport.resolve_manifest_path!(positional, usage)
-
     repo_root = Path.dirname(manifest_path) |> find_repo_root()
 
     artifacts =
@@ -77,8 +77,6 @@ defmodule Mix.Tasks.Weld.Release.Plan do
     Mix.Task.reenable("weld.release.plan")
   end
 
-  # Look for `{:other_package, "requirement"` in each artifact's root mix.exs for
-  # packages that are themselves artifacts in this manifest.
   @doc false
   def constraints(artifacts, repo_root) do
     versions = Map.new(artifacts, &{&1.package, &1.version})
@@ -87,8 +85,7 @@ defmodule Mix.Tasks.Weld.Release.Plan do
         root <- a.roots,
         mix_exs = Path.join([repo_root, root, "mix.exs"]),
         File.regular?(mix_exs),
-        [dep, req] <-
-          Regex.scan(~r/\{:(\w+),\s*"([^"]+)"/, File.read!(mix_exs), capture: :all_but_first),
+        {dep, req} <- extract_dep_requirements(File.read!(mix_exs), mix_exs),
         dep != a.package,
         version = Map.get(versions, dep) do
       %{
@@ -101,11 +98,36 @@ defmodule Mix.Tasks.Weld.Release.Plan do
     end
   end
 
-  # Dependencies first; ties by package name.
+  defp extract_dep_requirements(source, file) do
+    ast = Code.string_to_quoted!(source, file: file)
+
+    {_ast, found} =
+      Macro.prewalk(ast, [], fn
+        {dep, req} = node, acc when is_atom(dep) and is_binary(req) ->
+          maybe_collect_req(node, dep, req, acc)
+
+        {:{}, _, [dep, req, opts]} = node, acc
+        when is_atom(dep) and is_binary(req) and is_list(opts) ->
+          maybe_collect_req(node, dep, req, acc)
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    found |> Enum.reverse() |> Enum.uniq()
+  end
+
+  defp maybe_collect_req(node, dep, req, acc) do
+    if match?({:ok, _}, Version.parse_requirement(req)) do
+      {node, [{Atom.to_string(dep), req} | acc]}
+    else
+      {node, acc}
+    end
+  end
+
   @doc false
   def order(artifacts, constraints) do
     deps = Enum.group_by(constraints, & &1.package, & &1.dependency)
-
     Enum.sort_by(artifacts, fn a -> {depth(a.package, deps, MapSet.new()), a.package} end)
   end
 

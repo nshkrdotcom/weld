@@ -47,12 +47,12 @@ Every mode supports two projection kinds:
 
 ## Installation For Maintainers
 
-These examples target Weld 0.18.0. Resolve the Hex dependency once that version is published. Add it to the workspace `mix.exs` or to a dedicated maintainer project such as `tools/maintainer/mix.exs`.
+These examples target Weld 0.19.0. Resolve the Hex dependency once that version is published. Add it to the workspace `mix.exs` or to a dedicated maintainer project such as `tools/maintainer/mix.exs`.
 
 ```elixir
 def deps do
   [
-    {:weld, "~> 0.18.0", only: [:dev, :test], runtime: false}
+    {:weld, "~> 0.19.0", only: [:dev, :test], runtime: false}
   ]
 end
 ```
