@@ -153,6 +153,9 @@ project root.
   - `extra_titles` — map of `output.docs` paths to sidebar titles
   - `groups_for_extras` — ordered `{group, [output.docs paths]}` entries
   - `mermaid` — enable rendered Mermaid fenced code blocks in HTML
+  - `hook_file` — optional checkout-relative HTML file used verbatim as the
+    `before_closing_body_tag` hook instead of the built-in Mermaid hook (only
+    applies when `mermaid` is `true`); the root Mix project can read the same file
 
 ## Output Keys
 
@@ -299,3 +302,8 @@ Set `package: [docs: [mermaid: true]]` to render Mermaid fenced code blocks
 in generated HTML documentation. The browser loads the pinned Mermaid
 renderer from jsDelivr. When it is unavailable, the original code blocks
 remain visible.
+
+Set `docs: [hook_file: "build_support/docs_hook.html"]` to make one checked-in
+file the owner of that HTML. Weld embeds its exact text in the projected
+`mix.exs`, and your root `mix.exs` can read the same file, so local `mix docs`
+and the published docs cannot drift. A missing file fails the projection.

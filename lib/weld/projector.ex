@@ -314,6 +314,25 @@ defmodule Weld.Projector do
 
   # ExDoc swaps page content on in-site navigation and fires "exdoc:loaded"
   # (also on first load), so DOMContentLoaded alone misses navigated pages.
+  # The hook text for `before_closing_body_tag`. When `package.docs.hook_file` is
+  # set, that checkout file is the single owner (the root Mix project can read
+  # the same file); otherwise the built-in Mermaid hook is used.
+  @doc false
+  def mermaid_hook(%Plan{} = plan) do
+    case plan.artifact.package.docs.hook_file do
+      nil ->
+        mermaid_hook()
+
+      relative ->
+        path = Path.join(plan.manifest.repo_root, relative)
+
+        unless File.regular?(path),
+          do: raise(Error, "package.docs.hook_file not found: #{relative}")
+
+        File.read!(path)
+    end
+  end
+
   @doc false
   def mermaid_hook do
     """
@@ -345,7 +364,7 @@ defmodule Weld.Projector do
     options = inspect(docs_options(plan), pretty: true, limit: :infinity)
 
     if plan.artifact.package.docs.mermaid do
-      hook = mermaid_hook()
+      hook = mermaid_hook(plan)
 
       "Keyword.put(#{options}, :before_closing_body_tag, fn :html -> #{inspect(hook)}; _ -> \"\" end)"
     else

@@ -53,7 +53,8 @@ defmodule Weld.Manifest do
       :assets,
       :extra_titles,
       :groups_for_extras,
-      :mermaid
+      :mermaid,
+      :hook_file
     ]
     defstruct @enforce_keys
 
@@ -66,7 +67,8 @@ defmodule Weld.Manifest do
             assets: %{optional(String.t()) => String.t()},
             extra_titles: %{optional(String.t()) => String.t()},
             groups_for_extras: [{String.t(), [String.t()]}],
-            mermaid: boolean()
+            mermaid: boolean(),
+            hook_file: String.t() | nil
           }
   end
 
@@ -265,7 +267,8 @@ defmodule Weld.Manifest do
     assets: [type: :any, default: %{}],
     extra_titles: [type: :any, default: %{}],
     groups_for_extras: [type: :any, default: []],
-    mermaid: [type: :boolean, default: false]
+    mermaid: [type: :boolean, default: false],
+    hook_file: [type: :string]
   ]
 
   @output_schema [
@@ -563,7 +566,8 @@ defmodule Weld.Manifest do
       assets: normalize_string_map!(docs[:assets], "package.docs.assets"),
       extra_titles: normalize_string_map!(docs[:extra_titles], "package.docs.extra_titles"),
       groups_for_extras: normalize_extra_groups!(docs[:groups_for_extras]),
-      mermaid: docs[:mermaid]
+      mermaid: docs[:mermaid],
+      hook_file: docs[:hook_file]
     }
   end
 

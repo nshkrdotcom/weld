@@ -309,7 +309,7 @@ defmodule Weld do
     base = Projector.docs_options(plan)
 
     if plan.artifact.package.docs.mermaid do
-      hook = Projector.mermaid_hook()
+      hook = Projector.mermaid_hook(plan)
 
       Keyword.put(base, :before_closing_body_tag, fn
         :html -> hook

@@ -120,4 +120,35 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     json = capture_io(fn -> Mix.Tasks.Weld.Status.run([manifest, "--format", "json"]) end)
     assert [%{"next_command" => "mix weld.release." <> _}] = Jason.decode!(json)
   end
+
+  test "docs.hook_file is the single owner of the hook text and a missing file fails" do
+    manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    plan = Weld.Plan.build!(manifest)
+    repo_root = plan.manifest.repo_root
+
+    assert Weld.Projector.mermaid_hook(plan) == Weld.Projector.mermaid_hook()
+
+    File.mkdir_p!(Path.join(repo_root, "build_support"))
+    File.write!(Path.join(repo_root, "build_support/hook.html"), "<!-- custom -->\n")
+
+    with_file = fn file ->
+      %{
+        plan
+        | artifact: %{
+            plan.artifact
+            | package: %{
+                plan.artifact.package
+                | docs: %{plan.artifact.package.docs | hook_file: file}
+              }
+          }
+      }
+    end
+
+    assert Weld.Projector.mermaid_hook(with_file.("build_support/hook.html")) ==
+             "<!-- custom -->\n"
+
+    assert_raise Weld.Error, ~r/hook_file not found/, fn ->
+      Weld.Projector.mermaid_hook(with_file.("build_support/missing.html"))
+    end
+  end
 end
