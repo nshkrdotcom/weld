@@ -8,9 +8,10 @@ defmodule Weld.ErgonomicsContractTest do
 
   @moduletag :tmp_dir
 
-  test "diff includes dropped files and hidden project configuration while excluding generated trees", %{
-    tmp_dir: dir
-  } do
+  test "diff includes dropped files and hidden project configuration while excluding generated trees",
+       %{
+         tmp_dir: dir
+       } do
     root = Path.join(dir, "source")
     projection = Path.join(root, ".weld/full/demo/project")
     File.mkdir_p!(projection)
@@ -19,7 +20,8 @@ defmodule Weld.ErgonomicsContractTest do
     File.write!(Path.join(root, "dropped.ex"), "source")
     File.write!(Path.join(projection, "added.ex"), "projection")
 
-    for base <- [root, projection], relative <- ["deps/dep.ex", "_build/compiled.beam", "doc/index.html"] do
+    for base <- [root, projection],
+        relative <- ["deps/dep.ex", "_build/compiled.beam", "doc/index.html"] do
       path = Path.join(base, relative)
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, "generated")
@@ -79,6 +81,7 @@ defmodule Weld.ErgonomicsContractTest do
   end
 
   test "gc preserves active runs independently of completed-run retention", %{tmp_dir: dir} do
+    Weld.Git.run!(dir, ["init", "--quiet"])
     Output.with_lock(dir, fn -> :ok end)
     active = Path.join(dir, ".weld/publish/demo/identity/run-active")
     completed = Path.join(dir, ".weld/publish/demo/identity/run-completed")
@@ -96,6 +99,7 @@ defmodule Weld.ErgonomicsContractTest do
   end
 
   test "gc rejects symlinked publish parents without deleting their targets", %{tmp_dir: dir} do
+    Weld.Git.run!(dir, ["init", "--quiet"])
     Output.with_lock(dir, fn -> :ok end)
     outside = FixtureCase.unique_tmp_dir("weld_gc_outside")
     run = Path.join(outside, "identity/run-outside")

@@ -42,8 +42,10 @@ defmodule Weld.BootstrapRelocationTest do
 
       File.write!(Path.join(config, "value.txt"), "relocated")
       projected = Weld.project!(manifest)
+
       compiled =
         Path.join(FixtureCase.unique_tmp_dir("weld_compiled"), "package_bootstrap_bundle-0.1.0")
+
       ebin = Path.join(compiled, "ebin")
       File.mkdir_p!(ebin)
 

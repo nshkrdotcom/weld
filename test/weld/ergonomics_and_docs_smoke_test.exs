@@ -64,6 +64,7 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
   end
 
   test "Mix.Tasks.Weld.Gc.prune/2 keeps newest publish runs and supports dry_run", %{tmp_dir: dir} do
+    Weld.Git.run!(dir, ["init", "--quiet"])
     Weld.Output.with_lock(dir, fn -> :ok end)
 
     for idx <- 1..3 do

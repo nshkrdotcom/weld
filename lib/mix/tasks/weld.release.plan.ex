@@ -91,7 +91,9 @@ defmodule Mix.Tasks.Weld.Release.Plan do
         version = Map.get(versions, package) do
       requirement =
         case Version.parse_requirement(dep.requirement) do
-          {:ok, requirement} -> requirement
+          {:ok, requirement} ->
+            requirement
+
           :error ->
             Mix.raise("Invalid requirement for #{a.package} -> #{package}: #{dep.requirement}")
         end

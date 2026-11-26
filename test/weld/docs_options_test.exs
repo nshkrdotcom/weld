@@ -48,6 +48,7 @@ defmodule Weld.DocsOptionsTest do
 
         refute after_change.reused?
         assert after_change.build_path == before.build_path
+
         assert File.read!(Path.join(after_change.build_path, "mix.exs")) =~
                  String.trim(hook)
       end

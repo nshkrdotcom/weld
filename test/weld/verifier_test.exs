@@ -48,7 +48,11 @@ defmodule Weld.VerifierTest do
 
     File.write!(
       mixfile,
-      String.replace(File.read!(mixfile), "app: :sprout,", "app: :sprout, docs: [output: \"html\"],")
+      String.replace(
+        File.read!(mixfile),
+        "app: :sprout,",
+        "app: :sprout, docs: [output: \"html\"],"
+      )
     )
 
     FixtureCase.init_git!(root)
@@ -79,10 +83,12 @@ defmodule Weld.VerifierTest do
     assert Enum.any?(result.verification_results, &(&1.task == "selected_tests_baseline"))
     assert Enum.any?(result.verification_results, &(&1.task == "deps.get"))
     assert Enum.any?(result.verification_results, &(&1.task == "compile --warnings-as-errors"))
+
     assert Enum.any?(
              result.verification_results,
              &(&1.task == "docs --warnings-as-errors --output doc")
            )
+
     assert Enum.any?(result.verification_results, &(&1.task == "hex.build"))
 
     assert Enum.any?(result.verification_results, fn result ->
