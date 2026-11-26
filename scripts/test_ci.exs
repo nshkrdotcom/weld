@@ -47,7 +47,8 @@ try do
       )
     end)
 
-  Blitz.run!(commands)
+  # Each lane launches additional Mix VMs to compile fixture projects.
+  Blitz.run!(commands, max_concurrency: 2)
 after
   File.rm_rf!(scratch)
 end

@@ -57,15 +57,7 @@ defmodule Mix.Tasks.Weld.Release.Plan do
           Mix.shell().info("#{idx}. #{a.artifact} (#{a.package} #{a.version}, #{a.mode})")
         end)
 
-        for c <- constraints do
-          Mix.shell().info(
-            "  #{c.package} requires #{c.dependency} #{c.requirement}: " <>
-              if(c.satisfied,
-                do: "ok (#{c.dependency_version})",
-                else: "UNSATISFIED (#{c.dependency_version})"
-              )
-          )
-        end
+        Enum.each(constraints, &print_constraint/1)
     end
 
     if bad != [] and Keyword.get(opts, :check, true) do
@@ -76,6 +68,15 @@ defmodule Mix.Tasks.Weld.Release.Plan do
     end
   after
     Mix.Task.reenable("weld.release.plan")
+  end
+
+  defp print_constraint(constraint) do
+    status = if constraint.satisfied, do: "ok", else: "UNSATISFIED"
+
+    Mix.shell().info(
+      "  #{constraint.package} requires #{constraint.dependency} #{constraint.requirement}: " <>
+        "#{status} (#{constraint.dependency_version})"
+    )
   end
 
   @doc false

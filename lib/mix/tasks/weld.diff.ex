@@ -94,14 +94,14 @@ defmodule Mix.Tasks.Weld.Diff do
   end
 
   defp list_relative_files(base) do
-    base |> Path.expand() |> relative_files("", MapSet.new()) |> Enum.sort()
+    base |> Path.expand() |> relative_files("", %{}) |> Enum.sort()
   end
 
   defp relative_files(path, relative, ancestors) do
-    if MapSet.member?(ancestors, path),
+    if Map.has_key?(ancestors, path),
       do: raise(Weld.Error, "directory link cycle while comparing #{path}")
 
-    ancestors = MapSet.put(ancestors, path)
+    ancestors = Map.put(ancestors, path, true)
 
     case File.lstat(path) do
       {:ok, %{type: :directory}} ->

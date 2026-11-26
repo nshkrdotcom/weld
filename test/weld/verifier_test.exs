@@ -109,9 +109,10 @@ defmodule Weld.VerifierTest do
       previous = System.get_env(name)
       System.put_env(name, "unexpected-inherited-setting")
 
-      on_exit(fn ->
-        if previous, do: System.put_env(name, previous), else: System.delete_env(name)
-      end)
+      on_exit(fn -> restore_env(name, previous) end)
     end
   end
+
+  defp restore_env(name, nil), do: System.delete_env(name)
+  defp restore_env(name, value), do: System.put_env(name, value)
 end

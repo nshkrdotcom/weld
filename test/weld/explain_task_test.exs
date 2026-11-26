@@ -3,8 +3,10 @@ defmodule Weld.ExplainTaskTest do
 
   import ExUnit.CaptureIO
 
+  alias Mix.Tasks.Weld.Explain
+
   test "json output lists every projection kind with an existing creating task" do
-    json = capture_io(fn -> Mix.Tasks.Weld.Explain.run(["--format", "json"]) end)
+    json = capture_io(fn -> Explain.run(["--format", "json"]) end)
     kinds = Jason.decode!(json)
 
     assert Enum.map(kinds, & &1["kind"]) == ~w(live full release publish tracked)

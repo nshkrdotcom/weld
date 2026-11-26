@@ -69,10 +69,7 @@ defmodule Weld.DocsSmoke do
       mermaid_pages: Enum.sort(mermaid_pages)
     }
 
-    cond do
-      errors != [] -> {:error, Enum.reverse(errors)}
-      true -> {:ok, summary}
-    end
+    if errors == [], do: {:ok, summary}, else: {:error, Enum.reverse(errors)}
   end
 
   defp mermaid_code?(markup) do
@@ -130,15 +127,7 @@ defmodule Weld.DocsSmoke do
       remaining ->
         [token] = Regex.run(@javascript_token, remaining)
 
-        token =
-          if token == "/" and regexp_context?(previous) do
-            case Regex.run(@javascript_regexp, remaining) do
-              [regexp] -> regexp
-              nil -> token
-            end
-          else
-            token
-          end
+        token = regexp_token(token, remaining, previous)
 
         rest = binary_part(remaining, byte_size(token), byte_size(remaining) - byte_size(token))
 
@@ -149,6 +138,17 @@ defmodule Weld.DocsSmoke do
         end
     end
   end
+
+  defp regexp_token("/", remaining, previous) do
+    if regexp_context?(previous) do
+      [token] = Regex.run(@javascript_regexp, remaining) || ["/"]
+      token
+    else
+      "/"
+    end
+  end
+
+  defp regexp_token(token, _remaining, _previous), do: token
 
   # A slash after an expression is division, not the start of a regexp. This
   # intentionally remains a static declaration check rather than a JS parser.
