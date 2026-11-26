@@ -6,13 +6,15 @@ defmodule Weld.VerifierTest do
   @moduletag :integration
 
   @tag ci_build: "package"
-  test "verifies a welded artifact end to end" do
+  test "verifies a welded artifact and smoke consumer with isolated Mix settings" do
     repo = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(repo, "packaging/weld/fixture_bundle.exs")
     legacy_cache = Path.join(repo, "dist/hex/.weld-build/fixture_bundle")
     File.mkdir_p!(legacy_cache)
 
-    result = Weld.verify!(manifest)
+    plan = Weld.Plan.build!(manifest)
+    poison_mix_overrides!()
+    result = Weld.Verifier.verify!(plan)
 
     assert File.exists?(legacy_cache)
     assert [_ | _] = Path.wildcard(Path.join(repo, ".weld/cache/*/*/build/dev/lib/*/ebin"))
@@ -25,7 +27,7 @@ defmodule Weld.VerifierTest do
              &(&1.task == "compile --warnings-as-errors --no-compile-deps")
            )
 
-    assert Enum.any?(result.verification_results, &(&1.task == "hex.publish --dry-run --yes"))
+    assert Enum.any?(result.verification_results, &(&1.task == "hex.build" and &1.status == :ok))
     assert Enum.any?(result.verification_results, &(&1.task == "smoke"))
   end
 
@@ -38,9 +40,37 @@ defmodule Weld.VerifierTest do
     assert Enum.any?(result.verification_results, &(&1.task == "test"))
   end
 
+  @tag ci_build: "source_docs_output"
+  test "prepares source-project docs at the canonical output despite a native output setting" do
+    root = FixtureCase.copy_fixture("source_project")
+    manifest = Path.join(root, "build_support/weld.exs")
+    mixfile = Path.join(root, "mix.exs")
+
+    File.write!(
+      mixfile,
+      String.replace(
+        File.read!(mixfile),
+        "app: :sprout,",
+        "app: :sprout, docs: [output: \"html\"],"
+      )
+    )
+
+    FixtureCase.init_git!(root)
+    prepared = Weld.release_prepare!(manifest)
+
+    assert File.regular?(Path.join(prepared.docs_path, "index.html"))
+    assert File.regular?(Path.join(prepared.build_path, "doc/index.html"))
+  end
+
   @tag ci_build: "monolith"
   test "verifies monolith artifacts with the real monolith gate and records test counts" do
-    result = Weld.verify!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
+    plan =
+      "monolith_bundle"
+      |> FixtureCase.copied_manifest_path("monolith_bundle")
+      |> Weld.Plan.build!()
+
+    poison_mix_overrides!()
+    result = Weld.Verifier.verify!(plan)
 
     assert File.regular?(result.lockfile_path)
     assert File.regular?(result.tarball_path)
@@ -53,11 +83,17 @@ defmodule Weld.VerifierTest do
     assert Enum.any?(result.verification_results, &(&1.task == "selected_tests_baseline"))
     assert Enum.any?(result.verification_results, &(&1.task == "deps.get"))
     assert Enum.any?(result.verification_results, &(&1.task == "compile --warnings-as-errors"))
-    assert Enum.any?(result.verification_results, &(&1.task == "docs --warnings-as-errors"))
+
+    assert Enum.any?(
+             result.verification_results,
+             &(&1.task == "docs --warnings-as-errors --output doc")
+           )
+
     assert Enum.any?(result.verification_results, &(&1.task == "hex.build"))
 
     assert Enum.any?(result.verification_results, fn result ->
-             result.task == "hex.publish --dry-run --yes" and result.status == :ok
+             result.task == "hex.publish --dry-run --yes" and result.status == :skipped and
+               result.reason == :artifact_opted_out
            end)
 
     baseline = Enum.find(result.verification_results, &(&1.task == "selected_tests_baseline"))
@@ -67,4 +103,16 @@ defmodule Weld.VerifierTest do
     assert monolith_test.test_count == 2
     refute Enum.any?(result.verification_results, &(&1.task == "smoke"))
   end
+
+  defp poison_mix_overrides! do
+    for name <- ~w(MIX_EXS MIX_LOCKFILE MIX_TARGET) do
+      previous = System.get_env(name)
+      System.put_env(name, "unexpected-inherited-setting")
+
+      on_exit(fn -> restore_env(name, previous) end)
+    end
+  end
+
+  defp restore_env(name, nil), do: System.delete_env(name)
+  defp restore_env(name, value), do: System.put_env(name, value)
 end

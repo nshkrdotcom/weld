@@ -1,84 +1,64 @@
 # Workflow
 
-`Weld` is built around two verification lanes:
+`Weld` separates day-to-day source development from artifact projection and release preparation across two complementary verification lanes:
 
-- source workspace verification
-- welded artifact verification
+- **Source workspace lane:** Owned by the repository (`main`). Runs normal Mix tests, formatting, static analysis, and source-level checks without invoking `Weld`.
+- **Welded artifact lane:** Owned by `Weld`. Projects a standalone Mix candidate under `.weld/` and verifies that exact artifact as downstream consumers receive it.
 
-They are complementary, not interchangeable.
+## Main-Tree Authority Versus Projection Snapshots
 
-## Source Workspace Lane
+- **`main` is authoritative:** Edit code, docs, and manifests only in the source checkout. Never hand-edit files inside `.weld/` or on a `projection/*` branch.
+- **Orphan `projection/<package_name>` branches hold snapshots:** `mix weld.release.track` syncs the verified `project/` tree from a prepared release bundle onto `projection/<package_name>`, creating that branch as an orphan on first use. Downstream repositories that consume projected Git commits or pre-release snapshots point at `projection/<package_name>` while `main` keeps normal workspace history.
 
-This remains the source repo's responsibility. Run the normal suite the
-monorepo already owns:
+## Live Versus Full Projections
 
-- tests
-- static analysis
-- formatting checks
-- docs or guide validation that belongs to the source repo
+Run `mix weld.explain` for a one-screen map of every projection kind, its path, and the task that creates it.
 
-## Welded Artifact Lane
+- **Live view (`.weld/live/<artifact>/`, all modes):** Generate with
+  `mix weld.project --artifact <name> --live` and depend on that directory
+  with `path:` in an ordinary Mix consumer. Linked package and source-project
+  directories expose code and asset edits on the next build. A monolith uses
+  file links for its merged layout. Refresh a monolith when files are added,
+  removed, or remapped, and refresh any live view when its structural guard
+  reports a change. Run formatters and code generators from the source
+  checkout.
+- **Full candidate (`.weld/full/<artifact>/project/`, all modes):** Generated with `mix weld.project` (and refreshed automatically by `mix weld.verify` and `mix release.prepare`). Contains regular copied/synthesized files, `weld.provenance.json` (`kind: "full"`, `artifact_id`), and `projection.lock.json`.
 
-This is the lane `weld` owns directly. It generates a standalone package and
-verifies that exact package as a consumer would see it.
+An identical project command checks the source inventory and generated output
+under the checkout lock and leaves a valid projection in place. Pass
+`--no-cache` to force materialization. Unsafe source paths still fail
+validation.
 
-## Recommended Sequence
+## Recommended Release Sequence
 
-1. Run normal source-repo preflight checks.
-2. Run `mix weld.inspect` to confirm graph shape and selection.
-3. Run `mix weld.project` while iterating on packaging behavior.
-4. Run `mix weld.verify` before release preparation.
-5. Run `mix weld.release.prepare`.
-6. If you want a tracked projected artifact, run `mix weld.release.track`.
-7. Publish from the prepared release bundle when you are doing a real release.
-8. Run `mix weld.release.archive`.
+1. Run `mix weld.setup` once (and commit `.gitignore` if updated) so `.weld/` is ignored on a clean tree.
+2. Run the source repository's own test and quality gates.
+3. Run `mix weld.inspect` to confirm workspace discovery, selected closure, and zero graph violations.
+4. Run `mix weld.project` and `mix weld.verify` for each artifact while
+   iterating on packaging configuration. Compile any live view you intend to
+   share from a separate Mix consumer.
+5. From a clean committed revision, run `mix release.prepare` (or `--all`) to verify and write `.weld/releases/<artifact>/<identity>/`.
+6. Run `mix release.status` (or `--all`) to confirm `ready` state, expected `archive_sha256`, and zero `docs.source_ref` warnings.
+7. Optionally run `mix release.track --tag-release --push` to record `weld.receipt/v1` trailers on `projection/<package_name>` and an annotated release tag.
+8. Run `mix release.publish` (or `mix release.stage --fresh` for manual `mix hex.publish`) to verify a local Hex rebuild against the prepared tarball SHA-256 and hand off interactively to Hex.
+9. Run `mix release.archive --identity <sha>` using the pinned identity printed after publish to save the bundle under `.weld/archive/<artifact>/<identity>/`.
 
-When the selected closure includes multiple OTP applications, the projected
-artifact includes a generated merged application module so package-level
-verification runs against the real boot surface users will get.
+## Local `.weld/` State Versus Git-Durable Records
 
-## Projection Tracking
+All Weld-owned local files live under `<checkout_root>/.weld/` (gitignored and machine-local):
 
-`mix weld.release.track` turns a prepared release bundle into a durable tracked
-projection branch. By default it targets `projection/<package_name>`.
+- **Disposable working state:**
+  - `.weld/live/<artifact>/` — local symlinked development view
+  - `.weld/full/<artifact>/project/` — latest full projection working copy
+  - `.weld/cache/<projection_id>/<toolchain>/` — warm dependency checkouts and compiled build artifacts used by `mix weld.verify` (delete while idle to force a cold verification run)
+  - `.weld/publish/<artifact>/<identity>/` — writable workspaces for `release.stage` and per-run `release.publish`
+  - `.weld/staging/`, `.weld/smoke/`, `.weld/worktrees/` — ephemeral mutation, smoke-consumer, and Git worktree directories
+- **Local verified release storage (deleting `.weld/` removes the only local copy of built tarballs and docs):**
+  - `.weld/releases/<artifact>/<identity>/` and `CURRENT` — immutable verified release bundle (`project/`, `docs/`, `release.json`, and optional Hex `.tar`)
+  - `.weld/archive/<artifact>/<identity>/` — post-publication local archive copy
+- **Git-durable release records:**
+  - `projection/<package_name>` commits and annotated tags — carry `weld.receipt/v1` trailers (`Weld-Identity`, `Weld-Project-SHA256`, `Weld-Docs-SHA256`, `Weld-Archive-SHA256`, `Weld-Source-Revision`), verifiable from any clone with `mix release.verify_tag <tag>`
 
-The first creation of that branch is orphan-by-default. That keeps the tracked
-artifact history separate from the source repo history and makes the branch safe
-to use as a projected-source reference in downstream repos.
-
-This is useful for:
-
-- unreleased projection snapshots
-- release candidates
-- long-lived generated-source references that should not be confused with the
-  source monorepo's `main` branch
-
-## Disposable Versus Durable Output
-
-Disposable output:
-
-- `.weld/full/<artifact>/project/` (all composition modes)
-- `.weld/live/<artifact>/` (source-project live view)
-- smoke-app temp output
-- local cache
-
-Durable output:
-
-- prepared release bundle
-- tracked projection branch commits when you choose to create them
-- tarball
-- `projection.lock.json`
-- release metadata
-- archive copy created by `mix weld.release.archive`
-
-The projection is disposable during day-to-day development. The prepared and
-archived release bundle is the durable release record. Projection branches are
-the durable generated-source record when a repo chooses to track them.
-
-Verification uses `.weld/cache/` in the workspace root for downloaded
-dependencies and compiler output. Each projection destination and toolchain
-has its own cache. Weld regenerates sources and runs the full verification
-sequence each time. To reproduce a cold run, remove the matching cache
-directory while verification is idle.
-
-Older `dist/` outputs and historical caches are preserved. Update callers to the new paths. Source-root integration and refresh procedures are documented in [Source-root artifacts](source_projects.md).
+Update any scripts still reading legacy `dist/` directories before retiring
+them. See [Source-Project Artifacts](source_projects.md) for lock ownership and
+consumer concurrency details.

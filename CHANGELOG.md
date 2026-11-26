@@ -5,6 +5,150 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-11-25
+
+### Added
+
+- Add `package.docs.hook_file` and `Weld.docs_options!/2` so a single checked-in
+  HTML file can own the ExDoc `before_closing_body_tag` hook across both the
+  source checkout's `mix docs` and projected builds.
+- Add `Weld.DocsSmoke` and `mix weld.docs.check` to verify generated ExDoc HTML
+  (`index.html` presence and `exdoc:loaded` Mermaid hook integrity), and enforce
+  the check automatically in `release.prepare` and `release.publish`.
+- Add `mix weld.explain`, `mix weld.status`, `mix weld.diff`, `mix weld.doctor`,
+  `mix weld.open`, `mix weld.gc`, and dependency-verified `mix weld.release.plan` with
+  `--format json` support for agent and maintainer workflows.
+
+### Fixed
+
+- Listen on ExDoc's `exdoc:loaded` window event (instead of `DOMContentLoaded`
+  only) and select `dark` vs `default` theme in the built-in Mermaid hook so
+  diagrams render across in-site ExDoc navigation and dark mode.
+- Preserve complete custom docs hooks, reject unsafe hook paths, and include
+  hook files in projection cache keys and live structural guards. Root docs
+  options no longer recursively load workspace Mix projects.
+- Check nested Mermaid HTML pages and actual script declarations instead of
+  accepting incidental hook names in prose, comments, quoted JavaScript, or
+  ignored external-script bodies; preserve quoted HTML attributes and division
+  expressions around real listeners.
+- Resolve release planning from artifact publication dependencies, including
+  computed requirements and Hex aliases; reject cycles and duplicate package
+  identities, and honor `--no-check` for incompatible release versions.
+- Include source-only and hidden configuration files in `weld.diff`, and make
+  status commands preserve explicit manifests and prepared bundle identities.
+  Follow live directory links without failing on unrelated dangling links,
+  while still rejecting cycles and surfacing other filesystem errors.
+- Keep active publishers safe from garbage collection, reject symlinked cleanup
+  parents, and isolate verification, smoke, and publication subprocesses from
+  inherited Mix project, lockfile, target, and build-path overrides.
+- Carry generated application bootstrap config in package `priv` files and
+  resolve it from the installed application so compiled artifacts remain
+  usable after their source checkout is moved or removed.
+- Include component config trees in generated projection cache inputs so
+  config, imported files, companion bytes, permissions, and missing-directory
+  changes refresh both full and live bootstrap copies.
+- Normalize verified ExDoc output to `doc/` so native source projects with a
+  custom docs output directory can still prepare their release preview.
+
+## [0.18.1] - 2026-11-24
+
+### Fixed
+
+- Let monolith artifacts choose a repository README for the package root with
+  `monolith_opts: [readme: "path/to/README.md"]`. The selected file is also the
+  `README.md` extra for HexDocs.
+
+## [0.18.0] - 2026-11-24
+
+### Added
+
+- Embed versioned `weld.receipt/v1` Git trailers (package, version, artifact,
+  bundle identity, source revision, project/docs/archive SHA-256, and tool
+  version) in `projection/*` commits and annotated `--tag` / `--tag-release`
+  tags. Create receipt-bearing same-tree commits when bundle identity changes
+  without projection tree edits, and reject conflicting or legacy lightweight
+  tags before moving refs.
+- Add `mix release.verify_tag <tag>` (`mix weld.release.verify_tag`) to verify
+  tag and commit receipts against optional local bundles or tarballs. The
+  receipt selects the artifact and identity, including in multi-artifact repos.
+- Add read-only `mix release.status [--artifact name | --all] [--format json]`
+  with shared two-layer integrity and freshness classification (`ready`,
+  `stale` reason codes, `unprepared`, `corrupt_bundle`, local projection sync).
+  Lists all artifacts by default and reports source roots, default tags, and
+  projection and bundle paths in text and JSON.
+- Add `mix release.publish` (`mix weld.release.publish`) to pin a verified
+  bundle identity, stage an isolated per-invocation workspace, verify a local
+  `mix hex.build` matches the prepared tarball SHA-256, and hand off
+  interactively to `mix hex.publish` without holding `.weld/.lock`. Pass
+  `--dry-run` to validate the handoff without uploading.
+- Add `--identity <sha>` pinning across `release.track`, `release.stage`,
+  `release.publish`, and `release.archive`, `--fresh` and `--path-only` on
+  `release.stage`, `--all` on `release.prepare` and `release.archive`, and
+  early `docs.source_ref` warnings for projected packages.
+
+### Fixed
+
+- Evaluate staged component `config/runtime.exs` files via `Code.eval_file/1`
+  in deterministic order instead of emitting forbidden `import_config/1` calls
+  inside generated `config/runtime.exs`, preserving `Config.Reader`, lexical
+  isolation, and accurate `__DIR__`.
+
+## [0.17.1] - 2026-11-24
+
+- Stage a verified project for Hex with `mix release.stage`. Mix and Hex write
+  build files in a checkout-local `.weld/publish/` workspace. The prepared
+  release stays intact for tracking and archiving.
+
+## [0.17.0] - 2026-11-24
+
+### Added
+
+- Reuse unchanged live and full projections after validating the source
+  inventory and generated output. Pass `mix weld.project --no-cache` to
+  force materialization.
+- Use `mix release.prepare --reuse CONTEXT` to reuse an intact, verified
+  bundle for a locked source-project artifact with Hex publishing checks
+  disabled. Use `--no-cache` for an independent rebuild.
+
+### Fixed
+
+- Generate stable HTML code-highlight group IDs so independent preparations
+  can reproduce the documentation preview byte for byte.
+- Keep projection reuse metadata out of prepared bundles so an unchanged
+  projection produces the same release files whether materialized or reused.
+
+## [0.16.0] - 2026-11-24
+
+### Added
+
+- Generate linked live views for package-projection and monolith artifacts from
+  the same composition as their full counterparts. Live projects use ordinary
+  Mix and require refresh when inputs that determine their layout change.
+- Preserve nested standalone Mix projects as source-project artifacts and
+  declare artifact-local package boundaries with `external_projects`.
+- Include selected component suites in package-projection verification with
+  `verify: [component_tests: true]` while excluding verification files from Hex.
+
+### Fixed
+
+- Plan monolith collisions, migration layouts, configuration, helpers and
+  generated project files before writing outputs. Inspection, affected analysis,
+  projection locks and both projection kinds use the final inventory. Reject
+  stale plans, ambiguous slugs, and file/directory collisions before activation.
+
+- Report the actual projects that own compiled sources and inventory, including
+  sources linked into live projects. Use the same ownership to detect affected
+  artifacts when Git paths are added, changed, renamed, or deleted.
+- Retain the files required to verify a detached prepared project alongside the
+  separate Hex package allowlist.
+
+### Upgrading
+
+- Existing manifests retain their dependency closure unless they opt into
+  `external_projects`. Refresh existing live views after upgrading Weld.
+- Linked package directories expose ordinary additions and deletions on the
+  next compile. Live monoliths require refresh when file topology changes.
+
 ## [0.15.0] - 2026-11-24
 
 - Add explicit source-project artifacts with portable full candidates and optional live views of canonical compiler inputs and assets.

@@ -6,6 +6,7 @@ defmodule Weld.Workspace.Discovery do
 
   alias Weld.Error
   alias Weld.Manifest
+  alias Weld.Output
 
   @ignored_prefixes ~w(.git .weld _build deps dist tmp doc)
 
@@ -20,8 +21,12 @@ defmodule Weld.Workspace.Discovery do
   @spec discover(Manifest.t()) :: result()
   def discover(%Manifest{} = manifest) do
     repo_root = manifest.repo_root
-    root_project? = File.regular?(Path.join(repo_root, "mix.exs"))
-    adapter_globs = if root_project?, do: blitz_workspace_globs(repo_root), else: []
+    root_project? = File.regular?(Output.source!(repo_root, "mix.exs"))
+
+    adapter_globs =
+      if root_project? and manifest.workspace.project_globs == [],
+        do: blitz_workspace_globs(repo_root),
+        else: []
 
     cond do
       manifest.workspace.project_globs != [] ->
@@ -88,6 +93,7 @@ defmodule Weld.Workspace.Discovery do
         repo_root
         |> Path.join(glob)
         |> Path.wildcard(match_dot: false)
+        |> Enum.reject(&ignored_file?(&1, repo_root))
         |> Enum.filter(&File.regular?(Path.join(&1, "mix.exs")))
         |> Enum.map(&Path.relative_to(&1, repo_root))
       end)

@@ -49,6 +49,30 @@ Important subtrees:
 - Do not weaken verification behavior to make a consumer pass. Fix the
   projection or manifest model instead.
 
+## Release Handoff
+
+Use the canonical Weld 0.18.0 release sequence—never invent scratch directories
+outside `.weld/`, manual `CURRENT`/`jq` shell parsing, or out-of-band publish
+workarounds:
+
+```bash
+mix release.prepare [--artifact <name> | --all]
+mix release.status [--artifact <name> | --all] [--format json]
+mix release.track [--artifact <name>] [--identity <sha>] --tag-release --push
+mix release.publish [--artifact <name>] [--identity <sha>] [--tag <tag>]
+mix release.archive [--artifact <name>] --identity <sha>
+```
+
+- `.weld/` is local-only build/release state (never committed).
+- `projection/<package>` commits and annotated tags carry `weld.receipt/v1`
+  trailers (bundle identity + project/docs/archive SHA-256) and are the
+  Git-durable release record. Verify any tag with `mix release.verify_tag <tag>`.
+- For manual staging instead of `mix release.publish`, use
+  `mix release.stage [--fresh] [--identity <sha>]` (use `--path-only` for
+  scripts). Keep `.weld/releases/<artifact>/<identity>/` intact for tracking
+  and archiving.
+- Weld's own root Mix project can publish directly from its source checkout.
+
 ## Documentation Homes
 
 - `README.md` is the front door
@@ -60,7 +84,13 @@ relevant guide in the same change.
 
 ## Required Validation Workflow
 
-Run these from the repo root:
+For documentation-only changes, including READMEs, guides, changelogs,
+docstrings, and settings that only affect ExDoc output, run
+`git diff --check` and `mix docs --warnings-as-errors`. Spot-check any changed
+commands or examples. Skip `mix ci` and the full code validation workflow.
+
+For changes to runtime behavior, Mix tasks, dependency declarations, or build
+behavior, run these from the repo root:
 
 ```bash
 mix format --check-formatted
@@ -72,7 +102,7 @@ mix docs --warnings-as-errors
 mix ci
 ```
 
-`mix ci` is the acceptance gate. If it fails, the repo is not done.
+`mix ci` is the acceptance gate for those code and build changes.
 
 ## Working Style
 

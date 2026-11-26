@@ -4,7 +4,10 @@ defmodule Mix.Tasks.Weld.Inspect do
   alias Weld.TaskSupport
 
   @moduledoc """
-  Inspect a weld manifest, discovered workspace, and selected artifact.
+  Inspect a Weld manifest, discovered workspace, and selected artifact.
+
+  The JSON report distinguishes dependency closure, source ownership,
+  inventory, and verification membership.
   """
 
   @shortdoc "Inspect a weld manifest and selected artifact"

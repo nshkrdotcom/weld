@@ -57,6 +57,9 @@ defmodule Weld.SmokeApp do
     # could reuse its applications or write outside the checkout-owned output.
     env = [
       {"MIX_ENV", "dev"},
+      {"MIX_EXS", nil},
+      {"MIX_LOCKFILE", nil},
+      {"MIX_TARGET", nil},
       {"MIX_BUILD_PATH", nil},
       {"MIX_BUILD_ROOT", Path.join(smoke_root, "_build")},
       {"MIX_DEPS_PATH", Path.join(smoke_root, "deps")},

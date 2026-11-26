@@ -75,7 +75,7 @@ defmodule Weld.PlanTest do
   end
 
   defp external_dependency_manifest! do
-    repo_root = FixtureCase.unique_tmp_dir("weld_external_dependencies")
+    repo_root = Path.join(FixtureCase.unique_tmp_dir("weld_external_dependencies"), "repo")
     external_root = Path.join(Path.dirname(repo_root), "external_lib")
 
     File.mkdir_p!(Path.join([repo_root, "core", "shared", "lib"]))
@@ -201,7 +201,7 @@ defmodule Weld.PlanTest do
   end
 
   defp tooling_violation_manifest! do
-    repo_root = FixtureCase.unique_tmp_dir("weld_tooling_violation")
+    repo_root = Path.join(FixtureCase.unique_tmp_dir("weld_tooling_violation"), "repo")
     external_root = Path.join(Path.dirname(repo_root), "tooling_external")
 
     File.mkdir_p!(Path.join([repo_root, "apps", "runtime", "lib"]))

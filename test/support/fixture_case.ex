@@ -19,6 +19,7 @@ defmodule Weld.FixtureCase do
     suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
     dir = Path.join(tmp_root, "#{prefix}_#{suffix}")
     File.mkdir!(dir)
+    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(dir) end)
     dir
   end
 

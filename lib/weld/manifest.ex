@@ -21,7 +21,7 @@ defmodule Weld.Manifest do
       :output,
       :verify
     ]
-    defstruct @enforce_keys ++ [source_project: []]
+    defstruct @enforce_keys ++ [source_project: [], external_projects: [], structural_inputs: []]
 
     @type t :: %__MODULE__{
             id: String.t(),
@@ -31,6 +31,8 @@ defmodule Weld.Manifest do
             roots: [String.t()],
             include: [String.t()],
             optional_features: [String.t()],
+            external_projects: [String.t()],
+            structural_inputs: [String.t()],
             package: Weld.Manifest.Package.t(),
             output: Weld.Manifest.Output.t(),
             verify: Weld.Manifest.Verify.t()
@@ -51,7 +53,8 @@ defmodule Weld.Manifest do
       :assets,
       :extra_titles,
       :groups_for_extras,
-      :mermaid
+      :mermaid,
+      :hook_file
     ]
     defstruct @enforce_keys
 
@@ -64,7 +67,8 @@ defmodule Weld.Manifest do
             assets: %{optional(String.t()) => String.t()},
             extra_titles: %{optional(String.t()) => String.t()},
             groups_for_extras: [{String.t(), [String.t()]}],
-            mermaid: boolean()
+            mermaid: boolean(),
+            hook_file: String.t() | nil
           }
   end
 
@@ -125,7 +129,7 @@ defmodule Weld.Manifest do
     """
 
     @enforce_keys [:artifact_tests, :smoke, :hex_build, :hex_publish]
-    defstruct @enforce_keys
+    defstruct @enforce_keys ++ [component_tests: false]
 
     @type smoke_config :: %{
             enabled: boolean(),
@@ -134,6 +138,7 @@ defmodule Weld.Manifest do
 
     @type t :: %__MODULE__{
             artifact_tests: [String.t()],
+            component_tests: boolean(),
             smoke: smoke_config(),
             hex_build: boolean(),
             hex_publish: boolean()
@@ -225,12 +230,15 @@ defmodule Weld.Manifest do
     roots: [type: {:list, :string}, required: true],
     include: [type: {:list, :string}, default: []],
     optional_features: [type: {:list, :string}, default: []],
+    external_projects: [type: {:list, :string}, default: []],
+    structural_inputs: [type: {:list, :string}, default: []],
     package: [type: :keyword_list, required: true],
     output: [type: :keyword_list, default: []],
     verify: [type: :keyword_list, default: []]
   ]
 
   @monolith_opts_schema [
+    readme: [type: :string],
     shared_test_configs: [type: {:list, :any}, default: []],
     extra_test_deps: [type: {:list, :atom}, default: []],
     test_support_projects: [type: {:list, :any}, default: []]
@@ -259,7 +267,8 @@ defmodule Weld.Manifest do
     assets: [type: :any, default: %{}],
     extra_titles: [type: :any, default: %{}],
     groups_for_extras: [type: :any, default: []],
-    mermaid: [type: :boolean, default: false]
+    mermaid: [type: :boolean, default: false],
+    hook_file: [type: :string]
   ]
 
   @output_schema [
@@ -271,6 +280,7 @@ defmodule Weld.Manifest do
 
   @verify_schema [
     artifact_tests: [type: {:list, :string}, default: []],
+    component_tests: [type: :boolean, default: false],
     smoke: [type: :keyword_list, default: []],
     hex_build: [type: :boolean, default: true],
     hex_publish: [type: :boolean, default: true]
@@ -426,10 +436,13 @@ defmodule Weld.Manifest do
           roots: Enum.sort(normalized[:roots]),
           include: Enum.sort(normalized[:include]),
           optional_features: Enum.sort(normalized[:optional_features]),
+          external_projects: normalize_external_projects!(normalized[:external_projects]),
+          structural_inputs: Enum.uniq(normalized[:structural_inputs]) |> Enum.sort(),
           package: normalize_package(normalized[:package]),
           output: normalize_output(normalized[:output]),
           verify: normalize_verify(normalized[:verify])
         }
+        |> validate_verify_mode!()
         |> validate_docs_output!()
 
       {artifact_id, artifact}
@@ -439,9 +452,10 @@ defmodule Weld.Manifest do
 
   defp source_options!(options) do
     if options[:mode] == :source_project do
-      unless options[:roots] == ["."] and options[:include] == [] and
+      unless length(options[:roots]) == 1 and options[:include] == [] and
                options[:optional_features] == [] do
-        raise Error, "source_project requires roots: [\".\"] and one authoritative Mix project"
+        raise Error,
+              "source_project requires exactly one root and empty include and optional_features"
       end
 
       NimbleOptions.validate!(options[:source_project],
@@ -455,6 +469,26 @@ defmodule Weld.Manifest do
       []
     end
   end
+
+  defp normalize_external_projects!(ids) do
+    if Enum.uniq(ids) != ids, do: raise(Error, "duplicate external_projects project id")
+
+    for id <- ids, id != "." do
+      if Path.type(id) != :relative or String.contains?(id, ["\\", <<0>>]) or
+           Enum.any?(String.split(id, "/"), &(&1 in ["", ".", "..", ".git", ".weld"])) do
+        raise Error, "invalid external_projects project id: #{inspect(id)}"
+      end
+    end
+
+    Enum.sort(ids)
+  end
+
+  defp validate_verify_mode!(%Artifact{mode: mode, verify: %{component_tests: true}})
+       when mode != :package_projection do
+    raise Error, "verify.component_tests requires package_projection mode"
+  end
+
+  defp validate_verify_mode!(artifact), do: artifact
 
   defp normalize_package(package) do
     package = NimbleOptions.validate!(package, @package_schema)
@@ -532,7 +566,8 @@ defmodule Weld.Manifest do
       assets: normalize_string_map!(docs[:assets], "package.docs.assets"),
       extra_titles: normalize_string_map!(docs[:extra_titles], "package.docs.extra_titles"),
       groups_for_extras: normalize_extra_groups!(docs[:groups_for_extras]),
-      mermaid: docs[:mermaid]
+      mermaid: docs[:mermaid],
+      hook_file: docs[:hook_file]
     }
   end
 
@@ -576,9 +611,16 @@ defmodule Weld.Manifest do
           "package.docs.groups_for_extras must be a list, got: #{inspect(groups)}"
   end
 
+  @doc false
+  def docs_paths(%Artifact{mode: :monolith, monolith_opts: opts, output: output}) do
+    if opts[:readme], do: ["README.md" | output.docs], else: output.docs
+  end
+
+  def docs_paths(%Artifact{output: output}), do: output.docs
+
   defp validate_docs_output!(%Artifact{} = artifact) do
     docs = artifact.package.docs
-    output_docs = MapSet.new(artifact.output.docs)
+    output_docs = MapSet.new(docs_paths(artifact))
 
     referenced_docs =
       Map.keys(docs.extra_titles) ++
@@ -642,6 +684,7 @@ defmodule Weld.Manifest do
 
     %Verify{
       artifact_tests: Enum.sort(verify[:artifact_tests]),
+      component_tests: verify[:component_tests],
       hex_build: verify[:hex_build],
       hex_publish: verify[:hex_publish],
       smoke: %{
@@ -668,6 +711,12 @@ defmodule Weld.Manifest do
     else
       normalized
     end
+    |> then(fn normalized ->
+      case opts[:readme] do
+        nil -> normalized
+        path -> Keyword.put(normalized, :readme, path)
+      end
+    end)
   end
 
   defp normalize_project_refs(entries) do

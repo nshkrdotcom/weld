@@ -35,8 +35,83 @@ defmodule Weld.Hash do
   @doc "Hashes relative paths, executable flags and bytes using length-delimited entries."
   @spec content_identity(Path.t()) :: digest()
   def content_identity(root) do
+    identity_for_files(root, list_files(root))
+  end
+
+  @doc "Hashes portable project content independently of its provenance reports."
+  @spec project_identity(Path.t()) :: digest()
+  def project_identity(root) do
+    files =
+      list_files(root)
+      |> Enum.reject(
+        &(Path.relative_to(&1, root) in ["weld.provenance.json", "projection.lock.json"])
+      )
+
+    identity_for_files(root, files)
+  end
+
+  @doc "Hashes the exact portable inventory and its resolved standalone Mix lock."
+  def portable_project_identity(root, relative_files) do
+    lock = if File.regular?(Path.join(root, "mix.lock")), do: ["mix.lock"], else: []
+
+    files =
+      (relative_files ++ lock)
+      |> Enum.reject(&(&1 in ["weld.provenance.json", "projection.lock.json"]))
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.map(fn relative ->
+        path = Weld.Output.source!(root, relative)
+
+        unless match?({:ok, %{type: :regular}}, File.lstat(path)),
+          do: raise(Weld.Error, "portable project input missing or unsafe: #{relative}")
+
+        path
+      end)
+
+    identity_for_files(root, files)
+  end
+
+  @doc "Hashes verification inputs, allowing only the standalone resolved Mix lock to change."
+  def verification_identity(root, relative_files) do
+    files =
+      relative_files
+      |> Enum.reject(&(&1 == "mix.lock"))
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.map(fn relative ->
+        path = Weld.Output.source!(root, relative)
+
+        unless match?({:ok, %{type: :regular}}, File.lstat(path)),
+          do: raise(Weld.Error, "verification input missing or unsafe: #{relative}")
+
+        path
+      end)
+
+    identity_for_files(root, files)
+  end
+
+  @doc "Hashes the current expansion of a publication allowlist, including new files."
+  def package_identity(root, patterns) do
+    relative_files =
+      patterns
+      |> Enum.flat_map(&expand_package_pattern(root, &1))
+      |> Enum.map(&Path.relative_to(&1, root))
+
+    verification_identity(root, relative_files)
+  end
+
+  defp expand_package_pattern(root, pattern) do
+    root
+    |> Path.join(pattern)
+    |> Path.wildcard(match_dot: true)
+    |> Enum.flat_map(&expand_package_path/1)
+  end
+
+  defp expand_package_path(path), do: if(File.dir?(path), do: list_files(path), else: [path])
+
+  defp identity_for_files(root, files) do
     entries =
-      for path <- list_files(root) do
+      for path <- files do
         relative = Path.relative_to(path, root)
         executable = Bitwise.band(File.stat!(path).mode, 0o111)
         :erlang.term_to_binary({relative, executable, sha256_file(path)})

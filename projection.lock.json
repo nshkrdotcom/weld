@@ -4,23 +4,31 @@
     "package": {
       "name": "weld",
       "otp_app": "weld",
-      "version": "0.15.0"
+      "version": "0.19.0"
     }
   },
   "graph": {
-    "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "dependency_projects": [
+      "."
+    ],
+    "digest": "fe16144f738bd9917f957a367b42acac2e04ce69f319538c1b5c5f24980237e3",
     "edges": [],
     "excluded_projects": [],
+    "external_projects": [],
+    "inventory_members": [],
     "selected_projects": [
       "."
     ],
+    "source_members": [],
+    "verification_projects": [],
     "violations": []
   },
   "manifest": {
-    "digest": "e7d333c6b66cce803c3210558da769fc3801729fe68b875721e50166317e0d1d",
+    "digest": "e0e13d7829815d16b209e1ca4f62785abed5126f698ceaf0e79adef74811ce16",
     "path": "build_support/weld.exs"
   },
   "projection": {
+    "artifact_id": "dd06f610867de019206546c8c99d409bff0bd8c129ab606318bf79c3b82a4fb2",
     "build_path": ".weld/full/weld/project",
     "copied_files": [
       ".credo.exs",
@@ -42,23 +50,41 @@
       "guides/workflow.md",
       "lib/mix/tasks/release.archive.ex",
       "lib/mix/tasks/release.prepare.ex",
+      "lib/mix/tasks/release.publish.ex",
+      "lib/mix/tasks/release.stage.ex",
+      "lib/mix/tasks/release.status.ex",
       "lib/mix/tasks/release.track.ex",
+      "lib/mix/tasks/release.verify_tag.ex",
       "lib/mix/tasks/weld.affected.ex",
       "lib/mix/tasks/weld.agents.verify.ex",
+      "lib/mix/tasks/weld.diff.ex",
+      "lib/mix/tasks/weld.docs.check.ex",
+      "lib/mix/tasks/weld.doctor.ex",
+      "lib/mix/tasks/weld.explain.ex",
+      "lib/mix/tasks/weld.gc.ex",
       "lib/mix/tasks/weld.graph.ex",
       "lib/mix/tasks/weld.inspect.ex",
+      "lib/mix/tasks/weld.open.ex",
       "lib/mix/tasks/weld.project.ex",
       "lib/mix/tasks/weld.query.ex",
       "lib/mix/tasks/weld.release.archive.ex",
+      "lib/mix/tasks/weld.release.plan.ex",
       "lib/mix/tasks/weld.release.prepare.ex",
+      "lib/mix/tasks/weld.release.publish.ex",
+      "lib/mix/tasks/weld.release.stage.ex",
+      "lib/mix/tasks/weld.release.status.ex",
       "lib/mix/tasks/weld.release.track.ex",
+      "lib/mix/tasks/weld.release.verify_tag.ex",
       "lib/mix/tasks/weld.setup.ex",
+      "lib/mix/tasks/weld.status.ex",
       "lib/mix/tasks/weld.verify.ex",
       "lib/weld.ex",
       "lib/weld/affected.ex",
       "lib/weld/agents_verifier.ex",
       "lib/weld/config/generator.ex",
       "lib/weld/credo/check/no_runtime_os_env.ex",
+      "lib/weld/docs_preview.ex",
+      "lib/weld/docs_smoke.ex",
       "lib/weld/error.ex",
       "lib/weld/git.ex",
       "lib/weld/graph.ex",
@@ -69,14 +95,22 @@
       "lib/weld/manifest.ex",
       "lib/weld/output.ex",
       "lib/weld/plan.ex",
+      "lib/weld/plan/boundary.ex",
+      "lib/weld/plan/inventory.ex",
       "lib/weld/projector.ex",
+      "lib/weld/projector/live.ex",
       "lib/weld/projector/monolith.ex",
       "lib/weld/projector/monolith/file_plan.ex",
       "lib/weld/projector/monolith/migrations.ex",
       "lib/weld/projector/monolith/mix_file.ex",
       "lib/weld/projector/monolith/test_helper.ex",
       "lib/weld/projector/source_project.ex",
+      "lib/weld/receipt.ex",
       "lib/weld/release.ex",
+      "lib/weld/release_inputs.ex",
+      "lib/weld/release_publish_shell.ex",
+      "lib/weld/release_receipt.ex",
+      "lib/weld/release_status.ex",
       "lib/weld/smoke_app.ex",
       "lib/weld/source_formatter.ex",
       "lib/weld/task_support.ex",
@@ -88,6 +122,15 @@
       "mix.exs",
       "mix.lock",
       "scripts/test_ci.exs",
+      "test/fixtures/component_test_dependency/config/config.exs",
+      "test/fixtures/component_test_dependency/include/sprout_probe.hrl",
+      "test/fixtures/component_test_dependency/lib/probe.ex",
+      "test/fixtures/component_test_dependency/mix.exs",
+      "test/fixtures/component_test_dependency/priv/probe.txt",
+      "test/fixtures/component_test_dependency/src/sprout_probe_native.erl",
+      "test/fixtures/component_test_dependency/test/private_test.exs",
+      "test/fixtures/component_test_dependency/test/support/private.ex",
+      "test/fixtures/component_test_dependency/test/test_helper.exs",
       "test/fixtures/composite_runtime/README.md",
       "test/fixtures/composite_runtime/core/state/lib/fixture/state.ex",
       "test/fixtures/composite_runtime/core/state/lib/fixture/state/application.ex",
@@ -141,6 +184,17 @@
       "test/fixtures/monolith_bundle/runtime/api/test/fixture/api_test.exs",
       "test/fixtures/monolith_bundle/runtime/api/test/fixture/test_helper.exs",
       "test/fixtures/monolith_bundle/runtime/api/test/test_helper.exs",
+      "test/fixtures/nested_source_project/build_support/weld.exs",
+      "test/fixtures/nested_source_project/extensions/palette/VERSION",
+      "test/fixtures/nested_source_project/extensions/palette/build_support/package.exs",
+      "test/fixtures/nested_source_project/extensions/palette/checks/palette_test.exs",
+      "test/fixtures/nested_source_project/extensions/palette/checks/shade.txt",
+      "test/fixtures/nested_source_project/extensions/palette/checks/test_helper.exs",
+      "test/fixtures/nested_source_project/extensions/palette/mix.exs",
+      "test/fixtures/nested_source_project/extensions/palette/priv/shade.txt",
+      "test/fixtures/nested_source_project/extensions/palette/source/palette.ex",
+      "test/fixtures/nested_source_project/lib/workshop.ex",
+      "test/fixtures/nested_source_project/mix.exs",
       "test/fixtures/package_bootstrap_bundle/README.md",
       "test/fixtures/package_bootstrap_bundle/core/bootstrap/config/config.exs",
       "test/fixtures/package_bootstrap_bundle/core/bootstrap/lib/fixture/bootstrap.ex",
@@ -191,54 +245,2095 @@
       "test/fixtures/source_project/priv/theme.txt",
       "test/fixtures/source_project/test/runtime_test.exs",
       "test/fixtures/source_project/test/test_helper.exs",
-      "test/fixtures/strict_bundle/CHANGELOG.md",
-      "test/fixtures/strict_bundle/README.md",
-      "test/fixtures/strict_bundle/apps/problem_child/lib/weld_fixture/problem_child.ex",
-      "test/fixtures/strict_bundle/apps/problem_child/mix.exs",
-      "test/fixtures/strict_bundle/guides/architecture.md",
-      "test/fixtures/strict_bundle/packaging/hex_projections/sample.exs",
       "test/support/fixture_case.ex",
       "test/test_helper.exs",
       "test/weld/affected_test.exs",
       "test/weld/agents_verifier_test.exs",
+      "test/weld/artifact_plan_test.exs",
+      "test/weld/bootstrap_relocation_test.exs",
+      "test/weld/component_tests_test.exs",
       "test/weld/config_generator_test.exs",
       "test/weld/credo_no_runtime_os_env_test.exs",
+      "test/weld/docs_options_test.exs",
+      "test/weld/docs_preview_test.exs",
+      "test/weld/docs_smoke_test.exs",
+      "test/weld/ergonomics_and_docs_smoke_test.exs",
+      "test/weld/ergonomics_contract_test.exs",
+      "test/weld/explain_task_test.exs",
+      "test/weld/graph_live_test.exs",
       "test/weld/manifest_test.exs",
       "test/weld/mix_tasks_test.exs",
       "test/weld/monolith_config_spike_test.exs",
+      "test/weld/monolith_plan_test.exs",
       "test/weld/monolith_test_helper_spike_test.exs",
       "test/weld/output_test.exs",
       "test/weld/plan_test.exs",
+      "test/weld/projector_config_cache_test.exs",
       "test/weld/projector_monolith_test.exs",
       "test/weld/projector_package_mode_test.exs",
       "test/weld/projector_test.exs",
       "test/weld/release_metadata_test.exs",
+      "test/weld/release_plan_test.exs",
       "test/weld/release_test.exs",
+      "test/weld/release_workflow_018_test.exs",
       "test/weld/smoke_app_test.exs",
       "test/weld/source_consumption_test.exs",
       "test/weld/source_project_test.exs",
       "test/weld/test_helper.exs",
+      "test/weld/verification_integrity_test.exs",
       "test/weld/verifier_test.exs",
       "test/weld/workspace_test.exs"
     ],
-    "git_revision": "1f695bf29d540bdf9957109090900e6f5b126024",
+    "git_revision": "5fee481e21a652320e0160c1ed8855660db362ff",
+    "linked_files": [],
     "package_files": [
-      "mix.exs",
-      ".formatter.exs",
-      ".credo.exs",
-      "README.md",
       "CHANGELOG.md",
       "LICENSE",
-      "AGENTS.md",
+      "README.md",
+      "assets",
+      "guides",
+      "lib",
+      "mix.exs"
+    ],
+    "package_patterns": [
       "lib",
       "assets",
       "guides",
-      "scripts",
-      "test",
-      "build_support",
+      "mix.exs",
+      "README.md",
+      "LICENSE",
+      "CHANGELOG.md"
+    ],
+    "tree_digest": "39934129f093c75eb89ec0a0435ab5ee10b31554e566df4dcdc83e8db9ea04a7",
+    "verification_files": [
+      ".credo.exs",
+      ".formatter.exs",
+      "AGENTS.md",
+      "CHANGELOG.md",
+      "LICENSE",
+      "README.md",
+      "assets/weld.svg",
+      "build_support/weld.exs",
+      "guides/architecture.md",
+      "guides/cli_reference.md",
+      "guides/consumer_repo_integration.md",
+      "guides/getting_started.md",
+      "guides/manifest_reference.md",
+      "guides/release_process.md",
+      "guides/source_projects.md",
+      "guides/testing_strategy.md",
+      "guides/workflow.md",
+      "lib/mix/tasks/release.archive.ex",
+      "lib/mix/tasks/release.prepare.ex",
+      "lib/mix/tasks/release.publish.ex",
+      "lib/mix/tasks/release.stage.ex",
+      "lib/mix/tasks/release.status.ex",
+      "lib/mix/tasks/release.track.ex",
+      "lib/mix/tasks/release.verify_tag.ex",
+      "lib/mix/tasks/weld.affected.ex",
+      "lib/mix/tasks/weld.agents.verify.ex",
+      "lib/mix/tasks/weld.diff.ex",
+      "lib/mix/tasks/weld.docs.check.ex",
+      "lib/mix/tasks/weld.doctor.ex",
+      "lib/mix/tasks/weld.explain.ex",
+      "lib/mix/tasks/weld.gc.ex",
+      "lib/mix/tasks/weld.graph.ex",
+      "lib/mix/tasks/weld.inspect.ex",
+      "lib/mix/tasks/weld.open.ex",
+      "lib/mix/tasks/weld.project.ex",
+      "lib/mix/tasks/weld.query.ex",
+      "lib/mix/tasks/weld.release.archive.ex",
+      "lib/mix/tasks/weld.release.plan.ex",
+      "lib/mix/tasks/weld.release.prepare.ex",
+      "lib/mix/tasks/weld.release.publish.ex",
+      "lib/mix/tasks/weld.release.stage.ex",
+      "lib/mix/tasks/weld.release.status.ex",
+      "lib/mix/tasks/weld.release.track.ex",
+      "lib/mix/tasks/weld.release.verify_tag.ex",
+      "lib/mix/tasks/weld.setup.ex",
+      "lib/mix/tasks/weld.status.ex",
+      "lib/mix/tasks/weld.verify.ex",
+      "lib/weld.ex",
+      "lib/weld/affected.ex",
+      "lib/weld/agents_verifier.ex",
+      "lib/weld/config/generator.ex",
+      "lib/weld/credo/check/no_runtime_os_env.ex",
+      "lib/weld/docs_preview.ex",
+      "lib/weld/docs_smoke.ex",
+      "lib/weld/error.ex",
+      "lib/weld/git.ex",
+      "lib/weld/graph.ex",
+      "lib/weld/graph/edge.ex",
+      "lib/weld/graph/view.ex",
+      "lib/weld/hash.ex",
+      "lib/weld/lockfile.ex",
+      "lib/weld/manifest.ex",
+      "lib/weld/output.ex",
+      "lib/weld/plan.ex",
+      "lib/weld/plan/boundary.ex",
+      "lib/weld/plan/inventory.ex",
+      "lib/weld/projector.ex",
+      "lib/weld/projector/live.ex",
+      "lib/weld/projector/monolith.ex",
+      "lib/weld/projector/monolith/file_plan.ex",
+      "lib/weld/projector/monolith/migrations.ex",
+      "lib/weld/projector/monolith/mix_file.ex",
+      "lib/weld/projector/monolith/test_helper.ex",
+      "lib/weld/projector/source_project.ex",
+      "lib/weld/receipt.ex",
+      "lib/weld/release.ex",
+      "lib/weld/release_inputs.ex",
+      "lib/weld/release_publish_shell.ex",
+      "lib/weld/release_receipt.ex",
+      "lib/weld/release_status.ex",
+      "lib/weld/smoke_app.ex",
+      "lib/weld/source_formatter.ex",
+      "lib/weld/task_support.ex",
+      "lib/weld/verifier.ex",
+      "lib/weld/violation.ex",
+      "lib/weld/workspace.ex",
+      "lib/weld/workspace/discovery.ex",
+      "lib/weld/workspace/project.ex",
+      "mix.exs",
+      "mix.lock",
+      "scripts/test_ci.exs",
+      "test/fixtures/component_test_dependency/config/config.exs",
+      "test/fixtures/component_test_dependency/include/sprout_probe.hrl",
+      "test/fixtures/component_test_dependency/lib/probe.ex",
+      "test/fixtures/component_test_dependency/mix.exs",
+      "test/fixtures/component_test_dependency/priv/probe.txt",
+      "test/fixtures/component_test_dependency/src/sprout_probe_native.erl",
+      "test/fixtures/component_test_dependency/test/private_test.exs",
+      "test/fixtures/component_test_dependency/test/support/private.ex",
+      "test/fixtures/component_test_dependency/test/test_helper.exs",
+      "test/fixtures/composite_runtime/README.md",
+      "test/fixtures/composite_runtime/core/state/lib/fixture/state.ex",
+      "test/fixtures/composite_runtime/core/state/lib/fixture/state/application.ex",
+      "test/fixtures/composite_runtime/core/state/mix.exs",
+      "test/fixtures/composite_runtime/packaging/weld/composite_bundle.exs",
+      "test/fixtures/composite_runtime/packaging/weld/composite_bundle/test/composite_bundle_test.exs",
+      "test/fixtures/composite_runtime/packaging/weld/composite_bundle/test/test_helper.exs",
+      "test/fixtures/composite_runtime/runtime/local/lib/fixture/runtime.ex",
+      "test/fixtures/composite_runtime/runtime/local/mix.exs",
+      "test/fixtures/external_dependencies/README.md",
+      "test/fixtures/external_dependencies/apps/app/lib/app.ex",
+      "test/fixtures/external_dependencies/apps/app/mix.exs",
+      "test/fixtures/external_dependencies/core/shared/lib/shared.ex",
+      "test/fixtures/external_dependencies/core/shared/mix.exs",
+      "test/fixtures/external_dependencies/packaging/weld/app_bundle.exs",
+      "test/fixtures/external_lib/mix.exs",
+      "test/fixtures/library_bundle/CHANGELOG.md",
+      "test/fixtures/library_bundle/LICENSE",
+      "test/fixtures/library_bundle/README.md",
+      "test/fixtures/library_bundle/core/contracts/lib/weld_fixture/contracts.ex",
+      "test/fixtures/library_bundle/core/contracts/mix.exs",
+      "test/fixtures/library_bundle/guides/architecture.md",
+      "test/fixtures/library_bundle/guides/getting_started.md",
+      "test/fixtures/library_bundle/packaging/weld/fixture_bundle.exs",
+      "test/fixtures/library_bundle/packaging/weld/fixture_bundle/smoke.ex",
+      "test/fixtures/library_bundle/packaging/weld/fixture_bundle/test/runtime_test.exs",
+      "test/fixtures/library_bundle/packaging/weld/fixture_bundle/test/test_helper.exs",
+      "test/fixtures/library_bundle/runtime/local/lib/weld_fixture/runtime.ex",
+      "test/fixtures/library_bundle/runtime/local/mix.exs",
+      "test/fixtures/monolith_bundle/.formatter.exs",
+      "test/fixtures/monolith_bundle/CHANGELOG.md",
+      "test/fixtures/monolith_bundle/LICENSE",
+      "test/fixtures/monolith_bundle/README.md",
+      "test/fixtures/monolith_bundle/assets/monolith_bundle.svg",
+      "test/fixtures/monolith_bundle/core/store/config/config.exs",
+      "test/fixtures/monolith_bundle/core/store/lib/fixture/store.ex",
+      "test/fixtures/monolith_bundle/core/store/lib/fixture/store/application.ex",
+      "test/fixtures/monolith_bundle/core/store/mix.exs",
+      "test/fixtures/monolith_bundle/core/store/priv/repo/migrations/20260101000000_create_store.exs",
+      "test/fixtures/monolith_bundle/core/store/test/fixture/store_test.exs",
+      "test/fixtures/monolith_bundle/core/store/test/support/store_case.exs",
+      "test/fixtures/monolith_bundle/core/store/test/test_helper.exs",
+      "test/fixtures/monolith_bundle/guides/release.md",
+      "test/fixtures/monolith_bundle/packaging/weld/monolith_bundle.exs",
+      "test/fixtures/monolith_bundle/runtime/api/config/config.exs",
+      "test/fixtures/monolith_bundle/runtime/api/config/test.exs",
+      "test/fixtures/monolith_bundle/runtime/api/lib/fixture/api.ex",
+      "test/fixtures/monolith_bundle/runtime/api/lib/fixture/api/application.ex",
+      "test/fixtures/monolith_bundle/runtime/api/mix.exs",
+      "test/fixtures/monolith_bundle/runtime/api/test/dormant/dormant_test.exs",
+      "test/fixtures/monolith_bundle/runtime/api/test/fixture/api_test.exs",
+      "test/fixtures/monolith_bundle/runtime/api/test/fixture/test_helper.exs",
+      "test/fixtures/monolith_bundle/runtime/api/test/test_helper.exs",
+      "test/fixtures/nested_source_project/build_support/weld.exs",
+      "test/fixtures/nested_source_project/extensions/palette/VERSION",
+      "test/fixtures/nested_source_project/extensions/palette/build_support/package.exs",
+      "test/fixtures/nested_source_project/extensions/palette/checks/palette_test.exs",
+      "test/fixtures/nested_source_project/extensions/palette/checks/shade.txt",
+      "test/fixtures/nested_source_project/extensions/palette/checks/test_helper.exs",
+      "test/fixtures/nested_source_project/extensions/palette/mix.exs",
+      "test/fixtures/nested_source_project/extensions/palette/priv/shade.txt",
+      "test/fixtures/nested_source_project/extensions/palette/source/palette.ex",
+      "test/fixtures/nested_source_project/lib/workshop.ex",
+      "test/fixtures/nested_source_project/mix.exs",
+      "test/fixtures/package_bootstrap_bundle/README.md",
+      "test/fixtures/package_bootstrap_bundle/core/bootstrap/config/config.exs",
+      "test/fixtures/package_bootstrap_bundle/core/bootstrap/lib/fixture/bootstrap.ex",
+      "test/fixtures/package_bootstrap_bundle/core/bootstrap/lib/fixture/bootstrap/application.ex",
+      "test/fixtures/package_bootstrap_bundle/core/bootstrap/mix.exs",
+      "test/fixtures/package_bootstrap_bundle/packaging/weld/package_bootstrap_bundle.exs",
+      "test/fixtures/package_bootstrap_bundle/packaging/weld/package_bootstrap_bundle/test/package_bootstrap_bundle_test.exs",
+      "test/fixtures/package_bootstrap_bundle/packaging/weld/package_bootstrap_bundle/test/test_helper.exs",
+      "test/fixtures/package_repo_bundle/.formatter.exs",
+      "test/fixtures/package_repo_bundle/README.md",
+      "test/fixtures/package_repo_bundle/core/store/config/config.exs",
+      "test/fixtures/package_repo_bundle/core/store/lib/fixture/store.ex",
+      "test/fixtures/package_repo_bundle/core/store/lib/fixture/store/repo.ex",
+      "test/fixtures/package_repo_bundle/core/store/mix.exs",
+      "test/fixtures/package_repo_bundle/core/store/priv/repo/migrations/20260408000000_create_fixture_table.exs",
+      "test/fixtures/package_repo_bundle/packaging/weld/package_repo_bundle.exs",
+      "test/fixtures/root_workspace/README.md",
+      "test/fixtures/root_workspace/apps/core/lib/root_workspace/core.ex",
+      "test/fixtures/root_workspace/apps/core/mix.exs",
+      "test/fixtures/root_workspace/apps/web/lib/root_workspace/web.ex",
+      "test/fixtures/root_workspace/apps/web/mix.exs",
+      "test/fixtures/root_workspace/lib/root_workspace.ex",
+      "test/fixtures/root_workspace/mix.exs",
+      "test/fixtures/root_workspace/packaging/weld/artifacts.exs",
+      "test/fixtures/root_workspace/packaging/weld/core_bundle/test/core_test.exs",
+      "test/fixtures/root_workspace/packaging/weld/core_bundle/test/test_helper.exs",
+      "test/fixtures/root_workspace/packaging/weld/web_bundle/test/test_helper.exs",
+      "test/fixtures/root_workspace/packaging/weld/web_bundle/test/web_test.exs",
+      "test/fixtures/root_workspace/proofs/demo/lib/root_workspace/demo.ex",
+      "test/fixtures/root_workspace/proofs/demo/mix.exs",
+      "test/fixtures/root_workspace/tooling/test_support/lib/root_workspace/test_support.ex",
+      "test/fixtures/root_workspace/tooling/test_support/mix.exs",
+      "test/fixtures/source_project/README.md",
+      "test/fixtures/source_project/VERSION",
+      "test/fixtures/source_project/build_support/weld.exs",
+      "test/fixtures/source_project/components/pure/lib/pure.ex",
+      "test/fixtures/source_project/components/pure/mix.exs",
+      "test/fixtures/source_project/components/runtime/lib/runtime.ex",
+      "test/fixtures/source_project/components/runtime/mix.exs",
+      "test/fixtures/source_project/consumer/check.exs",
+      "test/fixtures/source_project/consumer/dependencies.exs",
+      "test/fixtures/source_project/consumer/mix.exs",
+      "test/fixtures/source_project/extensions/color/lib/color.ex",
+      "test/fixtures/source_project/extensions/color/mix.exs",
+      "test/fixtures/source_project/extensions/layout/lib/layout.ex",
+      "test/fixtures/source_project/extensions/layout/mix.exs",
+      "test/fixtures/source_project/mix.exs",
+      "test/fixtures/source_project/priv/theme.txt",
+      "test/fixtures/source_project/test/runtime_test.exs",
+      "test/fixtures/source_project/test/test_helper.exs",
+      "test/support/fixture_case.ex",
+      "test/test_helper.exs",
+      "test/weld/affected_test.exs",
+      "test/weld/agents_verifier_test.exs",
+      "test/weld/artifact_plan_test.exs",
+      "test/weld/bootstrap_relocation_test.exs",
+      "test/weld/component_tests_test.exs",
+      "test/weld/config_generator_test.exs",
+      "test/weld/credo_no_runtime_os_env_test.exs",
+      "test/weld/docs_options_test.exs",
+      "test/weld/docs_preview_test.exs",
+      "test/weld/docs_smoke_test.exs",
+      "test/weld/ergonomics_and_docs_smoke_test.exs",
+      "test/weld/ergonomics_contract_test.exs",
+      "test/weld/explain_task_test.exs",
+      "test/weld/graph_live_test.exs",
+      "test/weld/manifest_test.exs",
+      "test/weld/mix_tasks_test.exs",
+      "test/weld/monolith_config_spike_test.exs",
+      "test/weld/monolith_plan_test.exs",
+      "test/weld/monolith_test_helper_spike_test.exs",
+      "test/weld/output_test.exs",
+      "test/weld/plan_test.exs",
+      "test/weld/projector_config_cache_test.exs",
+      "test/weld/projector_monolith_test.exs",
+      "test/weld/projector_package_mode_test.exs",
+      "test/weld/projector_test.exs",
+      "test/weld/release_metadata_test.exs",
+      "test/weld/release_plan_test.exs",
+      "test/weld/release_test.exs",
+      "test/weld/release_workflow_018_test.exs",
+      "test/weld/smoke_app_test.exs",
+      "test/weld/source_consumption_test.exs",
+      "test/weld/source_project_test.exs",
+      "test/weld/test_helper.exs",
+      "test/weld/verification_integrity_test.exs",
+      "test/weld/verifier_test.exs",
+      "test/weld/workspace_test.exs"
+    ],
+    "verification_input_identity": "2a143c61ed2dc5ef7098f1e556d63ca647f8fcbb44a6648dcd14f91f0a870261"
+  },
+  "source": {
+    "inventory": [
+      {
+        "directory": false,
+        "kind": "metadata",
+        "owner": ".",
+        "source": ".credo.exs",
+        "target": ".credo.exs"
+      },
+      {
+        "directory": false,
+        "kind": "metadata",
+        "owner": ".",
+        "source": ".formatter.exs",
+        "target": ".formatter.exs"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "AGENTS.md",
+        "target": "AGENTS.md"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "CHANGELOG.md",
+        "target": "CHANGELOG.md"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "LICENSE",
+        "target": "LICENSE"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "README.md",
+        "target": "README.md"
+      },
+      {
+        "directory": false,
+        "kind": "runtime",
+        "owner": ".",
+        "source": "assets/weld.svg",
+        "target": "assets/weld.svg"
+      },
+      {
+        "directory": false,
+        "kind": "metadata",
+        "owner": null,
+        "source": "build_support/weld.exs",
+        "target": "build_support/weld.exs"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "guides/architecture.md",
+        "target": "guides/architecture.md"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "guides/cli_reference.md",
+        "target": "guides/cli_reference.md"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "guides/consumer_repo_integration.md",
+        "target": "guides/consumer_repo_integration.md"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "guides/getting_started.md",
+        "target": "guides/getting_started.md"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "guides/manifest_reference.md",
+        "target": "guides/manifest_reference.md"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "guides/release_process.md",
+        "target": "guides/release_process.md"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "guides/source_projects.md",
+        "target": "guides/source_projects.md"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "guides/testing_strategy.md",
+        "target": "guides/testing_strategy.md"
+      },
+      {
+        "directory": false,
+        "kind": "docs",
+        "owner": ".",
+        "source": "guides/workflow.md",
+        "target": "guides/workflow.md"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/release.archive.ex",
+        "target": "lib/mix/tasks/release.archive.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/release.prepare.ex",
+        "target": "lib/mix/tasks/release.prepare.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/release.publish.ex",
+        "target": "lib/mix/tasks/release.publish.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/release.stage.ex",
+        "target": "lib/mix/tasks/release.stage.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/release.status.ex",
+        "target": "lib/mix/tasks/release.status.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/release.track.ex",
+        "target": "lib/mix/tasks/release.track.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/release.verify_tag.ex",
+        "target": "lib/mix/tasks/release.verify_tag.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.affected.ex",
+        "target": "lib/mix/tasks/weld.affected.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.agents.verify.ex",
+        "target": "lib/mix/tasks/weld.agents.verify.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.diff.ex",
+        "target": "lib/mix/tasks/weld.diff.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.docs.check.ex",
+        "target": "lib/mix/tasks/weld.docs.check.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.doctor.ex",
+        "target": "lib/mix/tasks/weld.doctor.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.explain.ex",
+        "target": "lib/mix/tasks/weld.explain.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.gc.ex",
+        "target": "lib/mix/tasks/weld.gc.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.graph.ex",
+        "target": "lib/mix/tasks/weld.graph.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.inspect.ex",
+        "target": "lib/mix/tasks/weld.inspect.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.open.ex",
+        "target": "lib/mix/tasks/weld.open.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.project.ex",
+        "target": "lib/mix/tasks/weld.project.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.query.ex",
+        "target": "lib/mix/tasks/weld.query.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.release.archive.ex",
+        "target": "lib/mix/tasks/weld.release.archive.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.release.plan.ex",
+        "target": "lib/mix/tasks/weld.release.plan.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.release.prepare.ex",
+        "target": "lib/mix/tasks/weld.release.prepare.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.release.publish.ex",
+        "target": "lib/mix/tasks/weld.release.publish.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.release.stage.ex",
+        "target": "lib/mix/tasks/weld.release.stage.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.release.status.ex",
+        "target": "lib/mix/tasks/weld.release.status.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.release.track.ex",
+        "target": "lib/mix/tasks/weld.release.track.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.release.verify_tag.ex",
+        "target": "lib/mix/tasks/weld.release.verify_tag.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.setup.ex",
+        "target": "lib/mix/tasks/weld.setup.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.status.ex",
+        "target": "lib/mix/tasks/weld.status.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/mix/tasks/weld.verify.ex",
+        "target": "lib/mix/tasks/weld.verify.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld.ex",
+        "target": "lib/weld.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/affected.ex",
+        "target": "lib/weld/affected.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/agents_verifier.ex",
+        "target": "lib/weld/agents_verifier.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/config/generator.ex",
+        "target": "lib/weld/config/generator.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/credo/check/no_runtime_os_env.ex",
+        "target": "lib/weld/credo/check/no_runtime_os_env.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/docs_preview.ex",
+        "target": "lib/weld/docs_preview.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/docs_smoke.ex",
+        "target": "lib/weld/docs_smoke.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/error.ex",
+        "target": "lib/weld/error.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/git.ex",
+        "target": "lib/weld/git.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/graph.ex",
+        "target": "lib/weld/graph.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/graph/edge.ex",
+        "target": "lib/weld/graph/edge.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/graph/view.ex",
+        "target": "lib/weld/graph/view.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/hash.ex",
+        "target": "lib/weld/hash.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/lockfile.ex",
+        "target": "lib/weld/lockfile.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/manifest.ex",
+        "target": "lib/weld/manifest.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/output.ex",
+        "target": "lib/weld/output.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/plan.ex",
+        "target": "lib/weld/plan.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/plan/boundary.ex",
+        "target": "lib/weld/plan/boundary.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/plan/inventory.ex",
+        "target": "lib/weld/plan/inventory.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/projector.ex",
+        "target": "lib/weld/projector.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/projector/live.ex",
+        "target": "lib/weld/projector/live.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/projector/monolith.ex",
+        "target": "lib/weld/projector/monolith.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/projector/monolith/file_plan.ex",
+        "target": "lib/weld/projector/monolith/file_plan.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/projector/monolith/migrations.ex",
+        "target": "lib/weld/projector/monolith/migrations.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/projector/monolith/mix_file.ex",
+        "target": "lib/weld/projector/monolith/mix_file.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/projector/monolith/test_helper.ex",
+        "target": "lib/weld/projector/monolith/test_helper.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/projector/source_project.ex",
+        "target": "lib/weld/projector/source_project.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/receipt.ex",
+        "target": "lib/weld/receipt.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/release.ex",
+        "target": "lib/weld/release.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/release_inputs.ex",
+        "target": "lib/weld/release_inputs.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/release_publish_shell.ex",
+        "target": "lib/weld/release_publish_shell.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/release_receipt.ex",
+        "target": "lib/weld/release_receipt.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/release_status.ex",
+        "target": "lib/weld/release_status.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/smoke_app.ex",
+        "target": "lib/weld/smoke_app.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/source_formatter.ex",
+        "target": "lib/weld/source_formatter.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/task_support.ex",
+        "target": "lib/weld/task_support.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/verifier.ex",
+        "target": "lib/weld/verifier.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/violation.ex",
+        "target": "lib/weld/violation.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/workspace.ex",
+        "target": "lib/weld/workspace.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/workspace/discovery.ex",
+        "target": "lib/weld/workspace/discovery.ex"
+      },
+      {
+        "directory": false,
+        "kind": "compiled",
+        "owner": ".",
+        "source": "lib/weld/workspace/project.ex",
+        "target": "lib/weld/workspace/project.ex"
+      },
+      {
+        "directory": false,
+        "kind": "metadata",
+        "owner": ".",
+        "source": "mix.exs",
+        "target": "mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "metadata",
+        "owner": ".",
+        "source": "mix.lock",
+        "target": "mix.lock"
+      },
+      {
+        "directory": false,
+        "kind": "metadata",
+        "owner": ".",
+        "source": "scripts/test_ci.exs",
+        "target": "scripts/test_ci.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/component_test_dependency/config/config.exs",
+        "target": "test/fixtures/component_test_dependency/config/config.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/component_test_dependency/include/sprout_probe.hrl",
+        "target": "test/fixtures/component_test_dependency/include/sprout_probe.hrl"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/component_test_dependency/lib/probe.ex",
+        "target": "test/fixtures/component_test_dependency/lib/probe.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/component_test_dependency/mix.exs",
+        "target": "test/fixtures/component_test_dependency/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/component_test_dependency/priv/probe.txt",
+        "target": "test/fixtures/component_test_dependency/priv/probe.txt"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/component_test_dependency/src/sprout_probe_native.erl",
+        "target": "test/fixtures/component_test_dependency/src/sprout_probe_native.erl"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/component_test_dependency/test/private_test.exs",
+        "target": "test/fixtures/component_test_dependency/test/private_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/component_test_dependency/test/support/private.ex",
+        "target": "test/fixtures/component_test_dependency/test/support/private.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/component_test_dependency/test/test_helper.exs",
+        "target": "test/fixtures/component_test_dependency/test/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/composite_runtime/README.md",
+        "target": "test/fixtures/composite_runtime/README.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/composite_runtime/core/state/lib/fixture/state.ex",
+        "target": "test/fixtures/composite_runtime/core/state/lib/fixture/state.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/composite_runtime/core/state/lib/fixture/state/application.ex",
+        "target": "test/fixtures/composite_runtime/core/state/lib/fixture/state/application.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/composite_runtime/core/state/mix.exs",
+        "target": "test/fixtures/composite_runtime/core/state/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/composite_runtime/packaging/weld/composite_bundle.exs",
+        "target": "test/fixtures/composite_runtime/packaging/weld/composite_bundle.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/composite_runtime/packaging/weld/composite_bundle/test/composite_bundle_test.exs",
+        "target": "test/fixtures/composite_runtime/packaging/weld/composite_bundle/test/composite_bundle_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/composite_runtime/packaging/weld/composite_bundle/test/test_helper.exs",
+        "target": "test/fixtures/composite_runtime/packaging/weld/composite_bundle/test/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/composite_runtime/runtime/local/lib/fixture/runtime.ex",
+        "target": "test/fixtures/composite_runtime/runtime/local/lib/fixture/runtime.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/composite_runtime/runtime/local/mix.exs",
+        "target": "test/fixtures/composite_runtime/runtime/local/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/external_dependencies/README.md",
+        "target": "test/fixtures/external_dependencies/README.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/external_dependencies/apps/app/lib/app.ex",
+        "target": "test/fixtures/external_dependencies/apps/app/lib/app.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/external_dependencies/apps/app/mix.exs",
+        "target": "test/fixtures/external_dependencies/apps/app/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/external_dependencies/core/shared/lib/shared.ex",
+        "target": "test/fixtures/external_dependencies/core/shared/lib/shared.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/external_dependencies/core/shared/mix.exs",
+        "target": "test/fixtures/external_dependencies/core/shared/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/external_dependencies/packaging/weld/app_bundle.exs",
+        "target": "test/fixtures/external_dependencies/packaging/weld/app_bundle.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/external_lib/mix.exs",
+        "target": "test/fixtures/external_lib/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/CHANGELOG.md",
+        "target": "test/fixtures/library_bundle/CHANGELOG.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/LICENSE",
+        "target": "test/fixtures/library_bundle/LICENSE"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/README.md",
+        "target": "test/fixtures/library_bundle/README.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/core/contracts/lib/weld_fixture/contracts.ex",
+        "target": "test/fixtures/library_bundle/core/contracts/lib/weld_fixture/contracts.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/core/contracts/mix.exs",
+        "target": "test/fixtures/library_bundle/core/contracts/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/guides/architecture.md",
+        "target": "test/fixtures/library_bundle/guides/architecture.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/guides/getting_started.md",
+        "target": "test/fixtures/library_bundle/guides/getting_started.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/packaging/weld/fixture_bundle.exs",
+        "target": "test/fixtures/library_bundle/packaging/weld/fixture_bundle.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/packaging/weld/fixture_bundle/smoke.ex",
+        "target": "test/fixtures/library_bundle/packaging/weld/fixture_bundle/smoke.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/packaging/weld/fixture_bundle/test/runtime_test.exs",
+        "target": "test/fixtures/library_bundle/packaging/weld/fixture_bundle/test/runtime_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/packaging/weld/fixture_bundle/test/test_helper.exs",
+        "target": "test/fixtures/library_bundle/packaging/weld/fixture_bundle/test/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/runtime/local/lib/weld_fixture/runtime.ex",
+        "target": "test/fixtures/library_bundle/runtime/local/lib/weld_fixture/runtime.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/library_bundle/runtime/local/mix.exs",
+        "target": "test/fixtures/library_bundle/runtime/local/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/.formatter.exs",
+        "target": "test/fixtures/monolith_bundle/.formatter.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/CHANGELOG.md",
+        "target": "test/fixtures/monolith_bundle/CHANGELOG.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/LICENSE",
+        "target": "test/fixtures/monolith_bundle/LICENSE"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/README.md",
+        "target": "test/fixtures/monolith_bundle/README.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/assets/monolith_bundle.svg",
+        "target": "test/fixtures/monolith_bundle/assets/monolith_bundle.svg"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/core/store/config/config.exs",
+        "target": "test/fixtures/monolith_bundle/core/store/config/config.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/core/store/lib/fixture/store.ex",
+        "target": "test/fixtures/monolith_bundle/core/store/lib/fixture/store.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/core/store/lib/fixture/store/application.ex",
+        "target": "test/fixtures/monolith_bundle/core/store/lib/fixture/store/application.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/core/store/mix.exs",
+        "target": "test/fixtures/monolith_bundle/core/store/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/core/store/priv/repo/migrations/20260101000000_create_store.exs",
+        "target": "test/fixtures/monolith_bundle/core/store/priv/repo/migrations/20260101000000_create_store.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/core/store/test/fixture/store_test.exs",
+        "target": "test/fixtures/monolith_bundle/core/store/test/fixture/store_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/core/store/test/support/store_case.exs",
+        "target": "test/fixtures/monolith_bundle/core/store/test/support/store_case.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/core/store/test/test_helper.exs",
+        "target": "test/fixtures/monolith_bundle/core/store/test/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/guides/release.md",
+        "target": "test/fixtures/monolith_bundle/guides/release.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/packaging/weld/monolith_bundle.exs",
+        "target": "test/fixtures/monolith_bundle/packaging/weld/monolith_bundle.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/runtime/api/config/config.exs",
+        "target": "test/fixtures/monolith_bundle/runtime/api/config/config.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/runtime/api/config/test.exs",
+        "target": "test/fixtures/monolith_bundle/runtime/api/config/test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/runtime/api/lib/fixture/api.ex",
+        "target": "test/fixtures/monolith_bundle/runtime/api/lib/fixture/api.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/runtime/api/lib/fixture/api/application.ex",
+        "target": "test/fixtures/monolith_bundle/runtime/api/lib/fixture/api/application.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/runtime/api/mix.exs",
+        "target": "test/fixtures/monolith_bundle/runtime/api/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/runtime/api/test/dormant/dormant_test.exs",
+        "target": "test/fixtures/monolith_bundle/runtime/api/test/dormant/dormant_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/runtime/api/test/fixture/api_test.exs",
+        "target": "test/fixtures/monolith_bundle/runtime/api/test/fixture/api_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/runtime/api/test/fixture/test_helper.exs",
+        "target": "test/fixtures/monolith_bundle/runtime/api/test/fixture/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/monolith_bundle/runtime/api/test/test_helper.exs",
+        "target": "test/fixtures/monolith_bundle/runtime/api/test/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/nested_source_project/build_support/weld.exs",
+        "target": "test/fixtures/nested_source_project/build_support/weld.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/nested_source_project/extensions/palette/VERSION",
+        "target": "test/fixtures/nested_source_project/extensions/palette/VERSION"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/nested_source_project/extensions/palette/build_support/package.exs",
+        "target": "test/fixtures/nested_source_project/extensions/palette/build_support/package.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/nested_source_project/extensions/palette/checks/palette_test.exs",
+        "target": "test/fixtures/nested_source_project/extensions/palette/checks/palette_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/nested_source_project/extensions/palette/checks/shade.txt",
+        "target": "test/fixtures/nested_source_project/extensions/palette/checks/shade.txt"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/nested_source_project/extensions/palette/checks/test_helper.exs",
+        "target": "test/fixtures/nested_source_project/extensions/palette/checks/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/nested_source_project/extensions/palette/mix.exs",
+        "target": "test/fixtures/nested_source_project/extensions/palette/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/nested_source_project/extensions/palette/priv/shade.txt",
+        "target": "test/fixtures/nested_source_project/extensions/palette/priv/shade.txt"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/nested_source_project/extensions/palette/source/palette.ex",
+        "target": "test/fixtures/nested_source_project/extensions/palette/source/palette.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/nested_source_project/lib/workshop.ex",
+        "target": "test/fixtures/nested_source_project/lib/workshop.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/nested_source_project/mix.exs",
+        "target": "test/fixtures/nested_source_project/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_bootstrap_bundle/README.md",
+        "target": "test/fixtures/package_bootstrap_bundle/README.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_bootstrap_bundle/core/bootstrap/config/config.exs",
+        "target": "test/fixtures/package_bootstrap_bundle/core/bootstrap/config/config.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_bootstrap_bundle/core/bootstrap/lib/fixture/bootstrap.ex",
+        "target": "test/fixtures/package_bootstrap_bundle/core/bootstrap/lib/fixture/bootstrap.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_bootstrap_bundle/core/bootstrap/lib/fixture/bootstrap/application.ex",
+        "target": "test/fixtures/package_bootstrap_bundle/core/bootstrap/lib/fixture/bootstrap/application.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_bootstrap_bundle/core/bootstrap/mix.exs",
+        "target": "test/fixtures/package_bootstrap_bundle/core/bootstrap/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_bootstrap_bundle/packaging/weld/package_bootstrap_bundle.exs",
+        "target": "test/fixtures/package_bootstrap_bundle/packaging/weld/package_bootstrap_bundle.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_bootstrap_bundle/packaging/weld/package_bootstrap_bundle/test/package_bootstrap_bundle_test.exs",
+        "target": "test/fixtures/package_bootstrap_bundle/packaging/weld/package_bootstrap_bundle/test/package_bootstrap_bundle_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_bootstrap_bundle/packaging/weld/package_bootstrap_bundle/test/test_helper.exs",
+        "target": "test/fixtures/package_bootstrap_bundle/packaging/weld/package_bootstrap_bundle/test/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_repo_bundle/.formatter.exs",
+        "target": "test/fixtures/package_repo_bundle/.formatter.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_repo_bundle/README.md",
+        "target": "test/fixtures/package_repo_bundle/README.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_repo_bundle/core/store/config/config.exs",
+        "target": "test/fixtures/package_repo_bundle/core/store/config/config.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_repo_bundle/core/store/lib/fixture/store.ex",
+        "target": "test/fixtures/package_repo_bundle/core/store/lib/fixture/store.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_repo_bundle/core/store/lib/fixture/store/repo.ex",
+        "target": "test/fixtures/package_repo_bundle/core/store/lib/fixture/store/repo.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_repo_bundle/core/store/mix.exs",
+        "target": "test/fixtures/package_repo_bundle/core/store/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_repo_bundle/core/store/priv/repo/migrations/20260408000000_create_fixture_table.exs",
+        "target": "test/fixtures/package_repo_bundle/core/store/priv/repo/migrations/20260408000000_create_fixture_table.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/package_repo_bundle/packaging/weld/package_repo_bundle.exs",
+        "target": "test/fixtures/package_repo_bundle/packaging/weld/package_repo_bundle.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/README.md",
+        "target": "test/fixtures/root_workspace/README.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/apps/core/lib/root_workspace/core.ex",
+        "target": "test/fixtures/root_workspace/apps/core/lib/root_workspace/core.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/apps/core/mix.exs",
+        "target": "test/fixtures/root_workspace/apps/core/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/apps/web/lib/root_workspace/web.ex",
+        "target": "test/fixtures/root_workspace/apps/web/lib/root_workspace/web.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/apps/web/mix.exs",
+        "target": "test/fixtures/root_workspace/apps/web/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/lib/root_workspace.ex",
+        "target": "test/fixtures/root_workspace/lib/root_workspace.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/mix.exs",
+        "target": "test/fixtures/root_workspace/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/packaging/weld/artifacts.exs",
+        "target": "test/fixtures/root_workspace/packaging/weld/artifacts.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/packaging/weld/core_bundle/test/core_test.exs",
+        "target": "test/fixtures/root_workspace/packaging/weld/core_bundle/test/core_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/packaging/weld/core_bundle/test/test_helper.exs",
+        "target": "test/fixtures/root_workspace/packaging/weld/core_bundle/test/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/packaging/weld/web_bundle/test/test_helper.exs",
+        "target": "test/fixtures/root_workspace/packaging/weld/web_bundle/test/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/packaging/weld/web_bundle/test/web_test.exs",
+        "target": "test/fixtures/root_workspace/packaging/weld/web_bundle/test/web_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/proofs/demo/lib/root_workspace/demo.ex",
+        "target": "test/fixtures/root_workspace/proofs/demo/lib/root_workspace/demo.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/proofs/demo/mix.exs",
+        "target": "test/fixtures/root_workspace/proofs/demo/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/tooling/test_support/lib/root_workspace/test_support.ex",
+        "target": "test/fixtures/root_workspace/tooling/test_support/lib/root_workspace/test_support.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/root_workspace/tooling/test_support/mix.exs",
+        "target": "test/fixtures/root_workspace/tooling/test_support/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/README.md",
+        "target": "test/fixtures/source_project/README.md"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/VERSION",
+        "target": "test/fixtures/source_project/VERSION"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/build_support/weld.exs",
+        "target": "test/fixtures/source_project/build_support/weld.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/components/pure/lib/pure.ex",
+        "target": "test/fixtures/source_project/components/pure/lib/pure.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/components/pure/mix.exs",
+        "target": "test/fixtures/source_project/components/pure/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/components/runtime/lib/runtime.ex",
+        "target": "test/fixtures/source_project/components/runtime/lib/runtime.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/components/runtime/mix.exs",
+        "target": "test/fixtures/source_project/components/runtime/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/consumer/check.exs",
+        "target": "test/fixtures/source_project/consumer/check.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/consumer/dependencies.exs",
+        "target": "test/fixtures/source_project/consumer/dependencies.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/consumer/mix.exs",
+        "target": "test/fixtures/source_project/consumer/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/extensions/color/lib/color.ex",
+        "target": "test/fixtures/source_project/extensions/color/lib/color.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/extensions/color/mix.exs",
+        "target": "test/fixtures/source_project/extensions/color/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/extensions/layout/lib/layout.ex",
+        "target": "test/fixtures/source_project/extensions/layout/lib/layout.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/extensions/layout/mix.exs",
+        "target": "test/fixtures/source_project/extensions/layout/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/mix.exs",
+        "target": "test/fixtures/source_project/mix.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/priv/theme.txt",
+        "target": "test/fixtures/source_project/priv/theme.txt"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/test/runtime_test.exs",
+        "target": "test/fixtures/source_project/test/runtime_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/fixtures/source_project/test/test_helper.exs",
+        "target": "test/fixtures/source_project/test/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/support/fixture_case.ex",
+        "target": "test/support/fixture_case.ex"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/test_helper.exs",
+        "target": "test/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/affected_test.exs",
+        "target": "test/weld/affected_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/agents_verifier_test.exs",
+        "target": "test/weld/agents_verifier_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/artifact_plan_test.exs",
+        "target": "test/weld/artifact_plan_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/bootstrap_relocation_test.exs",
+        "target": "test/weld/bootstrap_relocation_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/component_tests_test.exs",
+        "target": "test/weld/component_tests_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/config_generator_test.exs",
+        "target": "test/weld/config_generator_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/credo_no_runtime_os_env_test.exs",
+        "target": "test/weld/credo_no_runtime_os_env_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/docs_options_test.exs",
+        "target": "test/weld/docs_options_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/docs_preview_test.exs",
+        "target": "test/weld/docs_preview_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/docs_smoke_test.exs",
+        "target": "test/weld/docs_smoke_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/ergonomics_and_docs_smoke_test.exs",
+        "target": "test/weld/ergonomics_and_docs_smoke_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/ergonomics_contract_test.exs",
+        "target": "test/weld/ergonomics_contract_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/explain_task_test.exs",
+        "target": "test/weld/explain_task_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/graph_live_test.exs",
+        "target": "test/weld/graph_live_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/manifest_test.exs",
+        "target": "test/weld/manifest_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/mix_tasks_test.exs",
+        "target": "test/weld/mix_tasks_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/monolith_config_spike_test.exs",
+        "target": "test/weld/monolith_config_spike_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/monolith_plan_test.exs",
+        "target": "test/weld/monolith_plan_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/monolith_test_helper_spike_test.exs",
+        "target": "test/weld/monolith_test_helper_spike_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/output_test.exs",
+        "target": "test/weld/output_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/plan_test.exs",
+        "target": "test/weld/plan_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/projector_config_cache_test.exs",
+        "target": "test/weld/projector_config_cache_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/projector_monolith_test.exs",
+        "target": "test/weld/projector_monolith_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/projector_package_mode_test.exs",
+        "target": "test/weld/projector_package_mode_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/projector_test.exs",
+        "target": "test/weld/projector_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/release_metadata_test.exs",
+        "target": "test/weld/release_metadata_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/release_plan_test.exs",
+        "target": "test/weld/release_plan_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/release_test.exs",
+        "target": "test/weld/release_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/release_workflow_018_test.exs",
+        "target": "test/weld/release_workflow_018_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/smoke_app_test.exs",
+        "target": "test/weld/smoke_app_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/source_consumption_test.exs",
+        "target": "test/weld/source_consumption_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/source_project_test.exs",
+        "target": "test/weld/source_project_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/test_helper.exs",
+        "target": "test/weld/test_helper.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/verification_integrity_test.exs",
+        "target": "test/weld/verification_integrity_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/verifier_test.exs",
+        "target": "test/weld/verifier_test.exs"
+      },
+      {
+        "directory": false,
+        "kind": "test",
+        "owner": ".",
+        "source": "test/weld/workspace_test.exs",
+        "target": "test/weld/workspace_test.exs"
+      }
+    ],
+    "output_inventory": [],
+    "structural_inputs": [
+      "mix.exs",
       "mix.lock"
     ],
-    "tree_digest": "5a780da73f2ee72f237971510a279c1b6d422ec2561d9250aa107aab35315bfc"
+    "target_basis": "projection"
   },
   "verification": [
     {
@@ -258,15 +2353,20 @@
     },
     {
       "env": "test",
+      "status": "ok",
+      "task": "deps.get"
+    },
+    {
+      "env": "test",
       "failure_count": 0,
       "status": "ok",
       "task": "test",
-      "test_count": 63
+      "test_count": 141
     },
     {
       "env": "dev",
       "status": "ok",
-      "task": "docs --warnings-as-errors"
+      "task": "docs --warnings-as-errors --output doc"
     },
     {
       "env": "dev",
@@ -275,7 +2375,8 @@
     },
     {
       "env": "dev",
-      "status": "ok",
+      "reason": "artifact_opted_out",
+      "status": "skipped",
       "task": "hex.publish --dry-run --yes"
     }
   ],

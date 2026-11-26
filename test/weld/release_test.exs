@@ -10,6 +10,7 @@ defmodule Weld.ReleaseTest do
     repo_root = FixtureCase.copy_fixture("library_bundle")
     FixtureCase.init_git!(repo_root)
     manifest_path = Path.join(repo_root, "packaging/weld/fixture_bundle.exs")
+    Weld.project!(manifest_path)
     prepared = Weld.release_prepare!(manifest_path)
 
     assert File.dir?(prepared.bundle_path)
@@ -35,6 +36,45 @@ defmodule Weld.ReleaseTest do
     refute File.exists?(Path.join(prepared.project_path, "deps"))
     refute File.exists?(Path.join(prepared.project_path, "doc"))
     refute File.exists?(Path.join(prepared.project_path, "fixture_bundle-0.1.0.tar"))
+
+    dry_run =
+      Weld.release_publish!(manifest_path,
+        identity: prepared.identity,
+        dry_run: true
+      )
+
+    assert dry_run.completed?
+    assert dry_run.archive_sha256 == Weld.Hash.sha256_file(prepared.tarball_path)
+
+    publish = Weld.release_stage!(manifest_path)
+
+    assert publish.project_path ==
+             Path.join([
+               repo_root,
+               ".weld",
+               "publish",
+               "fixture_bundle",
+               prepared.identity,
+               "project"
+             ])
+
+    assert Weld.Hash.content_identity(publish.project_path) ==
+             Weld.Hash.content_identity(prepared.project_path)
+
+    assert Weld.release_stage!(manifest_path).project_path == publish.project_path
+    File.mkdir!(Path.join(publish.project_path, "doc"))
+    File.write!(Path.join(publish.project_path, "doc/index.html"), "generated documentation")
+
+    assert_raise Weld.Error, ~r/publish workspace has changed/, fn ->
+      Weld.release_stage!(manifest_path)
+    end
+
+    assert File.regular?(Path.join(publish.project_path, "doc/index.html"))
+    refute File.exists?(Path.join(prepared.project_path, "doc"))
+
+    refreshed = Weld.release_stage!(manifest_path, fresh: true)
+    assert refreshed.refreshed?
+    assert File.regular?(Path.join(dry_run.project_path, "doc/index.html"))
 
     archived = Weld.release_archive!(manifest_path)
 
@@ -122,12 +162,15 @@ defmodule Weld.ReleaseTest do
     FixtureCase.git_output!(repo_root, ["clone", "--quiet", repo_root, checkout])
     FixtureCase.ignore_generated_files!(checkout)
     manifest_path = Path.join(checkout, "packaging/weld/fixture_bundle.exs")
-    prepared_b = Weld.release_prepare!(manifest_path)
+    prepared_b = Weld.release_prepare!(manifest_path, no_cache: true)
 
     assert Path.basename(prepared_a.bundle_path) == Path.basename(prepared_b.bundle_path)
 
     assert Weld.Hash.sha256_tree(prepared_a.project_path) ==
              Weld.Hash.sha256_tree(prepared_b.project_path)
+
+    assert Weld.Hash.content_identity(prepared_a.docs_path) ==
+             Weld.Hash.content_identity(prepared_b.docs_path)
 
     assert Weld.Hash.sha256_file(prepared_a.tarball_path) ==
              Weld.Hash.sha256_file(prepared_b.tarball_path)
@@ -139,8 +182,16 @@ defmodule Weld.ReleaseTest do
     manifest_path = Path.join(repo_root, "packaging/weld/fixture_bundle.exs")
     FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
+    assert_raise Weld.Error, ~r/no Hex archive/, fn ->
+      Weld.release_stage!(manifest_path)
+    end
+
     bundle = Weld.release_bundle_path!(manifest_path)
     File.write!(Path.join(bundle, "project/README.md"), "changed after prepare")
+
+    assert_raise Weld.Error, ~r/failed integrity verification/, fn ->
+      Weld.release_stage!(manifest_path)
+    end
 
     assert_raise Weld.Error, ~r/failed integrity verification/, fn ->
       Weld.release_track!(manifest_path)

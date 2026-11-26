@@ -1,88 +1,209 @@
 defmodule Weld.Projector.Monolith.FilePlan do
   @moduledoc false
 
-  alias Weld.Hash
+  alias Weld.{Error, Hash, Output}
 
-  @spec merge_tree!(Path.t(), Path.t(), String.t(), Path.t()) :: %{
-          copied_files: [String.t()],
-          remaps: [map()]
-        }
-  def merge_tree!(source_root, target_root, project_slug, build_path) do
-    if File.dir?(source_root) do
-      source_root
-      |> Hash.list_files()
-      |> Enum.sort()
-      |> Enum.reduce(%{copied_files: [], remaps: []}, fn source, acc ->
-        merge_file!(acc, source, source_root, target_root, project_slug, build_path)
-      end)
-      |> finalize()
-    else
-      %{copied_files: [], remaps: []}
+  def copy(source, target, kind, operation \\ :link_or_copy) do
+    %{target: target, sources: [source], kind: kind, operation: operation, content: nil}
+  end
+
+  def generated(target, content, kind, sources \\ [], operation \\ :generate) do
+    %{
+      target: target,
+      sources: Enum.uniq(sources) |> Enum.sort(),
+      kind: kind,
+      operation: operation,
+      content: content
+    }
+  end
+
+  # Preserve the historical first destination and repeated slug-prefix policy.
+  # Identical files share one physical output and all source owners.
+  def merge!(operations, source, target, slug, kind) do
+    case Enum.find(operations, &(&1.target == target)) do
+      nil -> {operations ++ [copy(source, target, kind)], target, []}
+      existing -> merge_existing!(operations, existing, source, slug, kind)
     end
   end
 
-  defp merge_file!(acc, source, source_root, target_root, project_slug, build_path) do
-    relative = Path.relative_to(source, source_root)
-    original_target = Path.join(target_root, relative)
-    target = unique_target(source, original_target, project_slug)
+  defp merge_existing!(operations, existing, source, slug, kind) do
+    target = existing.target
 
-    File.mkdir_p!(Path.dirname(target))
-    File.cp!(source, target)
-
-    %{
-      copied_files: [Path.relative_to(target, build_path) | acc.copied_files],
-      remaps: remap_entries(acc.remaps, source, original_target, target, build_path)
-    }
+    if existing.operation == :link_or_copy and
+         fingerprint(hd(existing.sources)) == fingerprint(source) do
+      participants = existing.sources ++ [source]
+      updated = %{existing | sources: Enum.uniq(participants)}
+      {replace_target(operations, updated), target, participants}
+    else
+      {destination, collisions} = remap_target(target, slug, operations, existing.sources)
+      {operations ++ [copy(source, destination, kind)], destination, collisions ++ [source]}
+    end
   end
 
-  defp remap_entries(remaps, _source, original_target, original_target, _build_path), do: remaps
-
-  defp remap_entries(remaps, source, original_target, target, build_path) do
-    [
-      %{
-        source: source,
-        original_relative: Path.relative_to(original_target, build_path),
-        remapped_relative: Path.relative_to(target, build_path)
-      }
-      | remaps
-    ]
+  defp replace_target(operations, replacement) do
+    Enum.map(operations, fn op ->
+      if op.target == replacement.target, do: replacement, else: op
+    end)
   end
 
-  defp finalize(result) do
-    %{
-      copied_files: result.copied_files |> Enum.uniq() |> Enum.sort(),
-      remaps: Enum.reverse(result.remaps)
-    }
+  defp remap_target(target, slug, operations, collisions) do
+    candidate = Path.join(Path.dirname(target), slug <> "__" <> Path.basename(target))
+
+    case Enum.find(operations, &(&1.target == candidate)) do
+      nil -> {candidate, collisions}
+      existing -> remap_target(candidate, slug, operations, collisions ++ existing.sources)
+    end
   end
 
-  defp unique_target(source, target, project_slug) do
+  def validate!(operations) do
+    targets = Enum.map(operations, & &1.target)
+
+    for target <- targets do
+      if Path.type(target) != :relative or String.contains?(target, ["\\", <<0>>]) or
+           Enum.any?(
+             String.split(target, "/"),
+             &(&1 in ["", ".", "..", ".git", ".weld", "_build", "deps", ".mix_sources.json"])
+           ) or
+           target in ["projection.lock.json", "weld.provenance.json", "mix.lock"] do
+        raise Error, "unsafe planned destination: #{target}"
+      end
+    end
+
+    duplicates = Enum.frequencies(targets) |> Enum.filter(fn {_target, count} -> count > 1 end)
+
+    if duplicates != [] do
+      [{target, _} | _] = Enum.sort(duplicates)
+
+      raise Error, duplicate_target_message(target, operations)
+    end
+
+    target_set = MapSet.new(targets)
+
+    for target <- targets, parent <- parents(target), MapSet.member?(target_set, parent) do
+      raise Error, "projection file/directory collision: #{parent} and #{target}"
+    end
+
+    Enum.sort_by(operations, & &1.target)
+  end
+
+  defp duplicate_target_message(target, operations) do
+    migration? =
+      String.starts_with?(target, "priv/") and
+        Enum.any?(operations, &(&1.target == target and &1.operation == :copy))
+
     cond do
-      not File.exists?(target) ->
-        target
-
-      same_file?(source, target) ->
-        target
-
-      true ->
-        remap_target(target, project_slug)
+      migration? -> "migration path collision: #{target}"
+      String.starts_with?(target, "priv/") -> "priv path collision at #{target}"
+      true -> "projection path collision: #{target}"
     end
   end
 
-  defp remap_target(target, project_slug) do
-    dirname = Path.dirname(target)
-    ext = Path.extname(target)
-    basename = Path.basename(target, ext)
-
-    candidate = Path.join(dirname, "#{project_slug}__#{basename}#{ext}")
-
-    if File.exists?(candidate) do
-      remap_target(candidate, project_slug)
-    else
-      candidate
+  defp parents(path) do
+    case Path.dirname(path) do
+      "." -> []
+      parent -> [parent | parents(parent)]
     end
   end
 
-  defp same_file?(left, right) do
-    File.regular?(left) and File.regular?(right) and File.read!(left) == File.read!(right)
+  def materialize!(operations, build_path, kind) do
+    for op <- validate!(operations) do
+      target = Output.source!(build_path, op.target)
+      if File.exists?(target), do: raise(Error, "projection path collision: #{op.target}")
+      File.mkdir_p!(Path.dirname(target))
+
+      case op do
+        %{content: content} when is_binary(content) ->
+          File.write!(target, content, [:exclusive])
+
+        %{operation: :link_or_copy, sources: [source | _]} when kind == :live ->
+          File.ln_s!(source, target)
+
+        %{sources: [source | _]} ->
+          File.cp!(source, target)
+          File.chmod!(target, Bitwise.band(File.stat!(source).mode, 0o777))
+      end
+
+      op.target
+    end
+  end
+
+  def slug(id) do
+    case id |> String.replace(~r/[^a-zA-Z0-9]+/, "_") |> String.trim("_") |> String.downcase() do
+      "" -> "root"
+      slug -> slug
+    end
+  end
+
+  def validate_materialized!(operations, build_path, kind, fingerprints) do
+    Enum.each(operations, &validate_materialized_operation!(&1, build_path, kind, fingerprints))
+    :ok
+  end
+
+  defp validate_materialized_operation!(
+         %{content: content} = op,
+         build_path,
+         _kind,
+         _fingerprints
+       )
+       when is_binary(content) do
+    target = Path.join(build_path, op.target)
+
+    unless File.regular?(target) and File.read!(target) == content,
+      do: raise(Error, "generated output differs from plan: #{op.target}")
+  end
+
+  defp validate_materialized_operation!(
+         %{operation: :link_or_copy, sources: [source | _]} = op,
+         build_path,
+         :live,
+         _fingerprints
+       ) do
+    target = Path.join(build_path, op.target)
+
+    unless File.read_link(target) == {:ok, source},
+      do: raise(Error, "live link differs from plan: #{op.target}")
+  end
+
+  defp validate_materialized_operation!(
+         %{sources: [source | _]} = op,
+         build_path,
+         _kind,
+         fingerprints
+       ) do
+    target = Path.join(build_path, op.target)
+
+    unless fingerprint(target) == Map.fetch!(fingerprints, source),
+      do: raise(Error, "copied output differs from plan: #{op.target}")
+  end
+
+  def fingerprint(path) do
+    Output.reject_link!(path)
+
+    case File.lstat(path) do
+      {:ok, %{type: :regular, mode: mode}} -> {Hash.sha256_file(path), Bitwise.band(mode, 0o111)}
+      {:error, :enoent} -> :missing
+      _ -> raise Error, "invalid planned input: #{path}"
+    end
+  end
+
+  def topology(path) do
+    Output.reject_link!(path)
+
+    case File.lstat(path) do
+      {:ok, %{type: :directory}} ->
+        [
+          {path, :directory}
+          | Enum.flat_map(Enum.sort(File.ls!(path)), &topology(Path.join(path, &1)))
+        ]
+
+      {:ok, %{type: :regular}} ->
+        [{path, :regular}]
+
+      {:error, :enoent} ->
+        [{path, :missing}]
+
+      _ ->
+        raise Error, "invalid planned input: #{path}"
+    end
   end
 end

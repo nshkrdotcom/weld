@@ -1,21 +1,27 @@
 defmodule Weld.Release do
   @moduledoc """
-  Prepares and archives deterministic welded release bundles.
+  Prepares, stages, and archives deterministic welded release bundles.
   """
 
+  alias Weld.DocsPreview
+  alias Weld.DocsSmoke
   alias Weld.Error
   alias Weld.Git
   alias Weld.Hash
   alias Weld.Output
   alias Weld.Plan
+  alias Weld.Receipt
+  alias Weld.ReleaseInputs
+  alias Weld.ReleaseReceipt
+  alias Weld.ReleaseStatus
   alias Weld.Verifier
 
-  @spec prepare!(Plan.t()) :: map()
-  def prepare!(%Plan{} = plan) do
-    Weld.Output.with_lock(plan.manifest.repo_root, fn -> prepare_locked!(plan) end)
+  @spec prepare!(Plan.t(), keyword()) :: map()
+  def prepare!(%Plan{} = plan, opts \\ []) do
+    Output.with_lock(plan.manifest.repo_root, fn -> prepare_locked!(plan, opts) end)
   end
 
-  defp prepare_locked!(plan) do
+  defp prepare_locked!(plan, opts) do
     plan = Plan.ensure_valid!(plan)
     repo_root = plan.manifest.repo_root
     source_revision = Git.revision(repo_root)
@@ -25,12 +31,57 @@ defmodule Weld.Release do
     end
 
     if source_revision, do: Git.ensure_clean_repo!(repo_root)
-    verification = Verifier.verify!(plan)
+    context = unless opts[:no_cache], do: opts[:reuse]
+    input = ReleaseInputs.fingerprint(plan, source_revision, context)
+    receipt = Output.path(repo_root, ["cache", "release", plan.artifact.id, "prepare.receipt"])
+
+    case reused_bundle(plan, receipt, input, source_revision) do
+      {:ok, result} ->
+        ensure_source!(repo_root, source_revision)
+        Map.put(result, :reused?, true)
+
+      :miss ->
+        prepare_new_bundle!(plan, receipt, input, source_revision, context, opts)
+    end
+  end
+
+  defp reused_bundle(_plan, _receipt, nil, _revision), do: :miss
+
+  defp reused_bundle(plan, receipt, {input, lock}, revision) do
+    with {:ok, identity} <- Receipt.read(receipt, input),
+         true <- File.regular?(current_path(plan)),
+         bundle <- bundle_path(plan),
+         ^identity <- Path.basename(bundle),
+         metadata <- validate_bundle!(plan, bundle),
+         %{"source_revision" => ^revision, "lock_sha256" => ^lock} <- metadata do
+      {:ok, prepared_result(plan, bundle, identity, metadata["tarball_path"])}
+    else
+      _ -> :miss
+    end
+  end
+
+  defp prepare_new_bundle!(plan, receipt, input, source_revision, context, opts) do
+    repo_root = plan.manifest.repo_root
+    verification = Verifier.verify!(plan, no_cache: opts[:no_cache] == true)
     ensure_source!(repo_root, source_revision)
     stage = Output.temporary!(repo_root, "staging")
 
     try do
-      finish_prepare!(plan, verification, source_revision, stage)
+      if input && ReleaseInputs.fingerprint(plan, source_revision, context) != input do
+        raise Error, "release verification inputs changed during preparation"
+      end
+
+      result = finish_prepare!(plan, verification, source_revision, stage)
+
+      if input do
+        {key, lock} = input
+
+        if optional_digest(Path.join(result.project_path, "mix.lock")) == lock do
+          Receipt.write!(receipt, key, result.identity)
+        end
+      end
+
+      Map.put(result, :reused?, false)
     after
       File.rm_rf!(stage)
     end
@@ -41,11 +92,21 @@ defmodule Weld.Release do
     manifest_digest = Hash.sha256_file(plan.manifest.manifest_path)
     project_target = Path.join(stage, "project")
 
-    copy_prepared_project!(verification.build_path, project_target, verification.package_files)
+    inventory = Map.get(verification, :verification_files, verification.package_files)
+    copy_prepared_project!(verification.build_path, project_target, inventory)
+
+    if expected = verification[:verification_input_identity] do
+      unless Hash.verification_identity(project_target, inventory) == expected do
+        raise Error, "verified source or test inputs changed before release preparation"
+      end
+    end
+
+    finalize_project_identity!(project_target)
 
     tarball_target = maybe_copy_tarball(stage, verification.tarball_path)
     docs_path = Path.join(stage, "docs")
-    copy_docs_preview!(Path.join(verification.build_path, "doc"), docs_path)
+    DocsPreview.copy!(Path.join(verification.build_path, "doc"), docs_path)
+    verify_docs_smoke!(docs_path)
 
     release_json =
       %{
@@ -111,24 +172,21 @@ defmodule Weld.Release do
 
     set_current!(plan, identity)
 
+    prepared_result(plan, bundle, identity, release_json.tarball_path)
+  end
+
+  defp prepared_result(plan, bundle, identity, archive) do
     %{
       identity: identity,
+      artifact: plan.artifact.id,
       bundle_path: bundle,
       docs_path: Path.join(bundle, "docs"),
       project_path: Path.join(bundle, "project"),
-      tarball_path: tarball_target && Path.join(bundle, Path.basename(tarball_target)),
+      tarball_path: archive && Path.join(bundle, archive),
       release_metadata_path: Path.join(bundle, "release.json"),
-      build_path: verification.build_path
+      build_path: Weld.Projector.build_path(plan),
+      warnings: ReleaseStatus.docs_source_ref_warnings(plan)
     }
-  end
-
-  defp copy_docs_preview!(source, target) do
-    File.mkdir!(target)
-
-    # ExDoc's EPUB includes a random UUID, wall-clock time and ZIP timestamps.
-    for entry <- File.ls!(source), Path.extname(entry) != ".epub" do
-      File.cp_r!(Path.join(source, entry), Path.join(target, entry))
-    end
   end
 
   defp optional_digest(path), do: if(File.regular?(path), do: Hash.sha256_file(path))
@@ -151,13 +209,316 @@ defmodule Weld.Release do
     end
   end
 
-  @spec archive!(Plan.t()) :: map()
-  def archive!(%Plan{} = plan) do
-    Weld.Output.with_lock(plan.manifest.repo_root, fn -> archive_locked!(plan) end)
+  @doc "Stages a verified release project as a writable workspace for Hex."
+  @spec stage!(Plan.t(), keyword()) :: map()
+  def stage!(%Plan{} = plan, opts \\ []) do
+    Output.with_lock(plan.manifest.repo_root, fn -> stage_locked!(plan, opts) end)
   end
 
-  defp archive_locked!(plan) do
-    prepared_bundle = bundle_path(plan)
+  defp stage_locked!(plan, opts) do
+    root = plan.manifest.repo_root
+    bundle = bundle_path(plan, opts[:identity])
+    metadata = validate_bundle!(plan, bundle)
+    ensure_tarball_present!(metadata, bundle)
+
+    identity = metadata["identity"]
+    parts = ["publish", plan.artifact.id, identity]
+    project = Output.path(root, parts ++ ["project"])
+    fresh? = opts[:fresh] == true
+
+    refreshed? =
+      cond do
+        File.exists?(project) and not fresh? ->
+          validate_existing_publish_project!(project, metadata)
+          false
+
+        File.exists?(project) and fresh? ->
+          replace_publish_workspace!(root, bundle, project, metadata)
+          true
+
+        true ->
+          write_publish_workspace!(root, bundle, project, metadata)
+          false
+      end
+
+    integrity = metadata["integrity"] || metadata["handoff"] || %{}
+
+    %{
+      project_path: project,
+      identity: identity,
+      package: plan.artifact.package.name,
+      version: plan.artifact.package.version,
+      archive_sha256: integrity["archive_sha256"],
+      refreshed?: refreshed?
+    }
+  end
+
+  @doc """
+  Stages an isolated per-invocation workspace, verifies that a local rebuild
+  matches the prepared tarball SHA-256, and hands off interactively to
+  `mix hex.publish` without holding the repository output lock.
+  """
+  @spec publish!(Plan.t(), keyword()) :: map()
+  def publish!(%Plan{} = plan, opts \\ []) do
+    prepared =
+      Output.with_lock(plan.manifest.repo_root, fn ->
+        prepare_publish_run!(plan, opts)
+      end)
+
+    try do
+      run_publish_handoff!(prepared, opts)
+    after
+      File.rm(prepared.active_marker)
+    end
+  end
+
+  defp prepare_publish_run!(plan, opts) do
+    root = plan.manifest.repo_root
+    bundle = bundle_path(plan, opts[:identity])
+    identity = Path.basename(bundle)
+    metadata = ReleaseStatus.validate_bundle_integrity!(bundle, identity)
+    ensure_publish_fresh!(plan, metadata, opts)
+    ensure_tarball_present!(metadata, bundle)
+
+    if tag = opts[:tag] do
+      verify = ReleaseStatus.verify_tag(root, tag, artifact: plan.artifact.id, identity: identity)
+
+      unless verify.status == :match do
+        raise Error, "tag #{tag} does not match prepared identity #{identity}: #{verify.message}"
+      end
+    end
+
+    run_dir = Output.path(root, ["publish", plan.artifact.id, identity, "run-" <> Output.nonce()])
+    project = Path.join(run_dir, "project")
+    write_publish_workspace!(root, bundle, project, metadata)
+    integrity = metadata["integrity"] || metadata["handoff"] || %{}
+
+    prepared = %{
+      plan: plan,
+      identity: identity,
+      package: plan.artifact.package.name,
+      version: plan.artifact.package.version,
+      tarball_name: metadata["tarball_path"],
+      archive_sha256: integrity["archive_sha256"],
+      project_path: project,
+      docs_path: Path.join(bundle, "docs"),
+      warnings: ReleaseStatus.docs_source_ref_warnings(plan, opts[:tag])
+    }
+
+    # GC takes the same repository lock, then skips marked runs. Keep this
+    # lease outside the package tree so it cannot change the prepared bytes.
+    active_marker = Path.join(run_dir, "ACTIVE")
+    File.write!(active_marker, "weld.publish/v1\n", [:exclusive])
+    Map.put(prepared, :active_marker, active_marker)
+  end
+
+  defp ensure_publish_fresh!(plan, metadata, opts) do
+    reasons =
+      ReleaseStatus.freshness_reasons(plan, metadata, Git.revision(plan.manifest.repo_root))
+
+    allowed = if opts[:allow_stale] == true, do: [:head_moved, :dirty_worktree], else: []
+    blocking = reasons -- allowed
+
+    unless blocking == [] do
+      formatted = Enum.map_join(blocking, ", ", &Atom.to_string/1)
+
+      hint =
+        if Enum.all?(blocking, &(&1 in [:head_moved, :dirty_worktree])),
+          do: " (re-run release.prepare or pass --allow-stale)",
+          else: " (re-run release.prepare)"
+
+      raise Error, "prepared release bundle is stale (#{formatted})#{hint}"
+    end
+  end
+
+  defp run_publish_handoff!(prepared, opts) do
+    if Map.get(prepared, :docs_path) && File.dir?(prepared.docs_path) do
+      verify_docs_smoke!(prepared.docs_path)
+    end
+
+    project = prepared.project_path
+
+    if File.regular?(Path.join(project, "mix.lock")) do
+      run_checked_step!(
+        opts[:deps_cmd] || default_mix_cmd(["deps.get", "--check-locked"]),
+        project,
+        "mix deps.get --check-locked"
+      )
+    end
+
+    run_checked_step!(
+      opts[:build_cmd] || default_mix_cmd(["hex.build"]),
+      project,
+      "mix hex.build"
+    )
+
+    rebuilt = Path.join(project, prepared.tarball_name)
+
+    unless File.regular?(rebuilt) and Hash.sha256_file(rebuilt) == prepared.archive_sha256 do
+      raise Error,
+            "rebuilt Hex archive in #{project} does not match prepared SHA-256 #{prepared.archive_sha256}"
+    end
+
+    exit_status =
+      run_interactive!(
+        opts[:publish_cmd] || hex_publish_cmd(opts[:dry_run] == true),
+        project
+      )
+
+    %{
+      completed?: exit_status == 0,
+      artifact: prepared.plan.artifact.id,
+      exit_status: exit_status,
+      identity: prepared.identity,
+      package: prepared.package,
+      version: prepared.version,
+      archive_sha256: prepared.archive_sha256,
+      project_path: project,
+      warnings: prepared.warnings
+    }
+  end
+
+  defp hex_publish_cmd(dry_run?) do
+    shell_path = :code.which(Weld.ReleasePublishShell) |> Path.dirname()
+
+    elixir =
+      System.find_executable("elixir") || raise Error, "elixir executable not found on PATH"
+
+    hex_args = if dry_run?, do: ["--dry-run", "--yes"], else: []
+
+    {elixir, ["-pa", shell_path, "-S", "mix", "weld.hex_publish" | hex_args]}
+  end
+
+  defp default_mix_cmd(args) do
+    executable = System.find_executable("mix") || raise Error, "mix executable not found on PATH"
+    {executable, args}
+  end
+
+  defp verify_docs_smoke!(docs_path) do
+    case DocsSmoke.check(docs_path) do
+      {:ok, _summary} ->
+        :ok
+
+      {:error, errors} ->
+        raise Error, "docs smoke check failed: " <> Enum.join(errors, "; ")
+    end
+  end
+
+  defp publish_env do
+    [
+      {"MIX_ENV", "dev"},
+      {"MIX_EXS", nil},
+      {"MIX_LOCKFILE", nil},
+      {"MIX_TARGET", nil},
+      {"MIX_BUILD_PATH", nil},
+      {"MIX_BUILD_ROOT", nil},
+      {"MIX_DEPS_PATH", nil}
+    ]
+  end
+
+  defp run_checked_step!({executable, args}, cd, label) do
+    case System.cmd(executable, args, cd: cd, env: publish_env(), stderr_to_stdout: true) do
+      {_output, 0} ->
+        :ok
+
+      {output, status} ->
+        raise Error, "#{label} failed (exit #{status}):\n#{String.trim(output)}"
+    end
+  end
+
+  defp run_interactive!({executable, args}, cd) do
+    env =
+      Enum.map(publish_env(), fn {key, value} ->
+        {String.to_charlist(key), if(value, do: String.to_charlist(value), else: false)}
+      end)
+
+    port =
+      Port.open({:spawn_executable, executable}, [
+        :nouse_stdio,
+        :exit_status,
+        {:cd, cd},
+        {:env, env},
+        {:args, args}
+      ])
+
+    receive do
+      {^port, {:exit_status, status}} -> status
+    end
+  end
+
+  defp ensure_tarball_present!(metadata, bundle) do
+    unless is_binary(metadata["tarball_path"]) do
+      raise Error, "prepared release has no Hex archive: #{bundle}"
+    end
+  end
+
+  defp write_publish_workspace!(root, bundle, project, metadata) do
+    staging = Output.temporary!(root, "staging")
+
+    try do
+      copy = copy_publish_project!(staging, bundle, metadata)
+      File.mkdir_p!(Path.dirname(project))
+      File.rename!(copy, project)
+    after
+      File.rm_rf!(staging)
+    end
+  end
+
+  defp replace_publish_workspace!(root, bundle, project, metadata) do
+    staging = Output.temporary!(root, "staging")
+    previous = Path.join(staging, "previous")
+
+    try do
+      copy = copy_publish_project!(staging, bundle, metadata)
+      File.rename!(project, previous)
+
+      try do
+        File.rename!(copy, project)
+      rescue
+        error ->
+          File.rename!(previous, project)
+          reraise error, __STACKTRACE__
+      end
+    after
+      File.rm_rf!(staging)
+    end
+  end
+
+  defp copy_publish_project!(staging, bundle, metadata) do
+    copy = Path.join(staging, "project")
+    File.cp_r!(Path.join(bundle, "project"), copy)
+    validate_publish_project!(copy, metadata)
+    copy
+  end
+
+  defp validate_existing_publish_project!(project, metadata) do
+    validate_publish_project!(project, metadata)
+  rescue
+    Error ->
+      reraise Error,
+              "publish workspace has changed: #{project}; re-run with --fresh to reset it",
+              __STACKTRACE__
+  end
+
+  defp validate_publish_project!(project, metadata) do
+    Output.reject_tree_links!(project)
+
+    unless ReleaseStatus.valid_project?(
+             project,
+             metadata,
+             metadata["integrity"] || metadata["handoff"]
+           ) do
+      raise Error, "publish workspace has changed: #{project}"
+    end
+  end
+
+  @spec archive!(Plan.t(), keyword()) :: map()
+  def archive!(%Plan{} = plan, opts \\ []) do
+    Weld.Output.with_lock(plan.manifest.repo_root, fn -> archive_locked!(plan, opts) end)
+  end
+
+  defp archive_locked!(plan, opts) do
+    prepared_bundle = bundle_path(plan, opts[:identity])
 
     unless File.dir?(prepared_bundle) do
       raise Error, "release bundle not prepared: #{prepared_bundle}"
@@ -183,7 +544,7 @@ defmodule Weld.Release do
       end
     end
 
-    %{archive_path: archive_path, source_bundle_path: prepared_bundle}
+    %{archive_path: archive_path, source_bundle_path: prepared_bundle, identity: identity}
   end
 
   @spec track!(Plan.t(), keyword()) :: map()
@@ -192,33 +553,52 @@ defmodule Weld.Release do
   end
 
   defp track_locked!(plan, opts) do
-    prepared_bundle = bundle_path(plan)
+    if opts[:tag] && opts[:tag_release] do
+      raise Error, "pass either --tag or --tag-release, not both"
+    end
+
+    prepared_bundle = bundle_path(plan, opts[:identity])
     project_path = Path.join(prepared_bundle, "project")
     metadata = validate_bundle!(plan, prepared_bundle)
     track_opts = track_opts(plan, opts)
-    source_revision = metadata["source_revision"]
 
     {branch_created?, commit_sha, committed?} =
-      track_projection!(plan, project_path, source_revision, track_opts)
+      track_projection!(plan, project_path, metadata, track_opts)
 
     %{
+      artifact: plan.artifact.id,
+      has_tarball: is_binary(metadata["tarball_path"]),
       branch: track_opts.branch,
       branch_created?: branch_created?,
       commit_sha: commit_sha,
       committed?: committed?,
       pushed?: track_opts.push?,
-      tag: track_opts.tag
+      tag: track_opts.tag,
+      identity: metadata["identity"],
+      warnings: ReleaseStatus.docs_source_ref_warnings(plan, track_opts.tag)
     }
   end
 
-  @spec bundle_path(Plan.t()) :: Path.t()
-  def bundle_path(%Plan{} = plan) do
+  @spec bundle_path(Plan.t(), String.t() | nil) :: Path.t()
+  def bundle_path(plan, identity \\ nil)
+
+  def bundle_path(%Plan{} = plan, nil) do
     current = current_path(plan)
 
     case File.read(current) do
       {:ok, bytes} -> release_path(plan, parse_pointer!(bytes))
       _ -> raise Error, "release bundle not prepared: #{current}"
     end
+  end
+
+  def bundle_path(%Plan{} = plan, identity) when is_binary(identity) do
+    unless Regex.match?(~r/\A[0-9a-f]{64}\z/, identity) do
+      raise Error, "invalid prepared identity: #{inspect(identity)}"
+    end
+
+    path = release_path(plan, identity)
+    unless File.dir?(path), do: raise(Error, "release bundle not found: #{path}")
+    path
   end
 
   defp parse_pointer!("weld.release/v1 " <> value) do
@@ -268,19 +648,23 @@ defmodule Weld.Release do
     target
   end
 
-  defp copy_prepared_project!(source, target, package_files) do
-    roots =
-      Enum.uniq(
-        package_files ++ ["mix.lock", "weld.provenance.json", "projection.lock.json", "test"]
-      )
+  defp copy_prepared_project!(source, target, project_files) do
+    optional =
+      for file <- ["mix.lock", "weld.provenance.json", "projection.lock.json"],
+          File.exists?(Path.join(source, file)),
+          do: file
 
     File.mkdir_p!(target)
 
-    source
-    |> Hash.list_files()
-    |> Enum.filter(fn path -> included_in_prepared_project?(path, source, roots) end)
-    |> Enum.each(fn source_path ->
-      relative = Path.relative_to(source_path, source)
+    (project_files ++ optional)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.each(fn relative ->
+      source_path = Output.source!(source, relative)
+
+      unless match?({:ok, %{type: :regular}}, File.lstat(source_path)),
+        do: raise(Error, "verified project file missing or unsafe: #{relative}")
+
       target_path = Path.join(target, relative)
       File.mkdir_p!(Path.dirname(target_path))
       File.cp!(source_path, target_path)
@@ -288,12 +672,14 @@ defmodule Weld.Release do
     end)
   end
 
-  defp included_in_prepared_project?(path, source, roots) do
-    relative = Path.relative_to(path, source)
+  defp finalize_project_identity!(project) do
+    path = Path.join(project, "weld.provenance.json")
+    marker = path |> File.read!() |> Jason.decode!()
 
-    Enum.any?(roots, fn root ->
-      relative == root or String.starts_with?(relative, root <> "/")
-    end)
+    File.write!(
+      path,
+      Jason.encode!(Map.put(marker, "artifact_id", Hash.project_identity(project)), pretty: true)
+    )
   end
 
   defp prepared_artifact_handoff(
@@ -329,11 +715,21 @@ defmodule Weld.Release do
        ),
        do: nil
 
+  @doc false
+  def default_tag(%Plan{artifact: %{package: package}}), do: "#{package.name}-v#{package.version}"
+
   defp track_opts(%Plan{} = plan, opts) do
+    tag =
+      if opts[:tag_release] do
+        default_tag(plan)
+      else
+        opts[:tag]
+      end
+
     %{
       branch: opts[:branch] || projection_branch(plan),
       remote: opts[:remote] || "origin",
-      tag: opts[:tag],
+      tag: tag,
       push?: Keyword.get(opts, :push, false),
       worktree_path: unique_worktree_path(plan)
     }
@@ -342,63 +738,18 @@ defmodule Weld.Release do
   defp validate_bundle!(plan, bundle), do: validate_bundle!(plan, bundle, Path.basename(bundle))
 
   defp validate_bundle!(plan, bundle, expected_identity) do
-    Output.reject_tree_links!(bundle)
-    metadata_path = Path.join(bundle, "release.json")
+    metadata = ReleaseStatus.validate_bundle_integrity!(bundle, expected_identity)
+    package = metadata["package"]
 
-    with {:ok, json} <- File.read(metadata_path),
-         {:ok, %{} = metadata} <- Jason.decode(json),
-         true <-
-           metadata["identity"] == expected_identity and identity(metadata) == expected_identity,
-         %{"name" => name, "version" => version} <- metadata["package"],
-         true <- {name, version} == {plan.artifact.package.name, plan.artifact.package.version},
-         true <- metadata["artifact"] == plan.artifact.id,
-         true <- metadata["manifest_digest"] == Hash.sha256_file(plan.manifest.manifest_path),
-         true <- valid_inventory?(bundle, metadata),
-         true <- valid_bundle_contents?(bundle, metadata, "#{name}-#{version}.tar") do
-      metadata
-    else
-      _ ->
-        raise Error,
-              "prepared release bundle is missing or failed integrity verification: #{bundle}"
+    unless {package["name"], package["version"]} ==
+             {plan.artifact.package.name, plan.artifact.package.version} and
+             metadata["artifact"] == plan.artifact.id and
+             metadata["manifest_digest"] == Hash.sha256_file(plan.manifest.manifest_path) do
+      raise Error,
+            "prepared release bundle is missing or failed integrity verification: #{bundle}"
     end
-  end
 
-  defp valid_inventory?(bundle, metadata) do
-    known = ["release.json", "project", "docs"] ++ List.wrap(metadata["tarball_path"])
-    File.ls!(bundle) -- known == []
-  end
-
-  defp valid_bundle_contents?(bundle, metadata, archive_name) do
-    integrity = metadata["integrity"] || metadata["handoff"]
-    project = Path.join(bundle, "project")
-    docs = Path.join(bundle, "docs")
-    archive = Path.join(bundle, archive_name)
-
-    is_map(integrity) and
-      valid_archive?(archive, metadata["tarball_path"], archive_name, integrity["archive_sha256"]) and
-      File.dir?(project) and Hash.sha256_tree(project) == integrity["project_sha256"] and
-      match_identity?(project, integrity["project_identity"]) and
-      valid_docs?(docs, metadata["integrity"]) and
-      match_identity?(docs, integrity["docs_identity"])
-  end
-
-  defp match_identity?(_path, nil), do: true
-
-  defp match_identity?(path, expected) do
-    File.dir?(path) and Hash.content_identity(path) == expected
-  end
-
-  defp valid_archive?(path, name, name, digest) do
-    File.regular?(path) and Hash.sha256_file(path) == digest
-  end
-
-  defp valid_archive?(path, nil, _name, nil), do: not File.exists?(path)
-  defp valid_archive?(_path, _recorded, _expected, _digest), do: false
-
-  defp valid_docs?(_path, nil), do: true
-
-  defp valid_docs?(path, integrity) do
-    File.dir?(path) and Hash.sha256_tree(path) == integrity["docs_sha256"]
+    metadata
   end
 
   defp unique_worktree_path(%Plan{} = plan) do
@@ -407,7 +758,7 @@ defmodule Weld.Release do
     path
   end
 
-  defp track_projection!(%Plan{} = plan, project_path, source_revision, track_opts) do
+  defp track_projection!(%Plan{} = plan, project_path, metadata, track_opts) do
     repo_root = plan.manifest.repo_root
     worktree_path = track_opts.worktree_path
 
@@ -422,29 +773,106 @@ defmodule Weld.Release do
 
       sync_project!(project_path, worktree_path)
       Git.stage_all!(worktree_path)
-      committed? = commit_projection!(plan, source_revision, worktree_path)
-      maybe_tag_projection!(track_opts)
+      validate_tag_availability!(plan, metadata, track_opts, branch_created?)
+      committed? = commit_projection!(plan, metadata, worktree_path, branch_created?)
+      commit_sha = Git.revision(worktree_path)
+      maybe_tag_projection!(plan, metadata, commit_sha, track_opts)
       maybe_push_projection!(track_opts)
 
-      {branch_created?, Git.revision(worktree_path), committed?}
+      {branch_created?, commit_sha, committed?}
     after
       cleanup_worktree!(repo_root, worktree_path)
     end
   end
 
-  defp commit_projection!(%Plan{} = plan, source_revision, worktree_path) do
-    if Git.staged_changes?(worktree_path) do
-      Git.commit_all!(worktree_path, track_commit_message(plan, source_revision))
-      true
-    else
-      false
+  defp commit_projection!(%Plan{} = plan, metadata, worktree_path, branch_created?) do
+    message = ReleaseReceipt.format_commit_message(plan, metadata)
+
+    cond do
+      Git.staged_changes?(worktree_path) ->
+        Git.commit_all!(worktree_path, message)
+        true
+
+      branch_created? ->
+        Git.commit_all!(worktree_path, message, allow_empty: true)
+        true
+
+      tip_identity_matches?(worktree_path, metadata["identity"]) ->
+        false
+
+      true ->
+        Git.commit_all!(worktree_path, message, allow_empty: true)
+        true
     end
   end
 
-  defp maybe_tag_projection!(%{tag: nil}), do: :ok
+  defp tip_identity_matches?(worktree_path, expected_identity) do
+    case ReleaseReceipt.from_commit(worktree_path, "HEAD") do
+      {:ok, %{identity: ^expected_identity}} -> true
+      _ -> false
+    end
+  end
 
-  defp maybe_tag_projection!(%{tag: tag, worktree_path: worktree_path}) do
-    Git.create_tag!(worktree_path, tag)
+  defp validate_tag_availability!(_plan, _metadata, %{tag: nil}, _branch_created?), do: :ok
+
+  defp validate_tag_availability!(plan, metadata, opts, branch_created?) do
+    %{tag: tag, worktree_path: worktree} = opts
+    Git.run!(worktree, ["check-ref-format", "refs/tags/#{tag}"])
+    {:ok, expected} = ReleaseReceipt.parse(ReleaseReceipt.format_trailers(plan, metadata))
+
+    case ReleaseReceipt.from_tag(worktree, tag) do
+      :missing ->
+        :ok
+
+      {:ok, %{type: :annotated, target_sha: sha, receipt: ^expected}} ->
+        unless reusable_tag?(worktree, sha, expected, branch_created?) do
+          raise Error, "tag #{tag} already exists with a different commit or release identity"
+        end
+
+      {:ok, %{type: :lightweight}} ->
+        raise Error,
+              "legacy lightweight tag already exists: #{tag}; choose a new tag or inspect it manually"
+
+      {:ok, _other} ->
+        raise Error, "tag #{tag} already exists with a different commit or release identity"
+
+      {:error, reason} ->
+        raise Error, "existing tag #{tag} has invalid receipt metadata: #{reason}"
+    end
+  end
+
+  defp reusable_tag?(_worktree, _sha, _receipt, true), do: false
+
+  defp reusable_tag?(worktree, sha, receipt, false) do
+    sha == Git.revision(worktree) and not Git.staged_changes?(worktree) and
+      ReleaseReceipt.from_commit(worktree, sha) == {:ok, receipt}
+  end
+
+  defp maybe_tag_projection!(_plan, _metadata, _commit_sha, %{tag: nil}), do: :ok
+
+  defp maybe_tag_projection!(plan, metadata, commit_sha, %{tag: tag, worktree_path: worktree_path}) do
+    expected_identity = metadata["identity"]
+
+    case ReleaseReceipt.from_tag(worktree_path, tag) do
+      :missing ->
+        tag_message = ReleaseReceipt.format_tag_message(plan, metadata, tag)
+        Git.create_tag!(worktree_path, tag, tag_message)
+
+      {:ok,
+       %{type: :annotated, target_sha: ^commit_sha, receipt: %{identity: ^expected_identity}}} ->
+        :ok
+
+      {:ok, %{type: :lightweight}} ->
+        raise Error,
+              "legacy lightweight tag already exists: #{tag}; choose a new tag or inspect it manually"
+
+      {:ok, _other} ->
+        raise Error,
+              "tag #{tag} already exists with a different commit or release identity"
+
+      {:error, reason} ->
+        raise Error, "existing tag #{tag} has invalid receipt metadata: #{reason}"
+    end
   end
 
   defp maybe_push_projection!(%{push?: false}), do: :ok
@@ -455,10 +883,10 @@ defmodule Weld.Release do
          tag: tag,
          worktree_path: worktree_path
        }) do
-    Git.push_branch!(worktree_path, remote, branch)
-
     if tag do
-      Git.push_tag!(worktree_path, remote, tag)
+      Git.push_release!(worktree_path, remote, branch, tag)
+    else
+      Git.push_branch!(worktree_path, remote, branch)
     end
   end
 
@@ -505,14 +933,5 @@ defmodule Weld.Release do
     |> Enum.each(fn entry ->
       File.rm_rf!(Path.join(worktree_path, entry))
     end)
-  end
-
-  defp track_commit_message(%Plan{} = plan, source_revision) do
-    """
-    Track projection for #{plan.artifact.package.name}
-
-    Source revision: #{source_revision}
-    Artifact: #{plan.artifact.id}
-    """
   end
 end

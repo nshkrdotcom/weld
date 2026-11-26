@@ -16,11 +16,11 @@ lock = if File.regular?(Path.join(root, "mix.lock")), do: ["mix.lock"], else: []
       package: [
         name: "weld",
         otp_app: :weld,
-        version: "0.15.0",
+        version: "0.19.0",
         elixir: "~> 1.18",
-        description: "Deterministic Hex package projection for Elixir monorepos"
+        description: "Deterministic Mix project composition and release preparation"
       ],
-      verify: [hex_build: true, hex_publish: true]
+      verify: [hex_build: true, hex_publish: false]
     ]
   ]
 ]

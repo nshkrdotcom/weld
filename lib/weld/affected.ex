@@ -6,6 +6,7 @@ defmodule Weld.Affected do
 
   alias Weld.Git
   alias Weld.Plan
+  alias Weld.Plan.Inventory
   alias Weld.Workspace
 
   @spec run!(Plan.t(), keyword()) :: map()
@@ -31,25 +32,22 @@ defmodule Weld.Affected do
       |> Enum.uniq()
       |> Enum.sort()
 
-    global_change? =
-      Enum.any?(ownership, fn
-        {_relative, :global} -> true
-        {_relative, :unknown} -> true
-        _ -> false
-      end)
+    members = Enum.uniq(plan.selected_ids ++ plan.verification_ids ++ plan.inventory_member_ids)
+    source_matches = matching_inventory(plan, changed_files)
+    global_change? = Enum.any?(ownership, &global_change?(plan, &1))
+    external_projects = Enum.filter(direct_projects, &(&1 in plan.artifact.external_projects))
+    directly_affected = Enum.filter(direct_projects, &(&1 in members))
 
     affected_projects =
       cond do
         global_change? ->
-          plan.selected_ids
+          Enum.sort(Enum.uniq(plan.selected_ids ++ plan.verification_ids))
 
-        direct_projects == [] ->
-          []
+        source_matches != [] and plan.artifact.mode == :source_project ->
+          [hd(plan.artifact.roots) | directly_affected] |> Enum.uniq() |> Enum.sort()
 
         true ->
-          plan.graph
-          |> Weld.Graph.reaching(direct_projects, :package)
-          |> Enum.filter(&(&1 in plan.selected_ids))
+          affected_by_membership(plan, directly_affected, source_matches)
       end
 
     %{
@@ -59,7 +57,62 @@ defmodule Weld.Affected do
       changed_files: changed_files,
       direct_projects: direct_projects,
       affected_projects: affected_projects,
+      source_changes: source_matches,
+      external_dependency_projects: external_projects,
       global_change?: global_change?
     }
+  end
+
+  defp global_change?(plan, {path, owner}) do
+    absolute = Path.join(plan.manifest.repo_root, path)
+
+    absolute == plan.manifest.manifest_path or path in plan.structural_inputs or
+      owner in [:global, :unknown] or
+      (owner == {:project, "."} and "." not in plan.artifact.external_projects)
+  end
+
+  defp matching_inventory(plan, paths) do
+    exact =
+      for path <- paths, entry <- plan.source_inventory, path == entry.source do
+        %{path: path, owner: source_owner(plan, path), kind: entry.kind, target: entry.target}
+      end
+
+    # Directory membership covers paths absent in the current tree (add/delete/rename).
+    roots =
+      for path <- paths,
+          not Enum.any?(exact, &(&1.path == path)),
+          entry <- plan.source_roots,
+          path == entry.source or (entry.directory and Inventory.covered?(path, entry.source)) do
+        %{path: path, owner: source_owner(plan, path), kind: entry.kind}
+      end
+
+    Enum.uniq(exact ++ roots)
+  end
+
+  defp source_owner(plan, path) do
+    case Workspace.file_owner(plan.workspace, Path.join(plan.manifest.repo_root, path)) do
+      {:project, id} -> id
+      _ -> nil
+    end
+  end
+
+  defp affected_by_membership(plan, projects, matches) do
+    graph = plan.artifact_graph || plan.graph
+    selected = plan.selected_ids ++ plan.verification_ids
+    view = if plan.verification_ids == [], do: :package, else: :test
+
+    graph_projects =
+      graph
+      |> Weld.Graph.reaching(projects, view)
+      |> Enum.filter(&(&1 in selected))
+
+    linked_projects =
+      if Enum.any?(matches, &(&1.owner not in selected)) do
+        plan.selected_ids
+      else
+        Enum.filter(projects, &(&1 in selected))
+      end
+
+    Enum.uniq(graph_projects ++ linked_projects) |> Enum.sort()
   end
 end

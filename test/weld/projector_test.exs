@@ -27,6 +27,31 @@ defmodule Weld.ProjectorTest do
     assert mixfile =~ "components/runtime/local/lib"
   end
 
+  test "reuses identical outputs and refreshes same-size edits and tampering" do
+    manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+
+    source =
+      Path.expand("../../core/contracts/lib/weld_fixture/contracts.ex", Path.dirname(manifest))
+
+    for options <- [[], [live: true]] do
+      projection = Weld.project!(manifest, options)
+      refute projection.reused?
+      assert Weld.project!(manifest, options).reused?
+      marker = Path.join(projection.build_path, "weld.provenance.json")
+      original = File.read!(marker)
+      File.write!(marker, original <> "\n")
+      refute Weld.project!(manifest, options).reused?
+      assert File.read!(marker) == original
+
+      bytes = File.read!(source)
+      time = File.stat!(source).mtime
+      File.write!(source, String.replace(bytes, "Contracts", "Contractx"))
+      File.touch!(source, time)
+      refute Weld.project!(manifest, options).reused?
+      File.write!(source, bytes)
+    end
+  end
+
   test "projects canonicalized external deps instead of local path or scm transport" do
     manifest_path = FixtureCase.copied_manifest_path("external_dependencies", "app_bundle")
     result = Weld.project!(manifest_path)

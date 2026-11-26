@@ -60,6 +60,33 @@ defmodule Weld.ProjectorMonolithTest do
     refute mixfile =~ ", path:"
   end
 
+  test "uses the configured monolith README at the package root" do
+    manifest = FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
+    root = Path.expand("../..", Path.dirname(manifest))
+    readme = "# Fixture API\n\nREADME from the selected app.\n"
+    File.write!(Path.join(root, "runtime/api/README.md"), readme)
+
+    contents =
+      manifest
+      |> File.read!()
+      |> String.replace("mode: :monolith,", """
+      mode: :monolith,
+      monolith_opts: [readme: "runtime/api/README.md"],
+      """)
+      |> String.replace(~s(docs: ["README.md", "CHANGELOG.md",), ~s(docs: ["CHANGELOG.md",))
+
+    File.write!(manifest, contents)
+
+    for opts <- [[], [live: true]] do
+      result = Weld.project!(manifest, opts)
+      assert File.read!(Path.join(result.build_path, "README.md")) == readme
+      assert "README.md" in result.package_files
+
+      assert File.read!(Path.join(result.build_path, "mix.exs")) =~
+               ~s({"README.md", [title: "Overview"]})
+    end
+  end
+
   test "rejects colliding private assets in a monolith" do
     manifest = FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
     root = Path.expand("../..", Path.dirname(manifest))
@@ -97,6 +124,28 @@ defmodule Weld.ProjectorMonolithTest do
       )
 
     assert format_status == 0, format_output
+  end
+
+  @tag integration: true, ci_build: "monolith_tests", timeout: 600_000
+  test "the live monolith compiles and runs its selected test suites" do
+    manifest = FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
+    result = Weld.project!(manifest, live: true)
+
+    {output, status} =
+      System.cmd("mix", ["test"],
+        cd: result.build_path,
+        stderr_to_stdout: true,
+        env: [
+          {"MIX_ENV", "test"},
+          {"MIX_BUILD_PATH", nil},
+          {"MIX_BUILD_ROOT", nil},
+          {"MIX_DEPS_PATH", nil}
+        ]
+      )
+
+    assert status == 0, output
+    refute output =~ "configured but not available", output
+    assert output =~ ~r/(?:2 tests, 0 failures|Result: 2 passed)/
   end
 
   test "allows explicit non-selected monolith test support projects" do

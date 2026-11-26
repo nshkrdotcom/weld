@@ -10,6 +10,8 @@ defmodule Weld.ProjectorPackageModeTest do
     assert mixfile =~ "source_url: \"https://example.test/fixture_bundle\""
     assert mixfile =~ "before_closing_body_tag"
     assert mixfile =~ "mermaid@11.12.2"
+    assert mixfile =~ "exdoc:loaded"
+    refute mixfile =~ "DOMContentLoaded"
     assert mixfile =~ "source_ref: \"v0.1.0\""
     assert mixfile =~ "{:credo, \"~> 1.7\", [only: [:dev, :test], runtime: false]}"
     assert mixfile =~ "{:dialyxir, \"~> 1.4\", [only: [:dev, :test], runtime: false]}"

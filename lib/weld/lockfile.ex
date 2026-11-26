@@ -30,11 +30,26 @@ defmodule Weld.Lockfile do
         discovery: portable_value(plan.workspace.discovery, root)
       },
       graph: %{
-        digest: graph_digest(plan.graph),
+        digest: graph_digest(plan),
         selected_projects: plan.selected_ids,
         excluded_projects: plan.excluded_ids,
-        edges: Enum.map(Graph.edges(plan.graph), &serialize_edge/1),
+        dependency_projects: plan.dependency_ids,
+        source_members: plan.source_member_ids,
+        inventory_members: plan.inventory_member_ids,
+        verification_projects: plan.verification_ids,
+        external_projects: plan.artifact.external_projects,
+        edges: graph_edges(plan),
         violations: Enum.map(plan.violations, &serialize_violation/1)
+      },
+      source: %{
+        inventory: plan.source_inventory,
+        structural_inputs: plan.structural_inputs,
+        target_basis:
+          if(plan.artifact.mode == :monolith and is_nil(plan.monolith_plan),
+            do: :unresolved,
+            else: :projection
+          ),
+        output_inventory: plan.output_inventory
       },
       projection: portable_projection(projection, root),
       verification: portable_value(verification_results, root)
@@ -59,19 +74,40 @@ defmodule Weld.Lockfile do
   defp ordered_json(value) when is_list(value), do: Enum.map(value, &ordered_json/1)
   defp ordered_json(value), do: value
 
-  defp graph_digest(graph) do
-    graph
-    |> Graph.edges()
-    |> Enum.map_join("\n", fn edge ->
-      "#{edge.from}:#{edge.to}:#{edge.kind}:#{edge.app}"
-    end)
-    |> Hash.sha256_binary()
+  defp graph_digest(plan) do
+    dependencies =
+      Enum.map(plan.external_deps, fn dep ->
+        {dep.app, dep.requirement, Enum.sort(dep.opts), dep.kind}
+      end)
+
+    input = {
+      graph_edges(plan),
+      plan.dependency_ids,
+      plan.source_member_ids,
+      plan.inventory_member_ids,
+      plan.verification_ids,
+      plan.artifact.external_projects,
+      dependencies,
+      plan.source_inventory,
+      plan.output_inventory,
+      plan.structural_inputs
+    }
+
+    input |> :erlang.term_to_binary() |> Hash.sha256_binary()
+  end
+
+  defp graph_edges(plan) do
+    (Graph.edges(plan.graph) ++ plan.externalized_edges)
+    |> Enum.uniq()
+    |> Enum.sort_by(&{&1.from, &1.to, &1.kind, &1.app})
+    |> Enum.map(&serialize_edge(&1, plan.externalized_edges))
   end
 
   defp portable_projection(projection, root) do
     build_path = Map.get(projection, :build_path)
 
     projection
+    |> Map.delete(:reused?)
     |> Map.update(:copied_files, [], fn files ->
       Enum.map(files, &portable_copied_file(&1, build_path))
     end)
@@ -106,13 +142,14 @@ defmodule Weld.Lockfile do
     end
   end
 
-  defp serialize_edge(edge) do
+  defp serialize_edge(edge, externalized_edges) do
     %{
       from: edge.from,
       to: edge.to,
       app: edge.app,
       kind: edge.kind,
-      requirement: edge.requirement
+      requirement: edge.requirement,
+      externalized: edge in externalized_edges
     }
   end
 

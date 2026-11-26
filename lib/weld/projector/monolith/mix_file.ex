@@ -4,25 +4,46 @@ defmodule Weld.Projector.Monolith.MixFile do
   alias Weld.Git
   alias Weld.Plan
   alias Weld.Projector
+  alias Weld.Projector.Live
+  alias Weld.Projector.Monolith.FilePlan
   alias Weld.SourceFormatter
 
-  @spec render!(Plan.t(), Path.t(), keyword()) :: [String.t()]
-  def render!(%Plan{} = plan, build_path, opts) do
+  def plan!(%Plan{} = plan, operations, opts) do
     application = generated_application(plan, opts)
-    mixfile_path = Path.join(build_path, "mix.exs")
+    inputs = Keyword.get(opts, :inputs, [])
 
-    File.write!(
-      mixfile_path,
-      mixfile_contents(plan, build_path, application, opts) |> SourceFormatter.format!()
-    )
+    app_operations =
+      if application.module do
+        relative = Path.join(["lib", to_string(plan.artifact.package.otp_app), "application.ex"])
 
-    generated = ["mix.exs"]
-    write_application_module!(generated, application, plan, build_path)
+        [
+          FilePlan.generated(
+            relative,
+            application_module_contents(application, plan.artifact.package.otp_app)
+            |> SourceFormatter.format!(),
+            :compiled,
+            inputs
+          )
+        ]
+      else
+        []
+      end
+
+    paths = Enum.map(operations ++ app_operations, & &1.target)
+
+    mix =
+      FilePlan.generated(
+        "mix.exs",
+        mixfile_contents(plan, paths, application, opts) |> SourceFormatter.format!(),
+        :metadata,
+        inputs
+      )
+
+    %{operations: [mix | app_operations], package_files: package_files(plan, paths)}
   end
 
-  @spec package_files(Plan.t(), Path.t(), keyword()) :: [String.t()]
-  def package_files(%Plan{} = plan, build_path, opts \\ []) do
-    package_dir_files(build_path, Keyword.get(opts, :include_tests?, false))
+  def package_files(%Plan{} = plan, paths, opts \\ []) do
+    package_dir_files(paths, Keyword.get(opts, :include_tests?, false))
     |> Kernel.++(plan.artifact.output.docs)
     |> Kernel.++(plan.artifact.output.assets)
     |> Kernel.++(["mix.exs"])
@@ -32,26 +53,14 @@ defmodule Weld.Projector.Monolith.MixFile do
     |> Enum.sort()
   end
 
-  defp write_application_module!(generated, %{module: nil}, _plan, _build_path), do: generated
-
-  defp write_application_module!(generated, application, plan, build_path) do
-    relative = Path.join(["lib", to_string(plan.artifact.package.otp_app), "application.ex"])
-    target = Path.join(build_path, relative)
-    File.mkdir_p!(Path.dirname(target))
-
-    File.write!(
-      target,
-      application_module_contents(application, plan.artifact.package.otp_app)
-      |> SourceFormatter.format!()
-    )
-
-    [relative | generated]
-  end
-
-  defp mixfile_contents(plan, build_path, application, opts) do
+  defp mixfile_contents(plan, paths, application, opts) do
     package = plan.artifact.package
     module_name = "#{Macro.camelize(to_string(package.otp_app))}.MixProject"
-    erlc_paths = build_erlc_paths(build_path, Keyword.get(opts, :test_support_projects, []))
+    test_erlc_paths = build_erlc_paths(paths, Keyword.get(opts, :test_support_projects, []))
+    runtime_erlc_paths = Enum.filter(test_erlc_paths, &(&1 == "src"))
+
+    test_elixirc_paths =
+      if has_path?(paths, "test/support"), do: ["lib", "test/support"], else: ["lib"]
 
     deps =
       render_deps(
@@ -60,7 +69,7 @@ defmodule Weld.Projector.Monolith.MixFile do
         Keyword.get(opts, :forced_test_external_deps, [])
       )
 
-    files = package_files(plan, build_path) |> Enum.map_join(",\n        ", &inspect/1)
+    files = package_files(plan, paths) |> Enum.map_join(",\n        ", &inspect/1)
     docs = Projector.render_docs_options(plan)
 
     links = package.links |> fallback_links(plan.manifest.repo_root) |> inspect(pretty: true)
@@ -71,14 +80,16 @@ defmodule Weld.Projector.Monolith.MixFile do
       use Mix.Project
 
       def project do
+        #{opts[:live_guard] || ""}
         [
           app: #{inspect(package.otp_app)},
           version: #{inspect(package.version)},
-          build_path: "_build",
+          #{if(opts[:live?], do: "", else: "build_path: \"_build\",")}
           elixir: #{inspect(package.elixir)},
           start_permanent: Mix.env() == :prod,
           elixirc_paths: elixirc_paths(Mix.env()),
-          erlc_paths: #{inspect(erlc_paths)},
+          erlc_paths: erlc_paths(Mix.env()),
+          #{if(opts[:live?], do: "aliases: #{Live.aliases_source()},", else: "")}
           deps: deps(),
           description: #{inspect(package.description)},
           package: package(),
@@ -90,15 +101,10 @@ defmodule Weld.Projector.Monolith.MixFile do
         #{application_config}
       end
 
-      def elixirc_paths(:test) do
-        if File.dir?("test/support") do
-          ["lib", "test/support"]
-        else
-          ["lib"]
-        end
-      end
-
-      def elixirc_paths(_env), do: ["lib"]
+      def elixirc_paths(:test), do: #{render_paths(test_elixirc_paths, opts)}
+      def elixirc_paths(_env), do: #{render_paths(["lib"], opts)}
+      def erlc_paths(:test), do: #{render_paths(test_erlc_paths, opts)}
+      def erlc_paths(_env), do: #{render_paths(runtime_erlc_paths, opts)}
 
       defp deps do
         [
@@ -123,6 +129,9 @@ defmodule Weld.Projector.Monolith.MixFile do
     end
     """
   end
+
+  # Mix compiler roots inside the project must remain relative.
+  defp render_paths(paths, _opts), do: inspect(paths)
 
   defp generated_application(%Plan{} = plan, opts) do
     children =
@@ -195,7 +204,7 @@ defmodule Weld.Projector.Monolith.MixFile do
            bootstrapped_sources: bootstrapped_sources,
            children: children
          },
-         _artifact_otp_app
+         artifact_otp_app
        ) do
     rendered_children =
       children
@@ -258,7 +267,7 @@ defmodule Weld.Projector.Monolith.MixFile do
           end
 
           defp artifact_path(relative_path) do
-            Path.expand(Path.join(["..", "..", relative_path]), __DIR__)
+            Application.app_dir(#{inspect(artifact_otp_app)}, Path.join(["priv", "weld", relative_path]))
           end
         """
       end
@@ -365,15 +374,15 @@ defmodule Weld.Projector.Monolith.MixFile do
     end
   end
 
-  defp build_erlc_paths(build_path, test_support_projects) do
-    runtime_paths = if File.dir?(Path.join(build_path, "src")), do: ["src"], else: []
+  defp build_erlc_paths(paths, test_support_projects) do
+    runtime_paths = if has_path?(paths, "src"), do: ["src"], else: []
 
     test_paths =
       test_support_projects
       |> Enum.map(fn project ->
         Path.join(["test", "support", "weld_projects", project_slug(project.id), "src"])
       end)
-      |> Enum.filter(&File.dir?(Path.join(build_path, &1)))
+      |> Enum.filter(&has_path?(paths, &1))
 
     runtime_paths ++ test_paths
   end
@@ -387,16 +396,16 @@ defmodule Weld.Projector.Monolith.MixFile do
     end
   end
 
-  defp package_dir_files(build_path, include_tests?) do
+  defp package_dir_files(paths, include_tests?) do
     candidates =
       ["README.md", "LICENSE", "lib", "config", "priv", "src", "c_src", "include"]
       |> maybe_add_tests(include_tests?)
-      |> Kernel.++(root_docs_dirs(build_path))
-      |> Kernel.++(root_tooling_files(build_path))
+      |> Kernel.++(root_docs_dirs(paths))
+      |> Kernel.++(root_tooling_files(paths))
 
     candidates
     |> Enum.filter(fn relative ->
-      File.exists?(Path.join(build_path, relative))
+      has_path?(paths, relative)
     end)
     |> Enum.uniq()
     |> Enum.sort()
@@ -405,15 +414,18 @@ defmodule Weld.Projector.Monolith.MixFile do
   defp maybe_add_tests(candidates, true), do: candidates ++ ["test"]
   defp maybe_add_tests(candidates, false), do: candidates
 
-  defp root_docs_dirs(build_path) do
+  defp root_docs_dirs(paths) do
     ["guides", "docs", "examples"]
-    |> Enum.filter(&File.exists?(Path.join(build_path, &1)))
+    |> Enum.filter(&has_path?(paths, &1))
   end
 
-  defp root_tooling_files(build_path) do
+  defp root_tooling_files(paths) do
     Projector.root_tooling_candidates()
-    |> Enum.filter(&File.regular?(Path.join(build_path, &1)))
+    |> Enum.filter(&(&1 in paths))
   end
+
+  defp has_path?(paths, relative),
+    do: Enum.any?(paths, &(&1 == relative or String.starts_with?(&1, relative <> "/")))
 
   defp collapse_descendant_paths(paths) do
     Enum.reject(paths, fn path ->
@@ -423,10 +435,5 @@ defmodule Weld.Projector.Monolith.MixFile do
     end)
   end
 
-  defp project_slug(project_id) do
-    project_id
-    |> String.replace(~r/[^a-zA-Z0-9]+/, "_")
-    |> String.trim("_")
-    |> String.downcase()
-  end
+  defp project_slug(project_id), do: FilePlan.slug(project_id)
 end

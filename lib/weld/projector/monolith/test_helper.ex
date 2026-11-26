@@ -2,12 +2,20 @@ defmodule Weld.Projector.Monolith.TestHelper do
   @moduledoc false
 
   alias Weld.Error
+  alias Weld.Projector.Monolith.FilePlan
 
   @spec generate!([Weld.Workspace.Project.t()], Path.t(), keyword()) :: %{
+          operations: [map()],
           copied_files: [String.t()],
           transformations: [map()]
         }
   def generate!(projects, build_path, _opts \\ []) do
+    result = plan!(projects)
+    FilePlan.materialize!(result.operations, build_path, :full)
+    result
+  end
+
+  def plan!(projects) do
     result =
       projects
       |> Enum.sort_by(& &1.id)
@@ -24,14 +32,19 @@ defmodule Weld.Projector.Monolith.TestHelper do
           fragment_relative =
             Path.join(["test", "support", "weld_helpers", "#{slug}_test_helper.exs"])
 
-          fragment_path = Path.join(build_path, fragment_relative)
           fragment_source = render_fragment(fragment_forms)
 
-          File.mkdir_p!(Path.dirname(fragment_path))
-          File.write!(fragment_path, fragment_source)
-
           %{
-            files: [fragment_relative | acc.files],
+            files: [
+              FilePlan.generated(
+                fragment_relative,
+                fragment_source,
+                :test,
+                [helper_path],
+                :transform
+              )
+              | acc.files
+            ],
             fragments: [fragment_relative | acc.fragments],
             options: merge_exunit_options(acc.options, options, helper_path),
             transformations: [
@@ -50,17 +63,22 @@ defmodule Weld.Projector.Monolith.TestHelper do
       end)
 
     root_helper_relative = Path.join(["test", "test_helper.exs"])
-    root_helper_path = Path.join(build_path, root_helper_relative)
-    File.mkdir_p!(Path.dirname(root_helper_path))
+    transformations = Enum.reverse(result.transformations)
 
-    File.write!(
-      root_helper_path,
-      root_helper_source(result.options, Enum.reverse(result.fragments))
-    )
+    root =
+      FilePlan.generated(
+        root_helper_relative,
+        root_helper_source(result.options, Enum.reverse(result.fragments)),
+        :test,
+        Enum.map(transformations, & &1.helper_path)
+      )
+
+    operations = [root | Enum.reverse(result.files)]
 
     %{
-      copied_files: [root_helper_relative | result.files] |> Enum.uniq() |> Enum.sort(),
-      transformations: Enum.reverse(result.transformations)
+      operations: operations,
+      copied_files: Enum.map(operations, & &1.target) |> Enum.sort(),
+      transformations: transformations
     }
   end
 
@@ -78,23 +96,34 @@ defmodule Weld.Projector.Monolith.TestHelper do
   end
 
   defp extract_forms(forms, slug, helper_path) do
-    Enum.reduce(forms, {[], []}, fn form, {options, kept} ->
-      cond do
-        exunit_start?(form) ->
-          {options ++ exunit_options(form), kept}
+    Enum.reduce(forms, {[], []}, &extract_form(&1, &2, slug, helper_path))
+  end
 
-        unsupported_helper_side_effect?(form) ->
-          raise Error,
-                "unsupported helper side effect in #{helper_path}: " <>
-                  "move repo/database setup into explicit package test support or case modules before welding"
+  defp extract_form(form, {options, kept}, slug, helper_path) do
+    cond do
+      exunit_start?(form) ->
+        {options ++ literal_exunit_options!(form, helper_path), kept}
 
-        normalized_alias?(form) ->
-          {options, kept}
+      unsupported_helper_side_effect?(form) ->
+        raise Error,
+              "unsupported helper side effect in #{helper_path}: " <>
+                "move repo/database setup into explicit package test support or case modules before welding"
 
-        true ->
-          {options, kept ++ [rewrite_require_file(form, slug)]}
-      end
-    end)
+      normalized_alias?(form) ->
+        {options, kept}
+
+      true ->
+        {options, kept ++ [rewrite_require_file(form, slug)]}
+    end
+  end
+
+  defp literal_exunit_options!(form, helper_path) do
+    additions = exunit_options(form)
+
+    unless Keyword.keyword?(additions) and Macro.quoted_literal?(additions),
+      do: raise(Error, "unsupported dynamic ExUnit options in #{helper_path}")
+
+    additions
   end
 
   defp exunit_start?({{:., _, [{:__aliases__, _, [:ExUnit]}, :start]}, _, _args}), do: true
@@ -106,7 +135,7 @@ defmodule Weld.Projector.Monolith.TestHelper do
        when is_list(options),
        do: options
 
-  defp exunit_options(_other), do: []
+  defp exunit_options(_other), do: raise(Error, "unsupported dynamic ExUnit.start options")
 
   defp unsupported_helper_side_effect?({{:., _, [_module_ast, :setup_database!]}, _, _args}),
     do: true
@@ -136,11 +165,22 @@ defmodule Weld.Projector.Monolith.TestHelper do
          slug
        )
        when is_binary(path) do
-    rewritten_path = "../#{slug}/" <> String.replace_prefix(path, "support/", "")
+    if Path.type(path) != :relative or
+         Enum.any?(String.split(path, "/"), &(&1 in ["", ".", ".."])) do
+      raise Error, "unsupported test helper require path: #{path}"
+    end
+
+    rewritten_path =
+      if String.starts_with?(path, "support/"),
+        do: "../#{slug}/" <> String.replace_prefix(path, "support/", ""),
+        else: "../../#{slug}/" <> path
 
     {{:., meta, [{:__aliases__, alias_meta, [:Code]}, :require_file]}, call_meta,
      [rewritten_path, {:__DIR__, [], nil}]}
   end
+
+  defp rewrite_require_file({{:., _, [{:__aliases__, _, [:Code]}, :require_file]}, _, _}, _slug),
+    do: raise(Error, "monolith test helper requires must use a literal relative path and __DIR__")
 
   defp rewrite_require_file(form, _slug), do: form
 
@@ -218,10 +258,5 @@ defmodule Weld.Projector.Monolith.TestHelper do
     end)
   end
 
-  defp project_slug(project_id) do
-    project_id
-    |> String.replace(~r/[^a-zA-Z0-9]+/, "_")
-    |> String.trim("_")
-    |> String.downcase()
-  end
+  defp project_slug(project_id), do: FilePlan.slug(project_id)
 end

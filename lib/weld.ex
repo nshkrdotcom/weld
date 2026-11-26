@@ -1,15 +1,26 @@
 defmodule Weld do
   @moduledoc """
-  Graph-native package publication tooling for Elixir monorepos.
+  Deterministic package projection, verification, and release-bundle tooling for
+  Elixir workspaces and source-root Mix projects.
+
+  `Weld` resolves a repo-local manifest (`build_support/weld.exs`,
+  `build_support/weld_contract.exs`, or `packaging/weld/*.exs`), builds the
+  workspace dependency graph, projects standalone Mix candidates under
+  `<checkout_root>/.weld/` (`:package_projection`, `:monolith`, or
+  `:source_project`), verifies generated packages with standard Mix gates, and
+  prepares content-addressed release bundles and optional `projection/*` branch
+  snapshots.
   """
 
   @version Mix.Project.config()[:version]
 
   alias Weld.Affected
   alias Weld.Graph
+  alias Weld.Manifest
   alias Weld.Plan
   alias Weld.Projector
   alias Weld.Release
+  alias Weld.ReleaseStatus
   alias Weld.Verifier
 
   @spec version() :: String.t()
@@ -49,6 +60,16 @@ defmodule Weld do
         include: plan.artifact.include,
         selected_projects: plan.selected_ids,
         excluded_projects: plan.excluded_ids,
+        dependency_projects: plan.dependency_ids,
+        source_members: plan.source_member_ids,
+        inventory_members: plan.inventory_member_ids,
+        verification_projects: plan.verification_ids,
+        external_projects: plan.artifact.external_projects,
+        externalized_edges: Enum.map(plan.externalized_edges, &report_edge(plan, &1)),
+        structural_inputs: plan.structural_inputs,
+        source_inventory: plan.source_inventory,
+        output_inventory: plan.output_inventory,
+        source_target_basis: source_target_basis(plan),
         external_deps: Enum.map(plan.external_deps, &Atom.to_string(&1.app))
       },
       violations: Enum.map(plan.violations, &serialize_violation/1)
@@ -67,15 +88,11 @@ defmodule Weld do
           %{
             id: project.id,
             classification: project.classification,
-            selected: project.id in plan.selected_ids
+            selected: project.id in plan.selected_ids,
+            membership: membership(plan, project.id)
           }
         end),
-      edges:
-        plan.graph
-        |> Graph.edges()
-        |> Enum.map(fn edge ->
-          %{from: edge.from, to: edge.to, kind: edge.kind, app: edge.app}
-        end)
+      edges: Enum.map(reported_edges(plan), &report_edge(plan, &1))
     }
   end
 
@@ -97,18 +114,19 @@ defmodule Weld do
     %{
       project: project_id,
       outgoing:
-        plan.graph
-        |> Graph.edges()
+        plan
+        |> reported_edges()
         |> Enum.filter(&(&1.from == project_id))
         |> Enum.map(fn edge ->
-          %{to: edge.to, kind: edge.kind, app: edge.app}
+          report_edge(plan, edge) |> Map.delete(:from)
         end),
       external:
-        plan.graph
+        plan.artifact_graph
         |> Graph.external_deps(project_id)
         |> Enum.map(fn dep ->
           %{app: dep.app, kind: dep.kind, requirement: dep.requirement}
-        end)
+        end),
+      membership: membership(plan, project_id)
     }
   end
 
@@ -119,11 +137,13 @@ defmodule Weld do
     %{
       from: from,
       to: to,
-      path:
-        case Graph.path(plan.graph, from, to, :package) do
-          {:ok, path} -> path
-          :no_path -> []
-        end
+      path: dependency_path(plan.graph, from, to),
+      artifact_path: dependency_path(plan.artifact_graph, from, to),
+      source_membership: from in plan.artifact.roots and to in plan.source_member_ids,
+      externalized_edges:
+        plan.externalized_edges
+        |> Enum.filter(&(&1.from == from and &1.to == to))
+        |> Enum.map(&report_edge(plan, &1))
     }
   end
 
@@ -146,19 +166,71 @@ defmodule Weld do
 
   @spec release_prepare!(Path.t(), keyword()) :: map()
   def release_prepare!(manifest_path, opts \\ []) do
-    with_plan!(manifest_path, opts, &Release.prepare!/1)
+    with_plan!(manifest_path, opts, &Release.prepare!(&1, opts))
+  end
+
+  @spec artifact_ids!(Path.t()) :: [String.t()]
+  def artifact_ids!(manifest_path) do
+    manifest_path
+    |> Manifest.load!()
+    |> Map.fetch!(:artifacts)
+    |> Map.keys()
+    |> Enum.sort()
   end
 
   @spec release_bundle_path!(Path.t(), keyword()) :: Path.t()
   def release_bundle_path!(manifest_path, opts \\ []) do
     manifest_path
     |> Plan.build!(opts)
-    |> Release.bundle_path()
+    |> Release.bundle_path(opts[:identity])
+  end
+
+  @doc "Stages the verified current or pinned release for publication without changing its bundle."
+  @spec release_stage!(Path.t(), keyword()) :: map()
+  def release_stage!(manifest_path, opts \\ []) do
+    with_plan!(manifest_path, opts, &Release.stage!(&1, opts))
+  end
+
+  @doc "Stages an isolated workspace, checks rebuilt archive bytes, and delegates interactively to Hex."
+  @spec release_publish!(Path.t(), keyword()) :: map()
+  def release_publish!(manifest_path, opts \\ []) do
+    manifest_path
+    |> Plan.build!(opts)
+    |> Release.publish!(opts)
+  end
+
+  @doc "Returns read-only release status for one or all artifacts."
+  @spec release_status!(Path.t(), keyword()) :: map() | [map()]
+  def release_status!(manifest_path, opts \\ []) do
+    manifest = Manifest.load!(manifest_path)
+
+    if opts[:artifact] do
+      if opts[:all], do: raise(Weld.Error, "pass either --artifact or --all, not both")
+
+      manifest
+      |> Plan.build!(opts)
+      |> ReleaseStatus.status(opts)
+    else
+      manifest.artifacts
+      |> Map.keys()
+      |> Enum.sort()
+      |> Enum.map(fn id ->
+        plan = Plan.build!(manifest, Keyword.put(opts, :artifact, id))
+        ReleaseStatus.status(plan, opts)
+      end)
+    end
+  end
+
+  @doc "Verifies a Git tag's Weld receipt against its target commit and optional local evidence."
+  @spec release_verify_tag!(Path.t(), String.t(), keyword()) :: ReleaseStatus.tag_result()
+  def release_verify_tag!(manifest_path, tag, opts \\ []) do
+    manifest = Manifest.load!(manifest_path)
+    ReleaseStatus.verify_tag(manifest.repo_root, tag, opts)
   end
 
   @spec release_archive!(Path.t(), keyword()) :: map()
   def release_archive!(manifest_path, opts \\ []) do
-    with_plan!(manifest_path, opts, &Release.archive!/1)
+    with_plan!(manifest_path, opts, &Release.archive!(&1, opts))
   end
 
   @spec release_track!(Path.t(), keyword()) :: map()
@@ -184,6 +256,69 @@ defmodule Weld do
     |> Weld.Workspace.projects()
     |> Enum.filter(&(&1.classification == classification))
     |> Enum.map(& &1.id)
+  end
+
+  defp dependency_path(graph, from, to) do
+    case Graph.path(graph, from, to, :package) do
+      {:ok, path} -> path
+      :no_path -> []
+    end
+  end
+
+  defp reported_edges(plan) do
+    (Graph.edges(plan.graph) ++ plan.externalized_edges)
+    |> Enum.uniq()
+    |> Enum.sort_by(&{&1.from, &1.to, &1.kind, &1.app})
+  end
+
+  defp report_edge(plan, edge) do
+    %{
+      from: edge.from,
+      to: edge.to,
+      kind: edge.kind,
+      app: edge.app,
+      externalized: edge in plan.externalized_edges
+    }
+  end
+
+  defp membership(plan, id) do
+    for {relationship, ids} <- [
+          dependency: plan.dependency_ids,
+          compiled_source: plan.source_member_ids,
+          verification: plan.verification_ids,
+          inventory: plan.inventory_member_ids,
+          external_package: plan.artifact.external_projects
+        ],
+        id in ids,
+        do: relationship
+  end
+
+  defp source_target_basis(%Plan{artifact: %{mode: :monolith}, monolith_plan: nil}),
+    do: :unresolved
+
+  defp source_target_basis(_plan), do: :projection
+
+  @doc """
+  Return the ExDoc options for the selected artifact, including the Mermaid
+  `before_closing_body_tag` hook when enabled in the manifest. Root `mix.exs`
+  files can call this so local `mix docs` and projected builds share one owner.
+  """
+  @spec docs_options!(Path.t(), keyword()) :: keyword()
+  def docs_options!(manifest_path, opts \\ []) do
+    manifest = Manifest.load!(manifest_path)
+    artifact = Manifest.artifact!(manifest, opts[:artifact])
+    base = Projector.docs_options(artifact)
+
+    if artifact.package.docs.mermaid do
+      hook = Projector.mermaid_hook(manifest.repo_root, artifact.package.docs.hook_file)
+
+      Keyword.put(base, :before_closing_body_tag, fn
+        :html -> hook
+        _ -> ""
+      end)
+    else
+      base
+    end
   end
 
   defp serialize_violation(violation) do

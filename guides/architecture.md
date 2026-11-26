@@ -1,7 +1,8 @@
 # Architecture
 
-`Weld` is graph-first. Generated files are an output of the graph and plan, not
-the primary internal model.
+`Weld` plans each artifact from the workspace Mix dependency graph and its
+declared source inventory. Both live and full materialization use that
+artifact selection.
 
 ## Core Stages
 
@@ -12,12 +13,19 @@ the primary internal model.
    dependencies.
 4. `Weld.Graph` stores project nodes, classified edges, publication roles,
    external deps, and violations.
-5. `Weld.Plan` resolves one artifact boundary and computes the selected closure.
-6. `Weld.Projector` generates the standalone Mix project (routing to
-   Weld.Projector.Monolith for monolith artifacts), merged application module
-   when needed, and lockfile.
-7. `Weld.Verifier` validates the generated project using a mode-specific gate.
-8. `Weld.Release` prepares and archives deterministic release bundles.
+5. `Weld.Plan` resolves the artifact's dependency boundary, selected closure,
+   source owners, layout inputs, and verification membership.
+6. `Weld.Output` serializes checkout-root `.weld/` mutations, enforces `.owner`
+   markers and `.gitignore` rules, rejects symlinks on managed roots, and swaps
+   staged directories into place atomically.
+7. `Weld.Projector` materializes the artifact with regular files or live
+   source links. It writes the project's provenance, the projection lock,
+   and any generated Mix, configuration, or application files.
+8. `Weld.Verifier` validates the generated project using a mode-specific gate
+   with per-projection, per-toolchain build/dependency caches under `.weld/cache/`.
+9. `Weld.Release` prepares content-addressed release bundles under
+   `.weld/releases/<artifact>/<identity>/`, tracks orphan `projection/<package_name>`
+   branches, and archives released bundles under `.weld/archive/<artifact>/<identity>/`.
 
 ## Graph Model
 
@@ -56,6 +64,37 @@ plan operate on that normalized external edge, not the local transport detail.
 Dependencies without a version requirement are permitted when `opts` includes
 `:git` or `:github`.
 
+### Artifact Membership and Package Boundaries
+
+The workspace graph records actual Mix declarations. An artifact can absorb a
+dependency closure, preserve a package that compiles sibling source trees, or
+externalize a discoverable package with `external_projects`. Externalization
+cuts traversal for that artifact and retains a separate Mix dependency.
+
+Inspect the plan to distinguish the dependency-selected projects, owners
+whose sources are compiled into the artifact, and projects present only
+through inventory or verification. A root Mix file can list compiler paths
+owned by private projects without starting their OTP apps. A selected
+project's inventory can also carry another project's documentation without
+compiling its modules. The inventory records linked files as well as
+generated or copied files, and affected analysis uses ownership to attribute
+Git paths even when files have moved or been removed.
+
+Monolith planning resolves the final layout before creating an output tree.
+`source_inventory` maps each source to its final destination(s), including
+multiple owners of deduplicated files and inputs to transformed/generated files.
+`output_inventory` lists each actual project file once, with its input owners,
+operation, publication membership, and a generated-content digest (full form).
+`source_target_basis: :projection` denotes a valid final layout; an invalid
+artifact with graph violations uses `:unresolved`. Live and full use the same
+paths and operations; live links ordinary files and writes transformed files.
+The materializer verifies the planned input snapshot, bytes, executable flags,
+links and exact file inventory before activating the output. Live guards detect
+topology, metadata, deduplicated and transformed-input changes. The lock preserves
+the same final inventory; Weld bookkeeping and the later resolved Mix lock are
+outside the initial output inventory. Affected analysis uses final destinations
+for existing inputs and directory membership for deleted or renamed inputs.
+
 ## Projection Modes
 
 ### Package-Projection Mode (default)
@@ -77,6 +116,14 @@ component-preserving layout under `.weld/full/<artifact>/project/`:
 
 This keeps the source graph legible inside the generated package without
 turning the output into a second hand-maintained source tree.
+
+Live views use the same component layout and link selected source
+directories. Ordinary file edits, additions, and deletions within a linked
+directory appear on the next compile. Generated configuration and Mix metadata
+are kept in the projection and checked for staleness. With
+`verify: [component_tests: true]`, the verification project also carries
+declared component test roots and relative fixtures. Its Hex allowlist
+covers published files.
 
 ### Monolith Mode
 
@@ -102,10 +149,11 @@ project under `.weld/full/<artifact>/project/`:
     config.exs
     dev.exs / test.exs / prod.exs
     sources/
-      <slug>/config.exs  (sanitized: workspace-app config calls stripped)
+      <slug>/config.exs  (sanitized: root environment imports stripped)
     runtime_sources/
-      <slug>/config.exs  (original, used at runtime bootstrap)
+      <slug>/config.exs  (original, used by projected root runtime config)
   priv/
+    weld/config/runtime_sources/<slug>/  (portable startup bootstrap sources)
     repo/migrations/          (single-repo layout)
     weld_repos/<slug>/        (multi-repo layout)
 ```
@@ -114,9 +162,11 @@ Key behaviors in monolith mode:
 
 - **File merging**: conflicting source files are renamed with a `<slug>__` prefix.
   A `file_remaps` list in the projection result records all renames.
-- **Config sanitization**: static config copies strip workspace-app config calls
-  so they do not interfere with the merged config tree. Original files are kept
-  under `runtime_sources/` for bootstrap reads at startup.
+- **Config sanitization**: static root config copies strip `import_config`
+  directives so each selected environment is imported once by the generated
+  root config. Selected application config calls remain intact. Original
+  config files and their companion files are also carried under
+  `priv/weld/config/runtime_sources/` for startup bootstrap.
 - **Migration merging**: migrations with the same timestamp prefix are
   re-stamped with a deterministic offset derived from `project_id`, `filename`,
   and sort index. A `.weld_remap.json` records any renames.
@@ -130,9 +180,31 @@ Key behaviors in monolith mode:
 - **Monolith application module**: the generated `Application` module bootstraps
   per-package config at startup using `Config.Reader.read_imports!` before
   starting any OTP application children, and the bootstrap app allowlist is
-  derived only from staged bootstrap sources.
+  derived only from staged bootstrap sources. Both monolith and package
+  projection applications locate these files through `Application.app_dir/2`,
+  so a compiled application can start after its source checkout is moved or
+  removed. The bootstrap files are part of the package inventory.
 - **Test baseline gate**: verification runs each selected package's own test suite
   first, then asserts the monolith test count is at least the baseline sum.
+
+In the live monolith, an unchanged source file's target is a link. Edits to
+linked files appear on the next compile. Adding, removing, or renaming a file
+can change the merged inventory and requires refresh. The live guard also
+checks inputs used for remaps, deduplication, migrations, helpers, and
+generated config.
+
+### Source-Project Mode
+
+Artifacts with `mode: :source_project` materialize the Mix file of one
+discovered project. The selected project can be the repository root or a
+nested package. Its Mix file owns the OTP application, compiler paths,
+dependencies, and Hex package metadata.
+
+- **Full projection (`.weld/full/<artifact>/project/`):** Copies the explicit `source_project[:files]` inventory as regular files, validates in a fresh Elixir process that the staged `mix.exs` matches the declared `{otp_app, version}` and keeps all compiler roots inside the staged tree, and records a SHA-256 `artifact_id` in `weld.provenance.json`.
+- **Live projection (`.weld/live/<artifact>/`):** Symlinks declared inventory entries (copying `mix.lock` when present) and wraps the root `Mix.Project` module so `elixirc_paths`, `erlc_paths`, `test_paths`, and `erlc_include_path` resolve directly into the source checkout while SHA-256 fingerprints guard `mix.exs`, `mix.lock`, the manifest, and `structural_inputs`.
+
+See [Source-Project Artifacts](source_projects.md) for inventory constraints
+and live refresh behavior.
 
 ## Constraints
 

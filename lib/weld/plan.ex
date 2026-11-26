@@ -7,6 +7,10 @@ defmodule Weld.Plan do
   alias Weld.Graph
   alias Weld.Graph.View
   alias Weld.Manifest
+  alias Weld.Output
+  alias Weld.Plan.Boundary
+  alias Weld.Plan.Inventory
+  alias Weld.Projector.Monolith
   alias Weld.Violation
   alias Weld.Workspace
   alias Weld.Workspace.Project
@@ -22,15 +26,57 @@ defmodule Weld.Plan do
     :external_deps,
     :violations
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++
+              [
+                artifact_graph: nil,
+                dependency_ids: [],
+                source_member_ids: [],
+                inventory_member_ids: [],
+                verification_ids: [],
+                externalized_edges: [],
+                source_root: nil,
+                source_roots: [],
+                source_inventory: [],
+                structural_inputs: [],
+                monolith_plan: nil,
+                output_inventory: []
+              ]
 
   @type external_dep :: Graph.external_dep()
+
+  @typedoc """
+  A source-to-target inventory relationship within an artifact plan.
+
+  Monolith entries also describe the materialization operation and
+  whether the destination belongs to the publication inventory.
+  """
+  @type inventory_entry :: %{
+          optional(:operation) => :link_or_copy | :copy | :transform | :generate,
+          optional(:publish) => boolean(),
+          source: String.t(),
+          target: String.t(),
+          owner: String.t() | nil,
+          kind: :compiled | :runtime | :test | :docs | :metadata | :artifact_test,
+          directory: boolean()
+        }
 
   @type t :: %__MODULE__{
           manifest: Manifest.t(),
           artifact: Manifest.Artifact.t(),
           workspace: Workspace.t(),
           graph: Graph.t(),
+          artifact_graph: Graph.t() | nil,
+          dependency_ids: [String.t()],
+          source_member_ids: [String.t()],
+          inventory_member_ids: [String.t()],
+          verification_ids: [String.t()],
+          externalized_edges: [Weld.Graph.Edge.t()],
+          source_root: Path.t() | nil,
+          source_roots: [inventory_entry()],
+          source_inventory: [inventory_entry()],
+          structural_inputs: [Path.t()],
+          monolith_plan: map() | nil,
+          output_inventory: [map()],
           selected_ids: [String.t()],
           excluded_ids: [String.t()],
           selected_projects: [Project.t()],
@@ -48,7 +94,6 @@ defmodule Weld.Plan do
   def build!(%Manifest{} = manifest, opts) do
     artifact = Manifest.artifact!(manifest, opts[:artifact])
     workspace = Workspace.load!(manifest)
-    validate_source_identity!(artifact, workspace.projects)
     graph = workspace.graph
 
     seed_ids =
@@ -67,87 +112,276 @@ defmodule Weld.Plan do
         )
       end)
 
-    selected_ids =
-      graph
-      |> Graph.reachable_from(seed_ids, :package)
-      |> Enum.uniq()
-      |> Enum.sort()
+    known_seeds = Enum.filter(seed_ids, &Map.has_key?(workspace.projects, &1))
+    source_projects = source_projects!(artifact, workspace.projects)
 
-    selected_projects =
-      graph
-      |> topologically_selected(selected_ids)
-      |> Enum.map(&Map.fetch!(workspace.projects, &1))
+    {artifact_graph, externalized_edges, boundary_violations} =
+      Boundary.build(workspace, artifact, known_seeds)
+
+    dependency_ids = Graph.reachable_from(artifact_graph, known_seeds, :package)
+    selected_projects = projects_for_ids(workspace, artifact_graph, dependency_ids)
+
+    test_graph = graph_for_view(artifact_graph, artifact, dependency_ids, :test)
+
+    verification_projects =
+      verification_projects(workspace, test_graph, artifact, dependency_ids)
+
+    {source_roots, source_inventory} =
+      Inventory.build(
+        workspace,
+        artifact,
+        source_projects,
+        selected_projects,
+        verification_projects
+      )
+
+    compiled = owners(source_roots ++ source_inventory, [:compiled])
+
+    source_member_ids =
+      if artifact.mode == :source_project do
+        sorted_difference(compiled, dependency_ids ++ Enum.map(verification_projects, & &1.id))
+      else
+        Enum.uniq(compiled) |> Enum.sort()
+      end
+
+    selected_ids = Enum.uniq(dependency_ids ++ source_member_ids) |> Enum.sort()
+
+    test_owners = owners(source_roots ++ source_inventory, [:test, :artifact_test])
+
+    verification_ids =
+      sorted_difference(Enum.map(verification_projects, & &1.id) ++ test_owners, selected_ids)
+
+    inventory_member_ids =
+      source_roots
+      |> Kernel.++(source_inventory)
+      |> owners([:runtime, :docs, :metadata])
+      |> sorted_difference(selected_ids ++ verification_ids)
 
     excluded_ids =
       workspace.projects
       |> Map.keys()
-      |> Enum.reject(&(&1 in selected_ids))
-      |> Enum.sort()
+      |> sorted_difference(selected_ids ++ verification_ids ++ inventory_member_ids)
 
-    merge_result = merge_external_deps(graph, selected_ids, :docs)
+    merge_result = merge_external_deps(artifact_graph, dependency_ids, :docs)
+    test_ids = Graph.reachable_from(test_graph, dependency_ids, :test)
+    checked_ids = dependency_ids ++ Enum.map(verification_projects, & &1.id)
 
     violations =
       graph.violations
-      |> relevant_graph_violations(selected_ids)
+      |> relevant_graph_violations(checked_ids, artifact_graph)
       |> Kernel.++(selection_violations)
+      |> Kernel.++(boundary_violations)
+      |> Kernel.++(
+        copied_boundary_violations(
+          artifact,
+          selected_ids ++ verification_ids ++ inventory_member_ids
+        )
+      )
       |> Kernel.++(merge_result.violations)
-      |> Kernel.++(selection_policy_violations(workspace.projects, selected_ids, graph))
+      |> Kernel.++(verification_violations(artifact, test_graph, test_ids))
+      |> Kernel.++(source_dependency_violations(artifact, artifact_graph, known_seeds))
+      |> Kernel.++(
+        selection_policy_violations(workspace.projects, dependency_ids, artifact_graph)
+      )
+      |> Enum.uniq()
       |> Enum.sort_by(fn violation ->
         {violation.code, violation.project || "", violation.dependency || :none}
       end)
 
-    %__MODULE__{
+    plan = %__MODULE__{
       manifest: manifest,
       artifact: artifact,
       workspace: workspace,
       graph: graph,
+      artifact_graph: artifact_graph,
+      dependency_ids: dependency_ids,
+      source_member_ids: source_member_ids,
+      inventory_member_ids: inventory_member_ids,
+      verification_ids: verification_ids,
+      externalized_edges: externalized_edges,
+      source_root: source_root(source_projects),
+      source_roots: source_roots,
+      source_inventory: source_inventory,
+      structural_inputs:
+        structural_inputs!(
+          manifest,
+          artifact,
+          source_projects,
+          selected_ids ++ verification_ids ++ artifact.external_projects
+        ),
       selected_ids: selected_ids,
       excluded_ids: excluded_ids,
       selected_projects: selected_projects,
       external_deps: merge_result.external_deps,
       violations: violations
     }
+
+    finalize_layout!(plan)
   end
 
-  defp validate_source_identity!(%{mode: :source_project, package: package}, projects) do
-    case Map.get(projects, ".") do
-      %{app: app, version: version} when app == package.otp_app and version == package.version ->
-        :ok
+  defp finalize_layout!(%__MODULE__{artifact: %{mode: :monolith}, violations: []} = plan) do
+    layout = Monolith.plan!(plan)
+    {sources, outputs} = Inventory.monolith_inventory(plan, layout)
+    %{plan | monolith_plan: layout, source_inventory: sources, output_inventory: outputs}
+  end
+
+  defp finalize_layout!(plan), do: plan
+
+  defp source_projects!(%{mode: :source_project, roots: [root], package: package}, projects) do
+    case Map.get(projects, root) do
+      %{app: app, version: version, package_name: name} = project
+      when app == package.otp_app and version == package.version and name == package.name ->
+        [project]
+
+      nil ->
+        raise Error, "source_project root was not discovered: #{root}"
 
       _ ->
-        raise Error, "source project app and version must match the artifact package"
+        raise Error,
+              "source project app, version and package name must match the artifact package"
     end
   end
 
-  defp validate_source_identity!(_artifact, _projects), do: :ok
+  defp source_projects!(_artifact, _projects), do: []
+
+  defp source_root([project]), do: project.abs_path
+  defp source_root([]), do: nil
+
+  defp structural_inputs!(manifest, artifact, source_projects, project_ids) do
+    project_inputs =
+      for project <- source_projects,
+          local <- artifact.source_project[:structural_inputs] do
+        Output.source!(project.abs_path, local)
+        Inventory.checkout_path(project, local)
+      end
+
+    hook_inputs =
+      if artifact.package.docs.mermaid,
+        do: List.wrap(artifact.package.docs.hook_file),
+        else: []
+
+    declared_inputs = artifact.structural_inputs ++ project_inputs ++ hook_inputs
+
+    for path <- declared_inputs do
+      unless File.regular?(Output.source!(manifest.repo_root, path)) do
+        raise Error, "missing structural input: #{path}"
+      end
+    end
+
+    project_metadata =
+      for id <- Enum.uniq(["." | project_ids]), path <- ["mix.exs", "mix.lock"] do
+        if id == ".", do: path, else: Path.join(id, path)
+      end
+
+    Enum.uniq(declared_inputs ++ project_metadata) |> Enum.sort()
+  end
 
   @spec selected?(t(), String.t()) :: boolean()
   def selected?(%__MODULE__{} = plan, project_id), do: project_id in plan.selected_ids
 
   @spec projects_for_view(t(), View.t()) :: [Project.t()]
   def projects_for_view(%__MODULE__{} = plan, view) do
-    project_ids =
-      plan.graph
-      |> Graph.reachable_from(plan.selected_ids, view)
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    plan.graph
-    |> topologically_selected(project_ids)
-    |> Enum.map(&Map.fetch!(plan.workspace.projects, &1))
+    {artifact_graph, ids} = graph_and_dependencies(plan)
+    graph = graph_for_view(artifact_graph, plan.artifact, ids, view)
+    projects_for_ids(plan.workspace, graph, Graph.reachable_from(graph, ids, view))
   end
 
   @spec external_deps_for_view(t(), View.t()) :: [external_dep()]
   def external_deps_for_view(%__MODULE__{} = plan, view) do
-    project_ids =
-      plan.graph
-      |> Graph.reachable_from(plan.selected_ids, view)
-      |> Enum.uniq()
-      |> Enum.sort()
+    {artifact_graph, ids} = graph_and_dependencies(plan)
+    graph = graph_for_view(artifact_graph, plan.artifact, ids, view)
 
-    plan.graph
-    |> merge_external_deps(project_ids, view)
+    graph
+    |> merge_external_deps(Graph.reachable_from(graph, ids, view), view)
     |> Map.fetch!(:external_deps)
+  end
+
+  # Each selected component runs as a test owner. Its test-only dependencies
+  # contribute their package dependencies, without recursively selecting their suites.
+  defp graph_for_view(
+         graph,
+         %{mode: :package_projection, verify: %{component_tests: true}},
+         ids,
+         :test
+       ) do
+    owners = MapSet.new(ids)
+    keep? = fn id, kind -> MapSet.member?(owners, id) or View.allowed?(kind, :package) end
+
+    external =
+      Map.new(graph.external_deps, fn {id, deps} ->
+        {id, Enum.filter(deps, fn dep -> keep?.(id, dep.kind) end)}
+      end)
+
+    graph = Graph.filter_edges(graph, fn edge -> keep?.(edge.from, edge.kind) end)
+    %{graph | external_deps: external}
+  end
+
+  defp graph_for_view(graph, _artifact, _ids, _view), do: graph
+
+  defp graph_and_dependencies(%__MODULE__{artifact_graph: nil} = plan),
+    do: {plan.graph, plan.selected_ids}
+
+  defp graph_and_dependencies(plan), do: {plan.artifact_graph, plan.dependency_ids}
+
+  defp projects_for_ids(workspace, graph, ids) do
+    graph
+    |> topologically_selected(ids)
+    |> Enum.map(&Map.fetch!(workspace.projects, &1))
+  end
+
+  defp verification_projects(workspace, graph, artifact, dependency_ids) do
+    if artifact.mode in [:monolith, :source_project] or artifact.verify.component_tests do
+      ids = sorted_difference(Graph.reachable_from(graph, dependency_ids, :test), dependency_ids)
+      projects_for_ids(workspace, graph, ids)
+    else
+      []
+    end
+  end
+
+  defp verification_violations(artifact, graph, test_ids) do
+    if artifact.mode == :monolith or artifact.verify.component_tests do
+      merge_external_deps(graph, test_ids, :test).violations
+    else
+      []
+    end
+  end
+
+  defp source_dependency_violations(%{mode: :source_project}, graph, seeds) do
+    included = Graph.reachable_from(graph, seeds, :all)
+
+    for edge <- Graph.edges(graph),
+        edge.from in included,
+        not Keyword.has_key?(edge.opts, :path) do
+      Violation.new(
+        :source_package_requires_boundary,
+        "source_project preserves this versioned dependency as a package; declare the target in external_projects",
+        project: edge.from,
+        dependency: edge.app,
+        details: %{target: edge.to}
+      )
+    end
+  end
+
+  defp source_dependency_violations(_artifact, _graph, _seeds), do: []
+
+  defp copied_boundary_violations(artifact, included) do
+    artifact.external_projects
+    |> Enum.filter(&(&1 in included))
+    |> Enum.map(fn id ->
+      Violation.new(
+        :external_project_included,
+        "external project is also included by the artifact inventory",
+        project: id
+      )
+    end)
+  end
+
+  defp owners(entries, kinds) do
+    for entry <- entries, entry.kind in kinds, not is_nil(entry.owner), do: entry.owner
+  end
+
+  defp sorted_difference(values, excluded) do
+    values |> Enum.uniq() |> Enum.reject(&(&1 in excluded)) |> Enum.sort()
   end
 
   @spec ensure_valid!(t()) :: t()
@@ -223,7 +457,7 @@ defmodule Weld.Plan do
   end
 
   defp comparable_dep(dep) do
-    {dep.requirement, dep.opts}
+    {dep.requirement, Enum.sort(dep.opts)}
   end
 
   defp selection_policy_violations(projects, selected_ids, graph) do
@@ -276,9 +510,12 @@ defmodule Weld.Plan do
 
   defp maybe_tooling_violation(_edge, _project), do: []
 
-  defp relevant_graph_violations(violations, selected_ids) do
+  defp relevant_graph_violations(violations, selected_ids, graph) do
     Enum.filter(violations, fn violation ->
-      is_nil(violation.project) or violation.project in selected_ids
+      case violation.code do
+        :cycle_detected -> Graph.topo_sort(graph, :package) == []
+        _ -> is_nil(violation.project) or violation.project in selected_ids
+      end
     end)
   end
 end

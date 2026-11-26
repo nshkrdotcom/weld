@@ -2,18 +2,25 @@ defmodule Weld.Config.Generator do
   @moduledoc false
 
   alias Weld.Error
+  alias Weld.Projector.Monolith.FilePlan
   alias Weld.SourceFormatter
 
   @spec generate!([Weld.Workspace.Project.t()], Path.t(), [map()], map(), keyword()) :: %{
           bootstrapped_apps: [atom()],
           bootstrapped_sources: [map()],
+          operations: [map()],
           copied_files: [String.t()],
           warnings: [map()],
           staged: [map()]
         }
   def generate!(projects, build_path, repo_infos, migration_layout, opts \\ []) do
-    config_root = Path.join(build_path, "config")
-    File.mkdir_p!(config_root)
+    result = plan!(projects, repo_infos, migration_layout, opts)
+    FilePlan.materialize!(result.operations, build_path, :full)
+    result
+  end
+
+  def plan!(projects, repo_infos, migration_layout, opts \\ []) do
+    config_root = "config"
 
     shared_test_configs =
       build_shared_test_config_set(Keyword.get(opts, :shared_test_configs, []))
@@ -26,7 +33,7 @@ defmodule Weld.Config.Generator do
     staged =
       projects
       |> Enum.sort_by(& &1.id)
-      |> Enum.map(&stage_project_config!(&1, config_root, build_path))
+      |> Enum.map(&stage_project_config!(&1, config_root))
 
     warnings = skipped_test_config_warnings(staged, shared_test_configs)
 
@@ -60,7 +67,15 @@ defmodule Weld.Config.Generator do
       ]
       |> Enum.filter(& &1)
 
+    planning_inputs = Keyword.get(opts, :planning_inputs, [])
+
+    root_files =
+      Enum.map(root_files, fn op ->
+        %{op | sources: Enum.sort(Enum.uniq(op.sources ++ planning_inputs))}
+      end)
+
     runtime_file = write_runtime_file!(config_root, staged)
+    operations = Enum.flat_map(staged, & &1.operations) ++ root_files ++ List.wrap(runtime_file)
 
     bootstrapped_apps =
       staged
@@ -75,16 +90,14 @@ defmodule Weld.Config.Generator do
         staged
         |> Enum.map(& &1.bootstrap)
         |> Enum.reject(&is_nil/1),
-      copied_files:
-        (Enum.flat_map(staged, & &1.copied_files) ++ root_files ++ List.wrap(runtime_file))
-        |> Enum.uniq()
-        |> Enum.sort(),
+      operations: operations,
+      copied_files: Enum.map(operations, & &1.target) |> Enum.uniq() |> Enum.sort(),
       warnings: warnings,
       staged: staged
     }
   end
 
-  defp stage_project_config!(project, config_root, build_path) do
+  defp stage_project_config!(project, config_root) do
     slug = project_slug(project.id)
     source_root = Path.join(project.abs_path, "config")
 
@@ -92,8 +105,10 @@ defmodule Weld.Config.Generator do
       files = source_root |> File.ls!() |> Enum.sort()
       static_root = Path.join([config_root, "sources", slug])
       runtime_root = Path.join([config_root, "runtime_sources", slug])
+      bootstrap = bootstrap_source(slug, files)
+      private_root = if bootstrap, do: Path.join(["priv", "weld", runtime_root])
 
-      copied_files =
+      operations =
         source_root
         |> Weld.Hash.list_files()
         |> Enum.sort()
@@ -103,17 +118,18 @@ defmodule Weld.Config.Generator do
             source_root,
             static_root,
             runtime_root,
-            build_path
+            private_root
           )
         end)
 
       %{
         app: project.app,
-        bootstrap: bootstrap_source(slug, files),
+        bootstrap: bootstrap,
         project_id: project.id,
         slug: slug,
         files: files,
-        copied_files: copied_files
+        operations: operations,
+        copied_files: Enum.map(operations, & &1.target)
       }
     else
       %{
@@ -122,6 +138,7 @@ defmodule Weld.Config.Generator do
         project_id: project.id,
         slug: slug,
         files: [],
+        operations: [],
         copied_files: []
       }
     end
@@ -192,8 +209,7 @@ defmodule Weld.Config.Generator do
       ]
       |> IO.iodata_to_binary()
 
-    File.write!(path, SourceFormatter.format!(source))
-    Path.relative_to(path, Path.dirname(config_root))
+    FilePlan.generated(path, SourceFormatter.format!(source), :metadata, config_inputs(staged))
   end
 
   defp write_env_file!(
@@ -224,20 +240,26 @@ defmodule Weld.Config.Generator do
       ]
       |> IO.iodata_to_binary()
 
-    File.write!(path, SourceFormatter.format!(source))
-    Path.relative_to(path, Path.dirname(config_root))
+    FilePlan.generated(path, SourceFormatter.format!(source), :metadata, config_inputs(staged))
   end
 
   defp write_runtime_file!(config_root, staged) do
-    if Enum.any?(staged, &("runtime.exs" in &1.files)) do
+    runtime_entries = Enum.filter(staged, &("runtime.exs" in &1.files))
+
+    if runtime_entries != [] do
       path = Path.join(config_root, "runtime.exs")
 
-      File.write!(
-        path,
-        SourceFormatter.format!("import Config\n\n" <> render_imports(staged, "runtime.exs"))
-      )
+      evals =
+        Enum.map_join(runtime_entries, "\n", fn entry ->
+          "Code.eval_file(Path.expand(\"runtime_sources/#{entry.slug}/runtime.exs\", __DIR__))"
+        end)
 
-      Path.relative_to(path, Path.dirname(config_root))
+      FilePlan.generated(
+        path,
+        SourceFormatter.format!("import Config\n\n" <> evals),
+        :metadata,
+        config_inputs(staged)
+      )
     end
   end
 
@@ -309,40 +331,35 @@ defmodule Weld.Config.Generator do
       MapSet.member?(shared_test_configs, entry.slug)
   end
 
-  defp stage_project_config_file!(
-         source,
-         source_root,
-         static_root,
-         runtime_root,
-         build_path
-       ) do
+  defp config_inputs(staged) do
+    staged |> Enum.flat_map(& &1.operations) |> Enum.flat_map(& &1.sources) |> Enum.uniq()
+  end
+
+  defp stage_project_config_file!(source, source_root, static_root, runtime_root, private_root) do
     relative = Path.relative_to(source, source_root)
     static_target = Path.join(static_root, relative)
     runtime_target = Path.join(runtime_root, relative)
 
-    File.mkdir_p!(Path.dirname(static_target))
-    File.mkdir_p!(Path.dirname(runtime_target))
+    static =
+      case Path.extname(source) do
+        ".exs" ->
+          content =
+            sanitize_config_source!(File.read!(source), source,
+              strip_imports?: relative == "config.exs"
+            )
 
-    copy_static_config!(source, static_target, relative)
-    File.cp!(source, runtime_target)
+          FilePlan.generated(static_target, content, :metadata, [source], :transform)
 
-    [
-      Path.relative_to(static_target, build_path),
-      Path.relative_to(runtime_target, build_path)
-    ]
-  end
+        _ ->
+          FilePlan.copy(source, static_target, :metadata, :copy)
+      end
 
-  defp copy_static_config!(source, static_target, relative) do
-    case Path.extname(source) do
-      ".exs" ->
-        source
-        |> File.read!()
-        |> sanitize_config_source!(source, strip_imports?: relative == "config.exs")
-        |> then(&File.write!(static_target, &1))
+    private =
+      if private_root,
+        do: [FilePlan.copy(source, Path.join(private_root, relative), :runtime, :copy)],
+        else: []
 
-      _other ->
-        File.cp!(source, static_target)
-    end
+    [static, FilePlan.copy(source, runtime_target, :metadata, :copy)] ++ private
   end
 
   defp sanitize_config_ast(ast, strip_imports?) do
@@ -398,10 +415,5 @@ defmodule Weld.Config.Generator do
     end
   end
 
-  defp project_slug(project_id) do
-    project_id
-    |> String.replace(~r/[^a-zA-Z0-9]+/, "_")
-    |> String.trim("_")
-    |> String.downcase()
-  end
+  defp project_slug(project_id), do: FilePlan.slug(project_id)
 end

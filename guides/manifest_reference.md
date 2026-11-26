@@ -52,17 +52,67 @@ contains:
 
 - `mode` — `:package_projection` (default), `:monolith`, or `:source_project`. The alias
   `:components` is accepted as a synonym for `:package_projection`.
-- `source_project` — explicit root inventory and structural fingerprint inputs. See [Source-root artifacts](source_projects.md).
+- `source_project` — source-preserving options, required for
+  `mode: :source_project`.
 - `monolith_opts` — keyword list of monolith-specific options (see below).
-  Ignored in package-projection mode.
-- `roots`
-- `include`
-- `optional_features`
+  Ignored outside monolith mode.
+- `roots` — list of root project IDs. A source-project artifact takes exactly
+  one discovered ID, with `"."` for the repository root.
+- `include` — additional project IDs to include (`[]` required for `:source_project`).
+- `optional_features` — optional publication features to enable (`[]` required for `:source_project`).
+- `external_projects` — discovered project IDs to consume as separate
+  packages for this artifact (default `[]`). See the rules below.
+- `structural_inputs` — additional checkout-relative files that affect the
+  live projection's layout or generated metadata (default `[]`). Use
+  `source_project.structural_inputs` for paths local to a source-preserving
+  project.
 - `package`
 - `output`
 - `verify`
 
+## Source-Project Options (`source_project`)
+
+Required when `mode: :source_project`. Select exactly one root and leave
+`include` and `optional_features` empty.
+
+- `files` — required list of disjoint files and directories relative to the
+  selected project's directory. Cover `mix.exs`, `mix.lock` when present,
+  existing compiler and test paths, and existing `priv`, `config`, and
+  `include` directories. The selected Mix file owns dependencies, docs, test
+  paths, and Hex `package.files`.
+- `structural_inputs` — extra files relative to the selected project's
+  directory (default `[]`). Add any helper or metadata read to determine
+  package identity, compiler paths, or other project configuration. A change
+  invalidates the live view.
+
+See [Source-Project Artifacts](source_projects.md) for inventory rules and a
+nested package example.
+
+## Artifact-Local Package Boundaries (`external_projects`)
+
+A discovered workspace app is normally an internal edge when another project
+declares a dependency on it. Add the target's project ID to
+`external_projects` to stop this artifact's dependency traversal at that
+package across runtime, compile, test, docs, and smoke views. Weld keeps its
+dependency requirement and applicable Mix options and excludes its sources
+and configuration from composition. The workspace graph continues to report
+the original relationship.
+
+Use each project ID once and keep the list disjoint from roots, explicit
+includes, and enabled features. Each boundary must match a relevant,
+compatible package dependency. For a generated package that currently uses a
+local or Git declaration, provide its canonical release dependency in
+`dependencies`. In source-project mode, the existing Mix definition must
+already declare the intended versioned package dependency. The
+`publication.separate` role remains independent of this artifact-local cut.
+
 ## Monolith Options (`monolith_opts`)
+
+- `readme` selects a regular file relative to the workspace root. Weld copies
+  it unchanged to the package root as `README.md` and includes it in HexDocs
+  extras under that name. Omit a root `README.md` from `output.docs` when this
+  option is set. Use links that work from the published README, since Weld
+  preserves its contents.
 
 Selected projects contribute tests only from their Mix `:test_paths`
 configuration, which defaults to `["test"]`. Weld preserves paths relative to
@@ -91,6 +141,8 @@ project root.
 - `maintainers`
 - `links`
 - `docs_main` — backward-compatible shorthand for `docs.main`
+- `development_dependencies` — Mix dependency tuples for generated
+  development and verification workflows
 - `docs` — generated HexDocs metadata:
   - `main`
   - `logo`
@@ -100,6 +152,12 @@ project root.
   - `assets` — source-to-target asset-directory map passed to ExDoc
   - `extra_titles` — map of `output.docs` paths to sidebar titles
   - `groups_for_extras` — ordered `{group, [output.docs paths]}` entries
+  - `mermaid` — enable rendered Mermaid fenced code blocks in HTML
+  - `hook_file` — optional checkout-relative HTML file used verbatim as the
+    `before_closing_body_tag` hook instead of the built-in Mermaid hook (only
+    applies when `mermaid` is `true`); the root Mix project can read the same file.
+    The path must stay within the checkout and cannot traverse a symlink. It
+    automatically participates in structural freshness checks.
 
 ## Output Keys
 
@@ -107,14 +165,18 @@ project root.
 - `docs`
 - `assets`
 
-Every declared `output.docs` and `output.assets` path is copied and included in
-the generated package's explicit `package.files` allowlist. Weld rejects
+Every declared `output.docs` and `output.assets` path is materialized and
+included in the generated package's explicit `package.files` allowlist. Weld rejects
 HexDocs title/group paths that are not declared in `output.docs`, logos that are
 not covered by `output.assets`, and ExDoc asset roots that are not copied.
 
 ## Verify Keys
 
 - `artifact_tests`
+- `component_tests` — include selected component suites for package
+  projection (default `false`). Weld preserves declared test roots and their
+  relative fixtures. The suites remain in the verification project and are
+  excluded from the Hex package.
 - `hex_build`
 - `hex_publish`
 - `smoke.enabled`
@@ -242,3 +304,14 @@ Set `package: [docs: [mermaid: true]]` to render Mermaid fenced code blocks
 in generated HTML documentation. The browser loads the pinned Mermaid
 renderer from jsDelivr. When it is unavailable, the original code blocks
 remain visible.
+
+Set `docs: [hook_file: "build_support/docs_hook.html"]` to make one checked-in
+file the owner of that HTML. Weld embeds its exact text in the projected
+`mix.exs`, and your root `mix.exs` can read the same file, so local `mix docs`
+and the published docs cannot drift. A missing or unsafe file fails the
+projection. Hook contents are preserved without an inspection length limit;
+editing the hook invalidates cached projections and live structural guards.
+
+`Weld.docs_options!/2` reads the manifest and selected artifact without loading
+workspace Mix projects. Call it once the Weld dependency is available. During
+dependency-free Mix bootstrap, the root project can read `hook_file` directly.
