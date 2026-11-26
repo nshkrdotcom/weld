@@ -298,6 +298,28 @@ defmodule Weld do
 
   defp source_target_basis(_plan), do: :projection
 
+  @doc """
+  Return the ExDoc options for the selected artifact, including the Mermaid
+  `before_closing_body_tag` hook when enabled in the manifest. Root `mix.exs`
+  files can call this so local `mix docs` and projected builds share one owner.
+  """
+  @spec docs_options!(Path.t(), keyword()) :: keyword()
+  def docs_options!(manifest_path, opts \\ []) do
+    plan = Plan.build!(manifest_path, opts)
+    base = Projector.docs_options(plan)
+
+    if plan.artifact.package.docs.mermaid do
+      hook = Projector.mermaid_hook()
+
+      Keyword.put(base, :before_closing_body_tag, fn
+        :html -> hook
+        _ -> ""
+      end)
+    else
+      base
+    end
+  end
+
   defp serialize_violation(violation) do
     %{
       code: violation.code,
