@@ -112,6 +112,7 @@ defmodule Weld.ErgonomicsContractTest do
   end
 
   test "gc dry-run does not create output state", %{tmp_dir: dir} do
+    Weld.Git.run!(dir, ["init", "--quiet"])
     assert %{removed: [], kept: []} = Gc.prune(dir, dry_run: true)
     refute File.exists?(Path.join(dir, ".weld"))
     refute File.exists?(Path.join(dir, ".gitignore"))
