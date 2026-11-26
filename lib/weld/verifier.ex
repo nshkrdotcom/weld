@@ -109,7 +109,7 @@ defmodule Weld.Verifier do
       run_mix!(workspace, :dev, ["compile", "--warnings-as-errors"]),
       run_mix!(workspace, :test, ["deps.get"]),
       run_mix!(workspace, :test, ["test"]),
-      run_mix!(workspace, :dev, ["docs", "--warnings-as-errors"])
+      run_mix!(workspace, :dev, ["docs", "--warnings-as-errors", "--output", "doc"])
     ]
 
     monolith_test_result = Enum.find(results, &(&1.task == "test"))
@@ -132,7 +132,7 @@ defmodule Weld.Verifier do
       run_mix!(workspace, :dev, ["compile", "--warnings-as-errors", "--no-compile-deps"]),
       run_mix!(workspace, :test, ["deps.get"]),
       run_mix!(workspace, :test, ["test"]),
-      run_mix!(workspace, :dev, ["docs", "--warnings-as-errors"])
+      run_mix!(workspace, :dev, ["docs", "--warnings-as-errors", "--output", "doc"])
     ]
 
     if baseline != [] do
@@ -172,6 +172,9 @@ defmodule Weld.Verifier do
   defp run_mix!({build_path, build_root}, env, args) do
     env_vars = [
       {"MIX_ENV", Atom.to_string(env)},
+      {"MIX_EXS", nil},
+      {"MIX_LOCKFILE", nil},
+      {"MIX_TARGET", nil},
       {"MIX_BUILD_PATH", nil},
       {"MIX_BUILD_ROOT", Path.join(build_root, "build")},
       {"MIX_DEPS_PATH", Path.join(build_root, "deps")}
@@ -228,6 +231,9 @@ defmodule Weld.Verifier do
             cd: project_root,
             env: [
               {"MIX_ENV", "test"},
+              {"MIX_EXS", nil},
+              {"MIX_LOCKFILE", nil},
+              {"MIX_TARGET", nil},
               {"MIX_BUILD_PATH", nil},
               {"MIX_BUILD_ROOT", Path.join(cache, "build")},
               {"MIX_DEPS_PATH", Path.join(cache, "deps")}

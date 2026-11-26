@@ -43,9 +43,13 @@ defmodule Mix.Tasks.Weld.Status do
     Mix.Task.reenable("weld.status")
   end
 
-  defp next_command(%{state: :ready, artifact: id}),
-    do: "mix weld.release.publish --artifact #{id}"
+  defp next_command(%{state: :ready} = entry) do
+    task = if entry.has_tarball, do: "publish", else: "track"
+    TaskSupport.release_command(task, entry.manifest_path, entry.artifact, entry.identity)
+  end
 
-  defp next_command(%{artifact: id}),
-    do: "mix weld.release.prepare --artifact #{id}"
+  defp next_command(entry) do
+    "mix release.prepare #{TaskSupport.shell_arg(entry.manifest_path)} " <>
+      "--artifact #{TaskSupport.shell_arg(entry.artifact)}"
+  end
 end

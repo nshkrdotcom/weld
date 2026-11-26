@@ -64,6 +64,8 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
   end
 
   test "Mix.Tasks.Weld.Gc.prune/2 keeps newest publish runs and supports dry_run", %{tmp_dir: dir} do
+    Weld.Output.with_lock(dir, fn -> :ok end)
+
     for idx <- 1..3 do
       run_dir = Path.join([dir, ".weld", "publish", "demo", "abc", "run-#{idx}"])
       File.mkdir_p!(run_dir)
@@ -88,41 +90,11 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     assert is_boolean(data["git"])
   end
 
-  test "Weld.Release.Plan checks sibling version requirements and orders dependencies first", %{
-    tmp_dir: dir
-  } do
-    File.mkdir_p!(Path.join(dir, "ext"))
-
-    File.write!(
-      Path.join(dir, "ext/mix.exs"),
-      ~s([{:base, "~> 0.2.0"}, {:other, "~> 9.0", optional: true}])
-    )
-
-    artifacts = [
-      %{package: "ext", version: "0.1.0", roots: ["ext"]},
-      %{package: "base", version: "0.2.1", roots: ["base"]}
-    ]
-
-    constraints = Mix.Tasks.Weld.Release.Plan.constraints(artifacts, dir)
-    assert [%{dependency: "base", satisfied: true}] = constraints
-
-    assert ["base", "ext"] ==
-             artifacts |> Mix.Tasks.Weld.Release.Plan.order(constraints) |> Enum.map(& &1.package)
-
-    bad =
-      Mix.Tasks.Weld.Release.Plan.constraints(
-        [%{hd(artifacts) | version: "0.1.0"}, %{package: "base", version: "0.3.0", roots: []}],
-        dir
-      )
-
-    assert [%{satisfied: false}] = bad
-  end
-
   test "mix weld.status adds a next command to each artifact" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
 
     json = capture_io(fn -> Mix.Tasks.Weld.Status.run([manifest, "--format", "json"]) end)
-    assert [%{"next_command" => "mix weld.release." <> _}] = Jason.decode!(json)
+    assert [%{"next_command" => "mix release." <> _}] = Jason.decode!(json)
   end
 
   test "docs.hook_file is the single owner of the hook text and a missing file fails" do

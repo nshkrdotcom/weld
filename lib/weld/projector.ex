@@ -67,12 +67,19 @@ defmodule Weld.Projector do
 
     roots = Enum.map(plan.source_roots, & &1.source)
 
+    # Generated config is read separately from component source roots. Include
+    # missing directories so adding the first config file also invalidates reuse.
+    config_roots =
+      for project <- plan.selected_projects,
+          plan.artifact.mode != :source_project,
+          do: Inventory.checkout_path(project, "config")
+
     paths =
       Enum.reduce(plan.source_inventory, roots, fn %{source: source}, covered ->
         if Enum.any?(roots, &Inventory.covered?(source, &1)),
           do: covered,
           else: [source | covered]
-      end) ++ plan.structural_inputs
+      end) ++ plan.structural_inputs ++ config_roots
 
     files =
       for path <- paths |> Enum.uniq() |> Enum.sort(),
@@ -272,6 +279,7 @@ defmodule Weld.Projector do
 
     ["mix.exs"]
     |> Kernel.++(generated_root_paths(plan, opts))
+    |> Kernel.++(bootstrap_package_paths(opts))
     |> Kernel.++(component_roots)
     |> Kernel.++(root_tooling_files(plan))
     |> Kernel.++(plan.artifact.output.docs)
@@ -279,6 +287,12 @@ defmodule Weld.Projector do
     |> Enum.uniq()
     |> List.delete("projection.lock.json")
     |> Enum.sort()
+  end
+
+  defp bootstrap_package_paths(opts) do
+    if Keyword.get(opts, :bootstrapped_config_sources, []) == [],
+      do: [],
+      else: ["priv/weld/config"]
   end
 
   @spec root_tooling_candidates() :: [String.t()]
@@ -291,12 +305,14 @@ defmodule Weld.Projector do
   end
 
   @doc false
-  @spec docs_options(Plan.t()) :: keyword()
-  def docs_options(%Plan{} = plan) do
-    docs = plan.artifact.package.docs
+  @spec docs_options(Plan.t() | Manifest.Artifact.t()) :: keyword()
+  def docs_options(%Plan{} = plan), do: docs_options(plan.artifact)
+
+  def docs_options(%Manifest.Artifact{} = artifact) do
+    docs = artifact.package.docs
 
     extras =
-      Enum.map(Manifest.docs_paths(plan.artifact), fn path ->
+      Enum.map(Manifest.docs_paths(artifact), fn path ->
         case docs.extra_titles do
           %{^path => title} -> {path, [title: title]}
           _titles -> path
@@ -319,18 +335,19 @@ defmodule Weld.Projector do
   # the same file); otherwise the built-in Mermaid hook is used.
   @doc false
   def mermaid_hook(%Plan{} = plan) do
-    case plan.artifact.package.docs.hook_file do
-      nil ->
-        mermaid_hook()
+    mermaid_hook(plan.manifest.repo_root, plan.artifact.package.docs.hook_file)
+  end
 
-      relative ->
-        path = Path.join(plan.manifest.repo_root, relative)
+  @doc false
+  def mermaid_hook(_root, nil), do: mermaid_hook()
 
-        unless File.regular?(path),
-          do: raise(Error, "package.docs.hook_file not found: #{relative}")
+  def mermaid_hook(root, relative) do
+    path = Output.source!(root, relative)
 
-        File.read!(path)
-    end
+    unless File.regular?(path),
+      do: raise(Error, "package.docs.hook_file not found: #{relative}")
+
+    File.read!(path)
   end
 
   @doc false
@@ -361,12 +378,13 @@ defmodule Weld.Projector do
 
   @doc false
   def render_docs_options(%Plan{} = plan) do
-    options = inspect(docs_options(plan), pretty: true, limit: :infinity)
+    options =
+      inspect(docs_options(plan), pretty: true, limit: :infinity, printable_limit: :infinity)
 
     if plan.artifact.package.docs.mermaid do
-      hook = mermaid_hook(plan)
+      hook = plan |> mermaid_hook() |> inspect(limit: :infinity, printable_limit: :infinity)
 
-      "Keyword.put(#{options}, :before_closing_body_tag, fn :html -> #{inspect(hook)}; _ -> \"\" end)"
+      "Keyword.put(#{options}, :before_closing_body_tag, fn :html -> #{hook}; _ -> \"\" end)"
     else
       options
     end
@@ -948,7 +966,7 @@ defmodule Weld.Projector do
            bootstrapped_sources: bootstrapped_sources,
            children: children
          },
-         _artifact_otp_app
+         artifact_otp_app
        ) do
     rendered_children =
       children
@@ -1011,7 +1029,7 @@ defmodule Weld.Projector do
           end
 
           defp artifact_path(relative_path) do
-            Path.expand(Path.join(["..", "..", relative_path]), __DIR__)
+            Application.app_dir(#{inspect(artifact_otp_app)}, Path.join(["priv", "weld", relative_path]))
           end
         """
       end

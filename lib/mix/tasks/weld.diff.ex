@@ -12,6 +12,8 @@ defmodule Mix.Tasks.Weld.Diff do
 
   @shortdoc "Diff source checkout against a Weld projection"
 
+  @generated_dirs ~w(_build deps .git .weld doc)
+
   @impl Mix.Task
   def run(args) do
     {opts, positional, invalid} =
@@ -50,6 +52,7 @@ defmodule Mix.Tasks.Weld.Diff do
         Root: #{report.root_path}
         Projection: #{report.projection_path}
         mix.exs differs: #{report.mix_exs_differs}
+        Source-only files (#{length(report.root_only)}): #{Enum.join(Enum.take(report.root_only, 10), ", ")}
         Projection-only files (#{length(report.projection_only)}): #{Enum.join(Enum.take(report.projection_only, 10), ", ")}
         Modified files (#{length(report.modified)}): #{Enum.join(Enum.take(report.modified, 10), ", ")}
         """)
@@ -60,7 +63,9 @@ defmodule Mix.Tasks.Weld.Diff do
 
   @doc false
   def diff_trees(root_path, proj_path, artifact, kind) do
+    root_files = list_relative_files(root_path)
     proj_files = list_relative_files(proj_path)
+    root_only = root_files -- proj_files
 
     {projection_only, modified, identical} =
       Enum.reduce(proj_files, {[], [], 0}, fn rel, {only, mod, same} ->
@@ -79,20 +84,51 @@ defmodule Mix.Tasks.Weld.Diff do
       kind: Atom.to_string(kind),
       root_path: root_path,
       projection_path: proj_path,
-      mix_exs_differs: "mix.exs" in modified or "mix.exs" in projection_only,
+      mix_exs_differs:
+        "mix.exs" in modified or "mix.exs" in projection_only or "mix.exs" in root_only,
       identical_count: identical,
+      root_only: root_only,
       projection_only: Enum.sort(projection_only),
       modified: Enum.sort(modified)
     }
   end
 
   defp list_relative_files(base) do
-    base
-    |> Path.join("**/*")
-    |> Path.wildcard()
-    |> Enum.filter(&File.regular?/1)
-    |> Enum.map(&Path.relative_to(&1, base))
-    |> Enum.reject(&String.starts_with?(&1, ["_build/", "deps/", ".git/"]))
-    |> Enum.sort()
+    base |> Path.expand() |> relative_files("", MapSet.new()) |> Enum.sort()
+  end
+
+  defp relative_files(path, relative, ancestors) do
+    if MapSet.member?(ancestors, path),
+      do: raise(Weld.Error, "directory link cycle while comparing #{path}")
+
+    ancestors = MapSet.put(ancestors, path)
+
+    case File.lstat(path) do
+      {:ok, %{type: :directory}} ->
+        path
+        |> File.ls!()
+        |> Enum.reject(&(&1 in @generated_dirs))
+        |> Enum.flat_map(fn name ->
+          relative_files(Path.join(path, name), Path.join(relative, name), ancestors)
+        end)
+
+      {:ok, %{type: :regular}} ->
+        [relative]
+
+      {:ok, %{type: :symlink}} ->
+        path
+        |> File.read_link!()
+        |> Path.expand(Path.dirname(path))
+        |> relative_files(relative, ancestors)
+
+      {:ok, _} ->
+        []
+
+      {:error, reason} when reason in [:enoent, :enotdir] ->
+        []
+
+      {:error, reason} ->
+        raise File.Error, reason: reason, action: "read file stats", path: path
+    end
   end
 end

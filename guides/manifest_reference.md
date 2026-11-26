@@ -155,7 +155,9 @@ project root.
   - `mermaid` — enable rendered Mermaid fenced code blocks in HTML
   - `hook_file` — optional checkout-relative HTML file used verbatim as the
     `before_closing_body_tag` hook instead of the built-in Mermaid hook (only
-    applies when `mermaid` is `true`); the root Mix project can read the same file
+    applies when `mermaid` is `true`); the root Mix project can read the same file.
+    The path must stay within the checkout and cannot traverse a symlink. It
+    automatically participates in structural freshness checks.
 
 ## Output Keys
 
@@ -306,4 +308,10 @@ remain visible.
 Set `docs: [hook_file: "build_support/docs_hook.html"]` to make one checked-in
 file the owner of that HTML. Weld embeds its exact text in the projected
 `mix.exs`, and your root `mix.exs` can read the same file, so local `mix docs`
-and the published docs cannot drift. A missing file fails the projection.
+and the published docs cannot drift. A missing or unsafe file fails the
+projection. Hook contents are preserved without an inspection length limit;
+editing the hook invalidates cached projections and live structural guards.
+
+`Weld.docs_options!/2` reads the manifest and selected artifact without loading
+workspace Mix projects. Call it once the Weld dependency is available. During
+dependency-free Mix bootstrap, the root project can read `hook_file` directly.

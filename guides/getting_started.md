@@ -127,7 +127,7 @@ mix weld.verify
 - `mix deps.compile`
 - `mix compile --warnings-as-errors --no-compile-deps`
 - `mix test`
-- `mix docs --warnings-as-errors`
+- `mix docs --warnings-as-errors --output doc`
 - optional consumer smoke-app compilation when `verify.smoke.enabled` is `true`
 - `mix hex.build` (when `verify.hex_build` is `true`)
 - `mix hex.publish --dry-run --yes` (when both `hex_build` and `hex_publish` are `true`)
@@ -142,7 +142,7 @@ with any artifact test roots.
 - `mix deps.get`
 - `mix compile --warnings-as-errors`
 - `mix test` (asserting the merged test count is at least the baseline sum)
-- `mix docs --warnings-as-errors`
+- `mix docs --warnings-as-errors --output doc`
 - `mix hex.build` (when `verify.hex_build` is `true`)
 - `mix hex.publish --dry-run --yes` (when both `hex_build` and `hex_publish` are `true`)
 

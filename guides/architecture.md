@@ -149,10 +149,11 @@ project under `.weld/full/<artifact>/project/`:
     config.exs
     dev.exs / test.exs / prod.exs
     sources/
-      <slug>/config.exs  (sanitized: workspace-app config calls stripped)
+      <slug>/config.exs  (sanitized: root environment imports stripped)
     runtime_sources/
-      <slug>/config.exs  (original, used at runtime bootstrap)
+      <slug>/config.exs  (original, used by projected root runtime config)
   priv/
+    weld/config/runtime_sources/<slug>/  (portable startup bootstrap sources)
     repo/migrations/          (single-repo layout)
     weld_repos/<slug>/        (multi-repo layout)
 ```
@@ -161,9 +162,11 @@ Key behaviors in monolith mode:
 
 - **File merging**: conflicting source files are renamed with a `<slug>__` prefix.
   A `file_remaps` list in the projection result records all renames.
-- **Config sanitization**: static config copies strip workspace-app config calls
-  so they do not interfere with the merged config tree. Original files are kept
-  under `runtime_sources/` for bootstrap reads at startup.
+- **Config sanitization**: static root config copies strip `import_config`
+  directives so each selected environment is imported once by the generated
+  root config. Selected application config calls remain intact. Original
+  config files and their companion files are also carried under
+  `priv/weld/config/runtime_sources/` for startup bootstrap.
 - **Migration merging**: migrations with the same timestamp prefix are
   re-stamped with a deterministic offset derived from `project_id`, `filename`,
   and sort index. A `.weld_remap.json` records any renames.
@@ -177,7 +180,10 @@ Key behaviors in monolith mode:
 - **Monolith application module**: the generated `Application` module bootstraps
   per-package config at startup using `Config.Reader.read_imports!` before
   starting any OTP application children, and the bootstrap app allowlist is
-  derived only from staged bootstrap sources.
+  derived only from staged bootstrap sources. Both monolith and package
+  projection applications locate these files through `Application.app_dir/2`,
+  so a compiled application can start after its source checkout is moved or
+  removed. The bootstrap files are part of the package inventory.
 - **Test baseline gate**: verification runs each selected package's own test suite
   first, then asserts the monolith test count is at least the baseline sum.
 

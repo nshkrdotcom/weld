@@ -265,7 +265,11 @@ defmodule Weld.Release do
         prepare_publish_run!(plan, opts)
       end)
 
-    run_publish_handoff!(prepared, opts)
+    try do
+      run_publish_handoff!(prepared, opts)
+    after
+      File.rm(prepared.active_marker)
+    end
   end
 
   defp prepare_publish_run!(plan, opts) do
@@ -289,7 +293,7 @@ defmodule Weld.Release do
     write_publish_workspace!(root, bundle, project, metadata)
     integrity = metadata["integrity"] || metadata["handoff"] || %{}
 
-    %{
+    prepared = %{
       plan: plan,
       identity: identity,
       package: plan.artifact.package.name,
@@ -300,6 +304,12 @@ defmodule Weld.Release do
       docs_path: Path.join(bundle, "docs"),
       warnings: ReleaseStatus.docs_source_ref_warnings(plan, opts[:tag])
     }
+
+    # GC takes the same repository lock, then skips marked runs. Keep this
+    # lease outside the package tree so it cannot change the prepared bytes.
+    active_marker = Path.join(run_dir, "ACTIVE")
+    File.write!(active_marker, "weld.publish/v1\n", [:exclusive])
+    Map.put(prepared, :active_marker, active_marker)
   end
 
   defp ensure_publish_fresh!(plan, metadata, opts) do
@@ -395,7 +405,15 @@ defmodule Weld.Release do
   end
 
   defp publish_env do
-    [{"MIX_ENV", "dev"}, {"MIX_BUILD_PATH", nil}, {"MIX_BUILD_ROOT", nil}, {"MIX_DEPS_PATH", nil}]
+    [
+      {"MIX_ENV", "dev"},
+      {"MIX_EXS", nil},
+      {"MIX_LOCKFILE", nil},
+      {"MIX_TARGET", nil},
+      {"MIX_BUILD_PATH", nil},
+      {"MIX_BUILD_ROOT", nil},
+      {"MIX_DEPS_PATH", nil}
+    ]
   end
 
   defp run_checked_step!({executable, args}, cd, label) do

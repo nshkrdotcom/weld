@@ -25,10 +25,22 @@ mix weld.gc [repo_root] [--keep N] [--dry-run] [--format json]
 ```
 
 - `weld.status` is `weld.release.status` plus a `next_command` for each artifact.
+  Commands include the absolute manifest path and selected artifact; ready
+  bundles are pinned by identity. A ready bundle without a Hex archive suggests
+  tracking instead of publication.
 - `weld.doctor` reports Elixir/OTP versions and whether `git`, `mix`, `node` and Hex are available.
-- `weld.diff` compares the checkout with a projection: whether `mix.exs` differs, modified files and projection-only files. It does not parse docs options.
+- `weld.diff` compares the checkout with a projection: whether `mix.exs` differs,
+  modified files, source-only files (`root_only` in JSON), and projection-only
+  files. Hidden configuration files participate; `.git`, `.weld`, `_build`,
+  `deps`, and `doc` trees are excluded. It does not parse docs options.
 - `weld.open` prints the projected `doc/index.html` path; it does not launch a browser.
-- `weld.gc` deletes all but the newest `--keep` (default 2) `.weld/publish/*/*/run-*` directories by modification time.
+- `weld.gc` deletes all but the newest `--keep` (default 2) completed
+  `.weld/publish/*/*/run-*` directories across the checkout. The count must be
+  non-negative. Cleanup uses the repository output lock and rejects symlinked
+  publish parents. A run containing `ACTIVE` is retained independently of the
+  completed-run count. If a publisher crashes, remove its marker only after
+  confirming the publishing process is no longer running. `--dry-run` does not
+  create or change output state.
 
 ## Docs check
 
@@ -36,9 +48,13 @@ mix weld.gc [repo_root] [--keep N] [--dry-run] [--format json]
 mix weld.docs.check [docs_dir] [--format json]
 ```
 
-Checks that `index.html` exists and every page with a Mermaid block loads
-`mermaid.min.js` and listens on `exdoc:loaded`. It does not render pages, so it
-cannot prove a diagram draws. `release.prepare` and `release.publish` also run this check automatically on the prepared docs preview.
+Checks that `index.html` exists and every HTML page, including nested extras,
+with a Mermaid `code` element declares a `mermaid.min.js` script and an inline
+`exdoc:loaded` event listener. Class lists and ordinary HTML quoting are
+supported; mentions in prose and HTML comments do not satisfy the checks.
+It does not execute JavaScript or render pages, so it cannot prove a diagram
+draws. `release.prepare` and `release.publish` also run this check automatically
+on the prepared docs preview.
 
 ## Release plan
 
@@ -46,10 +62,18 @@ cannot prove a diagram draws. `release.prepare` and `release.publish` also run t
 mix weld.release.plan [manifest_path] [--no-check] [--format json]
 ```
 
-Lists artifacts with depended-on packages first. For each artifact whose root
-`mix.exs` declares `{:other_package, "requirement"` on another artifact's
-package, it checks the requirement against that artifact's version and fails if
-unsatisfied. It parses each `mix.exs` via Elixir AST (`Code.string_to_quoted!/2`); it does not modify versions or publish.
+Lists artifacts with depended-on packages first, using the resolved publication
+dependencies from each artifact plan. This includes dependencies of selected
+components, computed Mix requirements, manifest dependency declarations, and
+Hex package aliases. Dependencies compiled into the artifact do not create a
+separate release edge.
+
+Each sibling package requirement is checked against the sibling artifact's
+release version. Unsatisfied requirements fail unless `--no-check` is passed
+to report them only. Invalid artifact plans, duplicate publication package
+names, and dependency cycles always fail. The command works with an explicit
+manifest from another working directory, including non-Git source trees and
+Git worktrees. It does not modify versions or publish.
 
 ## Inspect
 

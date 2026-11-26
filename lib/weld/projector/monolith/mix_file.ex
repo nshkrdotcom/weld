@@ -204,7 +204,7 @@ defmodule Weld.Projector.Monolith.MixFile do
            bootstrapped_sources: bootstrapped_sources,
            children: children
          },
-         _artifact_otp_app
+         artifact_otp_app
        ) do
     rendered_children =
       children
@@ -267,7 +267,7 @@ defmodule Weld.Projector.Monolith.MixFile do
           end
 
           defp artifact_path(relative_path) do
-            Path.expand(Path.join(["..", "..", relative_path]), __DIR__)
+            Application.app_dir(#{inspect(artifact_otp_app)}, Path.join(["priv", "weld", relative_path]))
           end
         """
       end

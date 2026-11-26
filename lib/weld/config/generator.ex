@@ -105,6 +105,8 @@ defmodule Weld.Config.Generator do
       files = source_root |> File.ls!() |> Enum.sort()
       static_root = Path.join([config_root, "sources", slug])
       runtime_root = Path.join([config_root, "runtime_sources", slug])
+      bootstrap = bootstrap_source(slug, files)
+      private_root = if bootstrap, do: Path.join(["priv", "weld", runtime_root])
 
       operations =
         source_root
@@ -115,13 +117,14 @@ defmodule Weld.Config.Generator do
             source,
             source_root,
             static_root,
-            runtime_root
+            runtime_root,
+            private_root
           )
         end)
 
       %{
         app: project.app,
-        bootstrap: bootstrap_source(slug, files),
+        bootstrap: bootstrap,
         project_id: project.id,
         slug: slug,
         files: files,
@@ -332,7 +335,7 @@ defmodule Weld.Config.Generator do
     staged |> Enum.flat_map(& &1.operations) |> Enum.flat_map(& &1.sources) |> Enum.uniq()
   end
 
-  defp stage_project_config_file!(source, source_root, static_root, runtime_root) do
+  defp stage_project_config_file!(source, source_root, static_root, runtime_root, private_root) do
     relative = Path.relative_to(source, source_root)
     static_target = Path.join(static_root, relative)
     runtime_target = Path.join(runtime_root, relative)
@@ -351,7 +354,12 @@ defmodule Weld.Config.Generator do
           FilePlan.copy(source, static_target, :metadata, :copy)
       end
 
-    [static, FilePlan.copy(source, runtime_target, :metadata, :copy)]
+    private =
+      if private_root,
+        do: [FilePlan.copy(source, Path.join(private_root, relative), :runtime, :copy)],
+        else: []
+
+    [static, FilePlan.copy(source, runtime_target, :metadata, :copy)] ++ private
   end
 
   defp sanitize_config_ast(ast, strip_imports?) do

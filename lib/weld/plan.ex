@@ -255,7 +255,12 @@ defmodule Weld.Plan do
         Inventory.checkout_path(project, local)
       end
 
-    declared_inputs = artifact.structural_inputs ++ project_inputs
+    hook_inputs =
+      if artifact.package.docs.mermaid,
+        do: List.wrap(artifact.package.docs.hook_file),
+        else: []
+
+    declared_inputs = artifact.structural_inputs ++ project_inputs ++ hook_inputs
 
     for path <- declared_inputs do
       unless File.regular?(Output.source!(manifest.repo_root, path)) do

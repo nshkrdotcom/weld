@@ -373,6 +373,77 @@ defmodule Weld.ReleaseWorkflow018Test do
     end)
   end
 
+  test "publish protects the active run and isolates Mix subprocess settings" do
+    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    repo_root = Path.expand("../../..", manifest_path)
+    FixtureCase.init_git!(repo_root)
+    bundle = write_bundle!(repo_root, manifest_path, "exact-tar-bytes")
+    plan = Weld.Plan.build!(manifest_path, artifact: "fixture_bundle")
+    scripts_dir = FixtureCase.unique_tmp_dir("weld_publish_environment")
+
+    for name <- ~w(MIX_EXS MIX_LOCKFILE MIX_TARGET MIX_BUILD_PATH MIX_BUILD_ROOT MIX_DEPS_PATH) do
+      previous = System.get_env(name)
+      System.put_env(name, "unexpected-inherited-setting")
+
+      on_exit(fn ->
+        if previous, do: System.put_env(name, previous), else: System.delete_env(name)
+      end)
+    end
+
+    guard = """
+    #!/usr/bin/env bash
+    set -eu
+    test -f ../ACTIVE
+    test "$MIX_ENV" = dev
+    test "${MIX_EXS+x}" != x
+    test "${MIX_LOCKFILE+x}" != x
+    test "${MIX_TARGET+x}" != x
+    test "${MIX_BUILD_PATH+x}" != x
+    test "${MIX_BUILD_ROOT+x}" != x
+    test "${MIX_DEPS_PATH+x}" != x
+    """
+
+    build =
+      write_script!(
+        scripts_dir,
+        "build.sh",
+        guard <> "printf 'exact-tar-bytes' > fixture_bundle-0.1.0.tar\n"
+      )
+
+    publish = write_script!(scripts_dir, "publish.sh", guard)
+    result = Weld.Release.publish!(plan, build_cmd: {build, []}, publish_cmd: {publish, []})
+
+    assert result.completed?
+    assert result.identity == bundle.identity
+    refute File.exists?(Path.join(Path.dirname(result.project_path), "ACTIVE"))
+  end
+
+  test "publish clears its active marker when the build fails" do
+    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    repo_root = Path.expand("../../..", manifest_path)
+    FixtureCase.init_git!(repo_root)
+    bundle = write_bundle!(repo_root, manifest_path, "exact-tar-bytes")
+    scripts_dir = FixtureCase.unique_tmp_dir("weld_publish_failure")
+
+    build =
+      write_script!(scripts_dir, "fail.sh", """
+      #!/usr/bin/env bash
+      test -f ../ACTIVE || exit 99
+      exit 42
+      """)
+
+    assert_raise Error, ~r/hex.build failed \(exit 42\)/, fn ->
+      Weld.release_publish!(manifest_path,
+        artifact: "fixture_bundle",
+        build_cmd: {build, []}
+      )
+    end
+
+    runs = Path.join([repo_root, ".weld/publish/fixture_bundle", bundle.identity, "run-*"])
+    assert length(Path.wildcard(runs)) == 1
+    assert Path.wildcard(Path.join(runs, "ACTIVE")) == []
+  end
+
   test "docs_source_ref_warnings flags mutable source_ref and tag mismatches" do
     manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
     plan = Weld.Plan.build!(manifest_path, artifact: "fixture_bundle")

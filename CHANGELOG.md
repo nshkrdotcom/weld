@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`index.html` presence and `exdoc:loaded` Mermaid hook integrity), and enforce
   the check automatically in `release.prepare` and `release.publish`.
 - Add `mix weld.explain`, `mix weld.status`, `mix weld.diff`, `mix weld.doctor`,
-  `mix weld.open`, `mix weld.gc`, and AST-verified `mix weld.release.plan` with
+  `mix weld.open`, `mix weld.gc`, and dependency-verified `mix weld.release.plan` with
   `--format json` support for agent and maintainer workflows.
 
 ### Fixed
@@ -24,6 +24,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Listen on ExDoc's `exdoc:loaded` window event (instead of `DOMContentLoaded`
   only) and select `dark` vs `default` theme in the built-in Mermaid hook so
   diagrams render across in-site ExDoc navigation and dark mode.
+- Preserve complete custom docs hooks, reject unsafe hook paths, and include
+  hook files in projection cache keys and live structural guards. Root docs
+  options no longer recursively load workspace Mix projects.
+- Check nested Mermaid HTML pages and actual script declarations instead of
+  accepting incidental hook names in prose, comments, quoted JavaScript, or
+  ignored external-script bodies; preserve quoted HTML attributes and division
+  expressions around real listeners.
+- Resolve release planning from artifact publication dependencies, including
+  computed requirements and Hex aliases; reject cycles and duplicate package
+  identities, and honor `--no-check` for incompatible release versions.
+- Include source-only and hidden configuration files in `weld.diff`, and make
+  status commands preserve explicit manifests and prepared bundle identities.
+  Follow live directory links without failing on unrelated dangling links,
+  while still rejecting cycles and surfacing other filesystem errors.
+- Keep active publishers safe from garbage collection, reject symlinked cleanup
+  parents, and isolate verification, smoke, and publication subprocesses from
+  inherited Mix project, lockfile, target, and build-path overrides.
+- Carry generated application bootstrap config in package `priv` files and
+  resolve it from the installed application so compiled artifacts remain
+  usable after their source checkout is moved or removed.
+- Include component config trees in generated projection cache inputs so
+  config, imported files, companion bytes, permissions, and missing-directory
+  changes refresh both full and live bootstrap copies.
+- Normalize verified ExDoc output to `doc/` so native source projects with a
+  custom docs output directory can still prepare their release preview.
 
 ## [0.18.1] - 2026-11-24
 

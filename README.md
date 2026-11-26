@@ -164,8 +164,8 @@ and release preparation.
 
 `mix weld.verify` regenerates `.weld/full/<artifact>/project/` and runs a mode-specific verification gate using isolated build/dependency caches under `.weld/cache/`:
 
-- **Package-projection and source-project modes:** `mix deps.get`, `mix deps.compile`, `mix compile --warnings-as-errors --no-compile-deps`, `mix test`, `mix docs --warnings-as-errors`, optional external smoke-app compilation, `mix hex.build` (when `verify.hex_build` is `true`), and `mix hex.publish --dry-run --yes` (when both `hex_build` and `hex_publish` are `true`).
-- **Monolith mode:** per-selected-project `mix test` baseline, `mix deps.get`, `mix compile --warnings-as-errors`, `mix test` (enforcing `test_count >= baseline`), `mix docs --warnings-as-errors`, `mix hex.build` (when `hex_build` is `true`), and `mix hex.publish --dry-run --yes` (when both `hex_build` and `hex_publish` are `true`).
+- **Package-projection and source-project modes:** `mix deps.get`, `mix deps.compile`, `mix compile --warnings-as-errors --no-compile-deps`, `mix test`, `mix docs --warnings-as-errors --output doc`, optional external smoke-app compilation, `mix hex.build` (when `verify.hex_build` is `true`), and `mix hex.publish --dry-run --yes` (when both `hex_build` and `hex_publish` are `true`).
+- **Monolith mode:** per-selected-project `mix test` baseline, `mix deps.get`, `mix compile --warnings-as-errors`, `mix test` (enforcing `test_count >= baseline`), `mix docs --warnings-as-errors --output doc`, `mix hex.build` (when `hex_build` is `true`), and `mix hex.publish --dry-run --yes` (when both `hex_build` and `hex_publish` are `true`).
 
 A repeated `mix weld.project` validates the source and generated output before
 reusing an unchanged view. Use `--no-cache` to rebuild it. Locked source-project

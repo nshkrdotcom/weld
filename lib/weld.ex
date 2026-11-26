@@ -305,11 +305,12 @@ defmodule Weld do
   """
   @spec docs_options!(Path.t(), keyword()) :: keyword()
   def docs_options!(manifest_path, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
-    base = Projector.docs_options(plan)
+    manifest = Manifest.load!(manifest_path)
+    artifact = Manifest.artifact!(manifest, opts[:artifact])
+    base = Projector.docs_options(artifact)
 
-    if plan.artifact.package.docs.mermaid do
-      hook = Projector.mermaid_hook(plan)
+    if artifact.package.docs.mermaid do
+      hook = Projector.mermaid_hook(manifest.repo_root, artifact.package.docs.hook_file)
 
       Keyword.put(base, :before_closing_body_tag, fn
         :html -> hook

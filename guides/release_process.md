@@ -43,6 +43,11 @@ HTML previews keep their code highlighting and use stable delimiter group
 IDs. Rebuilding without the cache still generates the documentation
 independently. The EPUB remains outside the prepared docs preview.
 
+Verification passes `--output doc` to ExDoc so the prepared preview comes from
+one canonical location even when a source project's native docs configuration
+uses another directory. The preview must pass Weld's static Mermaid smoke
+checks before it enters the bundle and again before the publication handoff.
+
 ## Track
 
 ```bash
@@ -101,6 +106,13 @@ stdio to Hex for prompts and credentials. Declining confirmation stops the
 handoff. Pass `--dry-run` to run the same local checks and Hex's publication
 dry run without uploading. When Hex stages a release for approval, wait for
 Hex to confirm publication before archiving.
+
+An `ACTIVE` marker protects the per-run workspace while dependency retrieval,
+archive rebuilding, and the interactive handoff are running. `mix weld.gc`
+retains marked runs. Normal completion and failures clear the marker; after a
+process crash, confirm the publisher has stopped before removing a stale marker.
+Publication subprocesses clear inherited Mix project, lockfile, target, build,
+and dependency path overrides so they operate on the staged project.
 
 For manual staging, run `mix release.stage [--fresh] [--identity <sha>]` (use
 `--path-only` for scripts). `--fresh` atomically replaces a dirty publish

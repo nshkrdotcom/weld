@@ -21,12 +21,15 @@ These tests cover:
 - projecting full and live views for `:package_projection`, `:monolith`, and
   `:source_project`, including nested source projects
 - compiling the artifact
+- starting compiled package and monolith applications after removing the source
+  checkout, including private bootstrap config imports and companion files
 - using ordinary Mix consumers outside the source checkout
 - refreshing live views after structural changes
 - running welded artifact tests
 - preserving opt-in component tests, helpers, and relative fixtures in
   package-projection verification
-- building docs
+- building docs at the canonical `doc/` verification path, including native
+  source projects with a different configured ExDoc output
 - building the Hex tarball when `verify.hex_build` is enabled
 - preparing and tracking bundles for internal-only artifacts even when no
   tarball is present
