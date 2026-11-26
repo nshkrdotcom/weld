@@ -312,33 +312,40 @@ defmodule Weld.Projector do
     |> maybe_put_docs_option(:groups_for_extras, docs.groups_for_extras)
   end
 
+  # ExDoc swaps page content on in-site navigation and fires "exdoc:loaded"
+  # (also on first load), so DOMContentLoaded alone misses navigated pages.
+  @doc false
+  def mermaid_hook do
+    """
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js"></script>
+    <script>
+    window.addEventListener("exdoc:loaded", () => {
+    const codeBlocks = document.querySelectorAll("pre code.mermaid");
+    if (!codeBlocks.length || !window.mermaid) return;
+    mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    theme: document.body.classList.contains("dark") ? "dark" : "default"
+    });
+    const nodes = Array.from(codeBlocks, code => {
+    const diagram = document.createElement("div");
+    diagram.className = "mermaid";
+    diagram.textContent = code.textContent;
+    code.parentElement.replaceWith(diagram);
+    return diagram;
+    });
+    mermaid.run({nodes});
+    });
+    </script>
+    """
+  end
+
   @doc false
   def render_docs_options(%Plan{} = plan) do
     options = inspect(docs_options(plan), pretty: true, limit: :infinity)
 
     if plan.artifact.package.docs.mermaid do
-      hook = """
-      <script src="https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js"></script>
-      <script>
-      window.addEventListener("exdoc:loaded", () => {
-        const codeBlocks = document.querySelectorAll("pre code.mermaid");
-        if (!codeBlocks.length || !window.mermaid) return;
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: "strict",
-          theme: document.body.classList.contains("dark") ? "dark" : "default"
-        });
-        const nodes = Array.from(codeBlocks, code => {
-          const diagram = document.createElement("div");
-          diagram.className = "mermaid";
-          diagram.textContent = code.textContent;
-          code.parentElement.replaceWith(diagram);
-          return diagram;
-        });
-        mermaid.run({nodes});
-      });
-      </script>
-      """
+      hook = mermaid_hook()
 
       "Keyword.put(#{options}, :before_closing_body_tag, fn :html -> #{inspect(hook)}; _ -> \"\" end)"
     else
