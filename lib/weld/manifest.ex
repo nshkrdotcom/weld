@@ -3,6 +3,7 @@ defmodule Weld.Manifest do
   Loads and validates a repo-local weld manifest.
   """
 
+  alias Weld.Core.Manifest, as: CoreManifest
   alias Weld.Error
 
   defmodule Artifact do
@@ -235,7 +236,7 @@ defmodule Weld.Manifest do
       raise Error, "manifest must evaluate to a keyword list: #{manifest_path}"
     end
 
-    config = Weld.Core.Manifest.normalize!(raw)
+    config = CoreManifest.normalize!(raw)
     manifest_dir = Path.dirname(manifest_path)
     workspace = normalize_workspace(config[:workspace], manifest_dir)
 
@@ -360,20 +361,11 @@ defmodule Weld.Manifest do
       flat = config[:flat] || []
       package = if config[:package], do: normalize_package(config[:package], config[:docs] || [])
       output = config[:files] || []
-      verify = config[:verify]
 
       artifact = %Artifact{
         id: artifact_id,
         mode: mode,
-        source_project:
-          if(layout == :preserve,
-            do: [
-              files: preserve[:files],
-              inputs: preserve[:inputs],
-              structural_inputs: Enum.map(preserve[:inputs], & &1[:path])
-            ],
-            else: []
-          ),
+        source_project: normalize_preserve(layout, preserve),
         monolith_opts: normalize_monolith_opts(flat),
         roots: Enum.sort(config[:roots]),
         include: Enum.sort(config[:include]),
@@ -388,17 +380,7 @@ defmodule Weld.Manifest do
           docs: Enum.sort(output[:docs] || []),
           assets: Enum.sort(output[:assets] || [])
         },
-        verify: %Verify{
-          artifact_tests: Enum.sort(verify[:artifact_tests]),
-          component_tests: verify[:component_tests],
-          hex_build: verify[:hex_build],
-          hex_publish: verify[:hex_publish_check],
-          context: verify[:context],
-          smoke: %{
-            enabled: not is_nil(verify[:smoke]),
-            entry_file: if(verify[:smoke], do: verify[:smoke][:entry_file])
-          }
-        }
+        verify: normalize_verify(config[:verify])
       }
 
       artifact = if package, do: validate_docs_output!(artifact), else: artifact
@@ -406,6 +388,30 @@ defmodule Weld.Manifest do
       {artifact_id, artifact}
     end)
     |> Map.new()
+  end
+
+  defp normalize_preserve(:preserve, opts) do
+    [
+      files: opts[:files],
+      inputs: opts[:inputs],
+      structural_inputs: Enum.map(opts[:inputs], & &1[:path])
+    ]
+  end
+
+  defp normalize_preserve(_, _), do: []
+
+  defp normalize_verify(verify) do
+    %Verify{
+      artifact_tests: Enum.sort(verify[:artifact_tests]),
+      component_tests: verify[:component_tests],
+      hex_build: verify[:hex_build],
+      hex_publish: verify[:hex_publish_check],
+      context: verify[:context],
+      smoke: %{
+        enabled: not is_nil(verify[:smoke]),
+        entry_file: if(verify[:smoke], do: verify[:smoke][:entry_file])
+      }
+    }
   end
 
   defp normalize_external_projects!(ids) do

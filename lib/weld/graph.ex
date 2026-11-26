@@ -1,6 +1,6 @@
 defmodule Weld.Graph do
   @moduledoc """
-  Immutable workspace graph wrapper built on top of `Multigraph`.
+  Immutable workspace dependency graph.
   """
 
   alias Weld.Graph.Edge
@@ -9,7 +9,6 @@ defmodule Weld.Graph do
   alias Weld.Workspace.Project
 
   @enforce_keys [
-    :dag,
     :projects,
     :edges,
     :classifications,
@@ -30,7 +29,6 @@ defmodule Weld.Graph do
         }
 
   @type t :: %__MODULE__{
-          dag: Multigraph.t(),
           projects: %{optional(project_id()) => Project.t()},
           edges: %{optional({project_id(), project_id()}) => [Edge.t()]},
           classifications: %{optional(project_id()) => Project.classification()},
@@ -42,7 +40,6 @@ defmodule Weld.Graph do
   @spec new() :: t()
   def new do
     %__MODULE__{
-      dag: Multigraph.new(type: :directed, vertex_identifier: & &1),
       projects: %{},
       edges: %{},
       classifications: %{},
@@ -56,8 +53,7 @@ defmodule Weld.Graph do
   def add_project(%__MODULE__{} = graph, %Project{} = project) do
     %{
       graph
-      | dag: Multigraph.add_vertex(graph.dag, project.id),
-        projects: Map.put(graph.projects, project.id, project),
+      | projects: Map.put(graph.projects, project.id, project),
         classifications: Map.put(graph.classifications, project.id, project.classification),
         publication_roles: Map.put(graph.publication_roles, project.id, project.publication_role),
         external_deps: Map.put_new(graph.external_deps, project.id, [])
@@ -69,11 +65,7 @@ defmodule Weld.Graph do
     edge_key = {edge.from, edge.to}
     updated_edges = Map.update(graph.edges, edge_key, [edge], &[edge | &1])
 
-    %{
-      graph
-      | dag: Multigraph.add_edge(graph.dag, edge.from, edge.to, label: edge.kind),
-        edges: updated_edges
-    }
+    %{graph | edges: updated_edges}
   end
 
   @spec add_external_dep(t(), project_id(), external_dep()) :: t()
@@ -113,8 +105,7 @@ defmodule Weld.Graph do
       |> Enum.filter(accept?)
       |> Enum.group_by(&{&1.from, &1.to})
 
-    filtered = %{graph | edges: edges}
-    %{filtered | dag: subgraph(filtered, :all)}
+    %{graph | edges: edges}
   end
 
   @spec external_deps(t(), project_id()) :: [external_dep()]
@@ -126,8 +117,7 @@ defmodule Weld.Graph do
 
   @spec reachable_from(t(), project_id() | [project_id()], View.t()) :: [project_id()]
   def reachable_from(%__MODULE__{} = graph, project_ids, view) when is_list(project_ids) do
-    view_graph = subgraph(graph, view)
-    Multigraph.reachable(view_graph, project_ids) |> Enum.sort()
+    reachable(project_ids, adjacency(graph, view, :outgoing), %{})
   end
 
   def reachable_from(%__MODULE__{} = graph, project_id, view) do
@@ -138,8 +128,7 @@ defmodule Weld.Graph do
   def reaching(graph, project_ids, view \\ :all)
 
   def reaching(%__MODULE__{} = graph, project_ids, view) when is_list(project_ids) do
-    view_graph = subgraph(graph, view)
-    Multigraph.reaching(view_graph, project_ids) |> Enum.sort()
+    reachable(project_ids, adjacency(graph, view, :incoming), %{})
   end
 
   def reaching(%__MODULE__{} = graph, project_id, view) do
@@ -148,17 +137,88 @@ defmodule Weld.Graph do
 
   @spec path(t(), project_id(), project_id(), View.t()) :: {:ok, [project_id()]} | :no_path
   def path(%__MODULE__{} = graph, from, to, view \\ :all) do
-    case Multigraph.get_shortest_path(subgraph(graph, view), from, to) do
-      nil -> :no_path
-      path -> {:ok, path}
+    neighbors = adjacency(graph, view, :outgoing)
+
+    if Map.has_key?(graph.projects, from) and Map.has_key?(graph.projects, to) do
+      shortest_path(:queue.in([from], :queue.new()), to, neighbors, %{from => true})
+    else
+      :no_path
     end
   end
 
   @spec topo_sort(t(), View.t()) :: [project_id()]
   def topo_sort(%__MODULE__{} = graph, view \\ :all) do
-    case Multigraph.topsort(subgraph(graph, view)) do
-      false -> []
-      sorted -> sorted
+    case topology(graph, view) do
+      {:ok, sorted} -> sorted
+      {:cycle, _witness} -> []
+    end
+  end
+
+  @doc false
+  def topology(%__MODULE__{} = graph, view) do
+    neighbors = adjacency(graph, view, :outgoing)
+    vertices = graph.projects |> Map.keys() |> Enum.sort()
+
+    case order(vertices, neighbors, {%{}, []}, []) do
+      {:ok, {_visited, sorted}} -> {:ok, sorted}
+      {:cycle, _witness} = cycle -> cycle
+    end
+  end
+
+  defp order([], _neighbors, result, _ancestors), do: {:ok, result}
+
+  defp order([vertex | rest], neighbors, {visited, sorted} = result, ancestors) do
+    cond do
+      Map.has_key?(visited, vertex) ->
+        order(rest, neighbors, result, ancestors)
+
+      vertex in ancestors ->
+        participants = Enum.take_while(ancestors, &(&1 != vertex))
+        {:cycle, [vertex | Enum.reverse(participants, [vertex])]}
+
+      true ->
+        with {:ok, {visited, sorted}} <-
+               order(Map.get(neighbors, vertex, []), neighbors, {visited, sorted}, [
+                 vertex | ancestors
+               ]) do
+          order(rest, neighbors, {Map.put(visited, vertex, true), [vertex | sorted]}, ancestors)
+        end
+    end
+  end
+
+  defp reachable([], _neighbors, visited), do: visited |> Map.keys() |> Enum.sort()
+
+  defp reachable([vertex | rest], neighbors, visited) do
+    if Map.has_key?(visited, vertex),
+      do: reachable(rest, neighbors, visited),
+      else:
+        reachable(
+          Map.get(neighbors, vertex, []) ++ rest,
+          neighbors,
+          Map.put(visited, vertex, true)
+        )
+  end
+
+  defp shortest_path(queue, target, neighbors, visited) do
+    case :queue.out(queue) do
+      {:empty, _queue} ->
+        :no_path
+
+      {{:value, [^target | _] = path}, _queue} ->
+        {:ok, Enum.reverse(path)}
+
+      {{:value, [vertex | _] = path}, queue} ->
+        next = Enum.reject(Map.get(neighbors, vertex, []), &Map.has_key?(visited, &1))
+
+        queue =
+          Enum.reduce(next, queue, fn neighbor, acc -> :queue.in([neighbor | path], acc) end)
+
+        shortest_path(
+          queue,
+          target,
+          neighbors,
+          Enum.reduce(next, visited, &Map.put(&2, &1, true))
+        )
     end
   end
 
@@ -169,23 +229,17 @@ defmodule Weld.Graph do
     end)
   end
 
-  @spec subgraph(t(), View.t()) :: Multigraph.t()
-  def subgraph(%__MODULE__{} = graph, view) do
-    projects = Map.keys(graph.projects)
+  @doc false
+  def scoped_edges(%__MODULE__{} = graph, view) do
+    graph |> edges() |> Enum.filter(&View.allowed?(&1.kind, view))
+  end
 
-    dag =
-      Enum.reduce(
-        projects,
-        Multigraph.new(type: :directed, vertex_identifier: & &1),
-        &Multigraph.add_vertex(&2, &1)
-      )
+  defp adjacency(graph, view, direction) do
+    {from, to} = if direction == :outgoing, do: {:from, :to}, else: {:to, :from}
 
-    Enum.reduce(edges(graph), dag, fn edge, acc ->
-      if View.allowed?(edge.kind, view) do
-        Multigraph.add_edge(acc, edge.from, edge.to, label: edge.kind)
-      else
-        acc
-      end
-    end)
+    graph
+    |> scoped_edges(view)
+    |> Enum.group_by(&Map.fetch!(&1, from), &Map.fetch!(&1, to))
+    |> Map.new(fn {id, neighbors} -> {id, neighbors |> Enum.uniq() |> Enum.sort()} end)
   end
 end

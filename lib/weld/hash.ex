@@ -1,4 +1,7 @@
 defmodule Weld.Hash do
+  alias Weld.Core.Inventory
+  alias Weld.Shell.Files
+
   @moduledoc """
   Deterministic SHA-256 helpers for files, directories, and in-memory values.
   """
@@ -92,12 +95,16 @@ defmodule Weld.Hash do
 
   @doc "Hashes the current expansion of a publication allowlist, including new files."
   def package_identity(root, patterns) do
-    relative_files =
-      patterns
-      |> Enum.flat_map(&expand_package_pattern(root, &1))
-      |> Enum.map(&Path.relative_to(&1, root))
+    verification_identity(root, package_members(root, patterns))
+  end
 
-    verification_identity(root, relative_files)
+  @doc false
+  def package_members(root, patterns) do
+    patterns
+    |> Enum.flat_map(&expand_package_pattern(root, &1))
+    |> Enum.map(&Path.relative_to(&1, root))
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp expand_package_pattern(root, pattern) do
@@ -111,8 +118,8 @@ defmodule Weld.Hash do
 
   defp identity_for_files(root, files) do
     relatives = Enum.map(files, &Path.relative_to(&1, root))
-    entries = Weld.Shell.Files.observe_many!(root, relatives)
-    Weld.Core.Inventory.project_id(entries)
+    entries = Files.observe_many!(root, relatives)
+    Inventory.project_id(entries)
   end
 
   @spec list_files(Path.t()) :: [Path.t()]

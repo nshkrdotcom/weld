@@ -8,6 +8,7 @@ defmodule Weld.Workspace do
   alias Weld.Graph.Edge
   alias Weld.Manifest
   alias Weld.Output
+  alias Weld.Shell.Runner
   alias Weld.Violation
   alias Weld.Workspace.Discovery
   alias Weld.Workspace.Project
@@ -66,32 +67,45 @@ defmodule Weld.Workspace do
   def external_dependency(dep), do: Map.put(dep, :kind, infer_external_kind(dep.opts))
 
   defp load_projects!(manifest, project_ids) do
-    component_tests? =
-      Enum.any?(manifest.artifacts, fn {_, artifact} ->
-        artifact.verify.component_tests or artifact.mode == :monolith
+    projects =
+      project_ids
+      |> Task.async_stream(&load_project_result(manifest, &1),
+        max_concurrency: 4,
+        timeout: :infinity
+      )
+      |> Map.new(fn
+        {:ok, {:ok, project}} -> {project.id, project}
+        {:ok, {:error, error}} -> raise error
+        {:exit, reason} -> raise Error, "workspace probe stopped unexpectedly: #{inspect(reason)}"
       end)
 
-    project_ids
-    |> Enum.map(&load_project!(manifest, &1, component_tests?))
-    |> Map.new(fn project -> {project.id, project} end)
+    duplicate_apps = projects |> Map.values() |> Enum.frequencies_by(& &1.app)
+
+    case duplicate_apps |> Enum.filter(fn {_app, count} -> count > 1 end) |> Enum.sort() do
+      [{app, _} | _] -> raise Error, "workspace projects declare duplicate app #{app}"
+      [] -> projects
+    end
   end
 
-  defp load_project!(manifest, ".", component_tests?) do
-    load_project!(manifest, ".", manifest.repo_root, component_tests?)
+  defp load_project_result(manifest, project_id) do
+    {:ok, load_project!(manifest, project_id)}
+  rescue
+    error in [Error, File.Error, KeyError, ArgumentError] -> {:error, error}
   end
 
-  defp load_project!(manifest, project_id, component_tests?) do
-    path = Output.source!(manifest.repo_root, project_id)
-    load_project!(manifest, project_id, path, component_tests?)
+  defp load_project!(manifest, "."), do: load_project!(manifest, ".", manifest.repo_root)
+
+  defp load_project!(manifest, project_id) do
+    load_project!(manifest, project_id, Output.source!(manifest.repo_root, project_id))
   end
 
-  defp load_project!(manifest, project_id, abs_path, component_tests?) do
+  defp load_project!(manifest, project_id, abs_path) do
     unless File.regular?(Output.source!(abs_path, "mix.exs")) do
       raise Error, "project #{project_id} is missing mix.exs"
     end
 
-    {config, application, test_config} =
-      load_project_config(abs_path, project_id, component_tests?)
+    {config, application} = probe_project!(abs_path, project_id, :dev)
+    {test_config, _application} = probe_project!(abs_path, project_id, :test)
 
     package = Keyword.get(config, :package) || []
     app = Keyword.fetch!(config, :app)
@@ -272,13 +286,17 @@ defmodule Weld.Workspace do
   end
 
   defp finalize(graph) do
-    if Graph.topo_sort(graph, :package) == [] and map_size(graph.projects) > 0 do
-      Graph.add_violation(
-        graph,
-        Violation.new(:cycle_detected, "package graph contains a cycle")
-      )
-    else
-      graph
+    case Graph.topology(graph, :package) do
+      {:ok, _} ->
+        graph
+
+      {:cycle, cycle} ->
+        Graph.add_violation(
+          graph,
+          Violation.new(:cycle_detected, "package graph contains a cycle",
+            details: %{cycle: cycle}
+          )
+        )
     end
   end
 
@@ -478,88 +496,46 @@ defmodule Weld.Workspace do
     relative == project.id or String.starts_with?(relative, "#{project.id}/")
   end
 
-  defp unique_probe(project_id) do
-    suffix =
-      project_id
-      |> String.replace(~r/[^a-zA-Z0-9]+/, "_")
-      |> String.downcase()
+  @probe_marker "WELD_PROJECT_FACTS:"
 
-    String.to_atom("weld_probe_#{suffix}_#{System.unique_integer([:positive])}")
-  end
-
-  defp load_project_config(abs_path, project_id, component_tests?) do
-    if current_project_root() == Path.expand(abs_path) and Mix.Project.get() do
-      project_config(component_tests?)
-    else
-      without_module_conflicts(fn ->
-        probe_project_config(abs_path, project_id, component_tests?)
+  defp probe_project!(path, id, env) do
+    script = """
+    Mix.start()
+    Mix.Project.in_project(:weld_probe, ".", [], fn module ->
+      config = Mix.Project.config()
+      keys = ~w(app version package description docs elixir deps elixirc_paths erlc_paths
+                erlc_include_path test_paths)a
+      config = Keyword.take(config, keys)
+      config = Keyword.update(config, :docs, [], fn
+        docs when is_list(docs) -> Keyword.take(docs, [:source_ref])
+        _ -> []
       end)
-    end
-  end
-
-  defp probe_project_config(abs_path, project_id, component_tests?) do
-    Mix.Project.in_project(unique_probe(project_id), abs_path, [], fn _module ->
-      project_config(component_tests?)
+      application = if function_exported?(module, :application, 0), do: module.application(), else: []
+      encoded = {config, application} |> :erlang.term_to_binary() |> Base.encode64()
+      IO.puts("\n#{@probe_marker}" <> encoded)
     end)
-  end
+    """
 
-  defp project_config(component_tests?) do
-    project_module = Mix.Project.get!()
-    config = Mix.Project.config()
+    result =
+      Runner.run!("elixir", ["-e", script],
+        cd: path,
+        seconds: 30,
+        env: %{"MIX_ENV" => to_string(env)}
+      )
 
-    cond do
-      not component_tests? ->
-        {config, project_application(project_module), config}
-
-      Mix.env() == :test ->
-        {regular_config, application} =
-          with_mix_env(:dev, fn ->
-            {project_module.project(), project_application(project_module)}
-          end)
-
-        {regular_config, application, config}
-
-      true ->
-        test_config = with_mix_env(:test, &project_module.project/0)
-        {config, project_application(project_module), test_config}
-    end
-  end
-
-  defp with_mix_env(env, fun) do
-    previous = Mix.env()
-    Mix.env(env)
-
-    try do
-      fun.()
-    after
-      Mix.env(previous)
-    end
-  end
-
-  defp project_application(project_module) do
-    if function_exported?(project_module, :application, 0) do
-      project_module.application()
+    with {output, 0} <- result,
+         line when not is_nil(line) <-
+           Enum.find(
+             String.split(output, "\n", trim: true),
+             &String.starts_with?(&1, @probe_marker)
+           ),
+         {:ok, binary} <- Base.decode64(String.replace_prefix(line, @probe_marker, "")) do
+      # Source Mix code is already trusted. Decode only the explicitly selected
+      # metadata fields from the isolated VM, never an external network value.
+      :erlang.binary_to_term(binary)
     else
-      []
-    end
-  end
-
-  defp current_project_root do
-    if Mix.Project.get() do
-      Mix.Project.project_file()
-      |> Path.dirname()
-      |> Path.expand()
-    end
-  end
-
-  defp without_module_conflicts(fun) do
-    previous = Code.compiler_options()
-    Code.compiler_options(ignore_module_conflict: true)
-
-    try do
-      fun.()
-    after
-      Code.compiler_options(ignore_module_conflict: previous[:ignore_module_conflict])
+      {_, status} -> raise Error, "Mix metadata probe failed for #{id} in #{env} (exit #{status})"
+      _ -> raise Error, "invalid Mix metadata from #{id} in #{env}"
     end
   end
 end

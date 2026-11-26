@@ -1,6 +1,7 @@
 defmodule Weld.SourceConsumptionTest do
   use ExUnit.Case, async: false
 
+  alias Mix.Dep.Lock
   alias Weld.FixtureCase
 
   @moduletag integration: true, ci_build: "source_consumption", timeout: 600_000
@@ -50,7 +51,7 @@ defmodule Weld.SourceConsumptionTest do
     File.write!(manifest, File.read!(manifest) <> "\n# structural edit\n")
     {message, status} = mix(consumer, ["run", "check.exs"])
     assert status != 0
-    assert message =~ "mix weld.project --artifact sprout --live"
+    assert message =~ "mix weld project --artifact sprout --kind live"
     Weld.Commands.project!(manifest, live: true)
     expr!(consumer, "\"olive\" = Sprout.Runtime.asset()")
     {message, status} = mix(live, ["hex.build"])
@@ -157,7 +158,7 @@ defmodule Weld.SourceConsumptionTest do
       true = elem(one, 0) == :sprout
       """)
 
-      {lock, []} = Code.eval_file(Path.join(consumer, "mix.lock"))
+      lock = Lock.read(Path.join(consumer, "mix.lock"))
 
       for app <- ~w(sprout sprout_color sprout_layout)a do
         assert {:git, ^bare, ^ref, _opts} = Map.fetch!(lock, app)

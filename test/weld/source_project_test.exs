@@ -82,7 +82,16 @@ defmodule Weld.SourceProjectTest do
     root: root,
     manifest: manifest
   } do
-    Mix.Task.rerun("weld.project", [manifest, "--artifact", "sprout", "--live"])
+    Mix.Task.rerun("weld", [
+      "project",
+      "--manifest",
+      manifest,
+      "--artifact",
+      "sprout",
+      "--kind",
+      "live"
+    ])
+
     assert File.regular?(Path.join(root, ".weld/v2/live/sprout/mix.exs"))
   end
 
@@ -207,7 +216,7 @@ defmodule Weld.SourceProjectTest do
     {message, code} = mix(live.build_path, ["shade"])
     assert code != 0
     assert message =~ manifest
-    assert message =~ "--artifact workshop_palette --live"
+    assert message =~ "--artifact workshop_palette --kind live"
 
     File.write!(
       manifest,

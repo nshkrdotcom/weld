@@ -51,28 +51,26 @@ Important subtrees:
 
 ## Release Handoff
 
-Use the canonical Weld 0.18.0 release sequence—never invent scratch directories
-outside `.weld/`, manual `CURRENT`/`jq` shell parsing, or out-of-band publish
-workarounds:
+Use the Weld 0.20.0 CLI and keep local release state under `.weld/v2/`.
 
 ```bash
-mix release.prepare [--artifact <name> | --all]
-mix release.status [--artifact <name> | --all] [--format json]
-mix release.track [--artifact <name>] [--identity <sha>] --tag-release --push
-mix release.publish [--artifact <name>] [--identity <sha>] [--tag <tag>]
-mix release.archive [--artifact <name>] --identity <sha>
+mix weld release-plan
+mix weld prepare --artifact <name>
+mix weld status --artifact <name> --format json
+mix weld track --artifact <name> --identity <sha> --tag-release
+mix weld verify-tag <tag> --artifact <name> --identity <sha>
+mix weld publish --artifact <name> --identity <sha> --dry-run
+mix weld archive --artifact <name> --identity <sha>
 ```
 
-- `.weld/` is local-only build/release state (never committed).
-- `projection/<package>` commits and annotated tags carry `weld.receipt/v1`
-  trailers (bundle identity + project/docs/archive SHA-256) and are the
-  Git-durable release record. Verify any tag with `mix release.verify_tag <tag>`.
-- Tag the qualified source commit on `main` with `v<version>` and push it alongside the separate projection receipt tag.
-- For manual staging instead of `mix release.publish`, use
-  `mix release.stage [--fresh] [--identity <sha>]` (use `--path-only` for
-  scripts). Keep `.weld/releases/<artifact>/<identity>/` intact for tracking
-  and archiving.
-- Weld's own root Mix project can publish directly from its source checkout.
+- Keep immutable bundles under `.weld/v2/bundles/`. Use `mix weld stage` with an
+  explicit identity to create an isolated review copy.
+- Projection commits and annotated tags carry `weld.receipt/v2` evidence.
+  Keep the source version tag on the qualified source commit separate from
+  the projection receipt tag.
+- Use a disposable local checkout and bare remote to exercise tracking.
+  Production publication and pushing release refs require explicit approval.
+- Weld's own root Mix project builds its Hex package from its source checkout.
 
 ## Documentation Homes
 

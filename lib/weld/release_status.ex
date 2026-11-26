@@ -5,6 +5,7 @@ defmodule Weld.ReleaseStatus do
   """
 
   alias Weld.{Error, Git, Hash, Output, Plan, Release, ReleaseReceipt}
+  alias Weld.Shell.Hex
 
   @type bundle_state ::
           :ready
@@ -37,7 +38,7 @@ defmodule Weld.ReleaseStatus do
         empty_status(plan, state, [reason], current_revision, warnings)
 
       {:ok, identity, bundle} ->
-        inspect_bundle(plan, identity, bundle, current_revision, warnings)
+        inspect_bundle(plan, identity, bundle, current_revision, warnings, opts)
     end
   end
 
@@ -302,15 +303,15 @@ defmodule Weld.ReleaseStatus do
     end
   end
 
-  defp resolve_pointer(plan, "weld.release/v2 " <> rest) do
-    identity = String.trim_trailing(rest, "\n")
-    resolve_target(plan, identity)
+  defp resolve_pointer(plan, bytes) do
+    resolve_target(plan, Release.pointer!(bytes, plan.artifact.id))
+  rescue
+    Error -> {:error, :malformed_pointer, :unmanaged_pointer}
   end
 
-  defp resolve_pointer(_plan, _other), do: {:error, :malformed_pointer, :unmanaged_pointer}
-
-  defp inspect_bundle(plan, identity, bundle, current_revision, warnings) do
+  defp inspect_bundle(plan, identity, bundle, current_revision, warnings, opts) do
     metadata = validate_bundle_integrity!(bundle, identity)
+    remote = remote_status(plan, bundle, metadata, opts)
     reasons = freshness_reasons(plan, metadata, current_revision)
     integrity = metadata["integrity"] || %{}
     state = if reasons == [], do: :ready, else: :stale
@@ -334,8 +335,8 @@ defmodule Weld.ReleaseStatus do
       archive_sha256: integrity["archive_sha256"],
       project_sha256: integrity["project_sha256"],
       docs_sha256: integrity["docs_sha256"],
-      publish_workspace: publish_workspace_state(plan, identity, metadata),
       archived: archived?(plan, identity),
+      remote: remote,
       projection: projection_status(plan, identity, Path.join(bundle, "project")),
       warnings: warnings
     }
@@ -343,6 +344,15 @@ defmodule Weld.ReleaseStatus do
     Error ->
       empty_status(plan, :corrupt_bundle, [:corrupt_bundle], current_revision, warnings, identity)
   end
+
+  defp remote_status(plan, bundle, %{"tarball_path" => archive} = metadata, opts)
+       when is_binary(archive) do
+    if opts[:remote], do: Hex.status(plan, bundle, metadata, opts), else: :not_checked
+  rescue
+    Error -> :unavailable
+  end
+
+  defp remote_status(_plan, _bundle, _metadata, _opts), do: :not_applicable
 
   defp empty_status(plan, state, reasons, current_revision, warnings, identity \\ nil) do
     %{
@@ -364,7 +374,6 @@ defmodule Weld.ReleaseStatus do
       archive_sha256: nil,
       project_sha256: nil,
       docs_sha256: nil,
-      publish_workspace: :none,
       archived: false,
       projection: projection_status(plan, identity, nil),
       warnings: warnings
@@ -381,32 +390,8 @@ defmodule Weld.ReleaseStatus do
       bundle: identity && Path.join(releases, identity),
       live_project: Path.join([root, "live", artifact]),
       full_project: Path.join([root, "full", artifact, "project"]),
-      publish_project: identity && Path.join([root, "publish", artifact, identity, "project"]),
       archive: identity && Path.join([root, "archive", artifact, identity])
     }
-  end
-
-  defp publish_workspace_state(plan, identity, metadata) do
-    project =
-      Output.path(plan.manifest.repo_root, ["publish", plan.artifact.id, identity, "project"])
-
-    if File.dir?(project) do
-      integrity = metadata["integrity"] || %{}
-
-      try do
-        Output.reject_tree_links!(project)
-
-        if valid_project?(project, metadata, integrity) do
-          :clean
-        else
-          :dirty
-        end
-      rescue
-        Error -> :dirty
-      end
-    else
-      :none
-    end
   end
 
   defp archived?(plan, identity) do
@@ -497,9 +482,7 @@ defmodule Weld.ReleaseStatus do
     digest == actual
   end
 
-  defp valid_lock?(_project, _metadata), do: true
-
-  defp match_identity?(_path, nil), do: true
+  defp valid_lock?(_project, _metadata), do: false
 
   defp match_identity?(path, expected) do
     File.dir?(path) and Hash.content_identity(path) == expected
@@ -511,8 +494,6 @@ defmodule Weld.ReleaseStatus do
 
   defp valid_archive?(path, nil, _name, nil), do: not File.exists?(path)
   defp valid_archive?(_path, _recorded, _expected, _digest), do: false
-
-  defp valid_docs?(_path, nil), do: true
 
   defp valid_docs?(path, integrity) do
     File.dir?(path) and Hash.sha256_tree(path) == integrity["docs_sha256"]

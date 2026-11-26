@@ -3,6 +3,7 @@ defmodule Weld.Git do
   Thin Git CLI wrapper used for affected-file resolution and release metadata.
   """
 
+  alias Weld.Core.Inventory
   alias Weld.Error
 
   @spec changed_files(Path.t(), String.t(), String.t()) :: [String.t()]
@@ -32,7 +33,7 @@ defmodule Weld.Git do
         unless mode in ["100644", "100755"],
           do: raise(Error, "unsupported Git tree entry #{relative}")
 
-        Weld.Core.Inventory.validate_path!(relative)
+        Inventory.validate_path!(relative)
         file = Path.join(directory, relative)
         File.mkdir_p!(Path.dirname(file))
         {bytes, 0} = System.cmd("git", ["cat-file", "blob", oid], cd: root)

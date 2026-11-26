@@ -8,6 +8,8 @@ defmodule Weld.Verifier do
   alias Weld.Lockfile
   alias Weld.Plan
   alias Weld.Projector
+  alias Weld.Shell.Hex
+  alias Weld.Shell.Runner
   alias Weld.SmokeApp
 
   @spec verify!(Plan.t(), keyword()) :: map()
@@ -15,9 +17,7 @@ defmodule Weld.Verifier do
     Weld.Output.with_lock(plan.manifest.repo_root, fn -> verify_locked!(plan, opts) end)
   end
 
-  def verify_locked!(plan, opts) do
-    projection = Projector.project_locked!(plan, Keyword.put(opts, :live, false))
-
+  def verify_locked!(plan, _opts) do
     run_root =
       Weld.Output.path(plan.manifest.repo_root, [
         "runs",
@@ -26,19 +26,11 @@ defmodule Weld.Verifier do
       ])
 
     build_path = Path.join(run_root, "project")
-    File.mkdir_p!(run_root)
-    Weld.Output.reject_tree_links!(projection.build_path)
-    File.cp_r!(projection.build_path, build_path)
-
-    projection = %{
-      projection
-      | build_path: build_path,
-        lockfile_path: Path.join(build_path, "projection.lock.json")
-    }
-
+    File.mkdir_p!(build_path)
     File.write!(Path.join(run_root, "ACTIVE"), "weld.verify/2\n", [:exclusive])
 
     try do
+      projection = Projector.materialize_verification!(plan, build_path)
       verify_projection!(plan, projection, build_path)
     after
       File.rm(Path.join(run_root, "ACTIVE"))
@@ -51,8 +43,7 @@ defmodule Weld.Verifier do
 
     workspace = {build_path, cache_root(plan, build_path)}
     # Resolve once, then require the same lock for the remaining gates.
-    run_mix!(workspace, :dev, ["deps.get"])
-    run_mix!(workspace, :test, ["deps.get"])
+    resolution = for env <- [:dev, :test], do: run_mix!(workspace, env, ["deps.get"])
     lock_path = Path.join(build_path, "mix.lock")
     lock = if File.regular?(lock_path), do: Hash.sha256_file(lock_path)
     verification_results = verify_by_mode!(plan, workspace)
@@ -62,7 +53,7 @@ defmodule Weld.Verifier do
     hex_results = verify_hex!(plan, workspace)
     ensure_lock!(lock_path, lock)
     ensure_verification_inputs!(projection, input_identity, package_identity)
-    verification_results = verification_results ++ hex_results
+    verification_results = resolution ++ verification_results ++ hex_results
     projection = finalize_projection_identity!(projection)
 
     lockfile =
@@ -70,6 +61,7 @@ defmodule Weld.Verifier do
         plan,
         projection
         |> Map.drop([:lockfile_path])
+        |> Map.put(:build_path, ".")
         |> Map.put(:verification_input_identity, input_identity),
         verification_results
       )
@@ -78,8 +70,10 @@ defmodule Weld.Verifier do
 
     tarball_path = tarball_path_for(plan, build_path, hex_results)
 
-    if tarball_path,
-      do: Weld.Shell.Hex.check_package!(tarball_path, build_path, projection.package_files)
+    if tarball_path do
+      files = Hash.package_members(build_path, package_patterns(projection))
+      Hex.check_package!(tarball_path, build_path, files, plan.artifact.package)
+    end
 
     %{
       build_path: build_path,
@@ -195,15 +189,37 @@ defmodule Weld.Verifier do
     baseline ++ results ++ smoke_results
   end
 
-  defp verify_hex!(plan, workspace) do
+  defp verify_hex!(plan, {project, cache} = workspace) do
     %{hex_build: build?, hex_publish: publish?} = plan.artifact.verify
+    build = maybe_run_mix!(workspace, :dev, ["hex.build"], build?, reason: :artifact_opted_out)
 
-    [
-      maybe_run_mix!(workspace, :dev, ["hex.build"], build?, reason: :artifact_opted_out),
-      maybe_run_mix!(workspace, :dev, ["hex.publish", "--dry-run", "--yes"], build? and publish?,
-        reason: if(build?, do: :artifact_opted_out, else: :hex_build_disabled)
-      )
-    ]
+    preflight =
+      if build? and publish? do
+        scratch = Path.join(Path.dirname(project), "hex-preflight")
+        File.cp_r!(project, scratch)
+        archive_name = "#{plan.artifact.package.name}-#{plan.artifact.package.version}.tar"
+        rebuilt = Path.join(scratch, archive_name)
+        File.rm!(rebuilt)
+
+        try do
+          result = run_mix!({scratch, cache}, :dev, ["hex.publish", "--dry-run", "--yes"])
+
+          if File.exists?(rebuilt) and
+               Hash.sha256_file(rebuilt) != Hash.sha256_file(Path.join(project, archive_name)) do
+            raise Error, "Hex preflight rebuilt a different package archive"
+          end
+
+          result
+        after
+          File.rm_rf!(scratch)
+        end
+      else
+        maybe_run_mix!(workspace, :dev, ["hex.publish", "--dry-run", "--yes"], false,
+          reason: if(build?, do: :artifact_opted_out, else: :hex_build_disabled)
+        )
+      end
+
+    [build, preflight]
   end
 
   defp cache_root(plan, build_path) do
@@ -228,7 +244,7 @@ defmodule Weld.Verifier do
     started = System.monotonic_time(:millisecond)
 
     {output, status} =
-      System.cmd("mix", args, cd: build_path, env: env_vars, stderr_to_stdout: true)
+      Runner.run!("mix", args, cd: build_path, env: env_vars, seconds: 300)
 
     if status != 0 do
       raise Error,
@@ -270,7 +286,7 @@ defmodule Weld.Verifier do
         run_mix!({project_root, cache}, :test, ["deps.get"])
 
         {output, status} =
-          System.cmd("mix", ["test"],
+          Runner.run!("mix", ["test", "--warnings-as-errors"],
             cd: project_root,
             env: [
               {"MIX_ENV", "test"},
@@ -281,7 +297,7 @@ defmodule Weld.Verifier do
               {"MIX_BUILD_ROOT", Path.join(cache, "build")},
               {"MIX_DEPS_PATH", Path.join(cache, "deps")}
             ],
-            stderr_to_stdout: true
+            seconds: 300
           )
 
         if status != 0 do

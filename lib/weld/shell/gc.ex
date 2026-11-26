@@ -11,26 +11,25 @@ defmodule Weld.Shell.GC do
       do: raise(Weld.Error, "--keep must be a non-negative integer")
 
     repo_root = Output.checkout(repo_root)
-    publish_root = Output.path(repo_root, ["publish"])
+    runs_root = Output.path(repo_root, ["runs"])
 
     cond do
-      not File.dir?(publish_root) ->
+      not File.dir?(runs_root) ->
         report(repo_root, dry_run?, [], [], [])
 
       dry_run? ->
-        prune_runs(repo_root, publish_root, keep, true)
+        prune_runs(repo_root, runs_root, keep, true)
 
       true ->
-        Output.with_lock(repo_root, fn -> prune_runs(repo_root, publish_root, keep, false) end)
+        Output.with_lock(repo_root, fn -> prune_runs(repo_root, runs_root, keep, false) end)
     end
   end
 
-  defp prune_runs(repo_root, publish_root, keep, dry_run?) do
+  defp prune_runs(repo_root, runs_root, keep, dry_run?) do
     runs =
-      for artifact <- directories(publish_root),
-          identity <- directories(artifact),
-          run <- directories(identity),
-          String.starts_with?(Path.basename(run), "run-"),
+      for artifact <- directories(runs_root),
+          run <- directories(artifact),
+          String.starts_with?(Path.basename(run), ["verify-", "stage-"]),
           do: run
 
     {active, completed} =
@@ -38,7 +37,7 @@ defmodule Weld.Shell.GC do
 
     {kept, removed} =
       completed
-      |> Enum.group_by(fn path -> path |> Path.dirname() |> Path.dirname() end)
+      |> Enum.group_by(&Path.dirname/1)
       |> Enum.sort()
       |> Enum.reduce({[], []}, fn {_artifact, paths}, {kept, removed} ->
         {recent, old} =

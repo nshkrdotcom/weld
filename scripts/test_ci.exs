@@ -38,7 +38,7 @@ try do
       Blitz.command(
         id: name,
         command: "mix",
-        args: ["test", "--no-compile" | args],
+        args: ["test", "--no-compile", "--warnings-as-errors" | args],
         env: %{
           "WELD_CI_BUILD_ROOT" => build_root,
           "ERL_CRASH_DUMP" => Path.join(build_root, "erl_crash.dump"),

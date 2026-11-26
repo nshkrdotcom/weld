@@ -45,7 +45,6 @@ defmodule Weld.MixProject do
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:hex_core, "~> 0.21.1"},
       {:jason, "~> 1.4"},
-      {:multigraph, "~> 0.16.1-mg.3"},
       {:nimble_options, "~> 1.1"},
       {:telemetry, "~> 1.4"}
     ]

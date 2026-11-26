@@ -1,17 +1,14 @@
 defmodule Weld.ReleasePlanTest do
   use ExUnit.Case, async: false
 
-  import ExUnit.CaptureIO
-
-  alias Mix.Tasks.Weld.Release.Plan, as: ReleasePlan
-  alias Weld.{FixtureCase, Manifest}
+  alias Weld.{CLI, Error, FixtureCase, Manifest}
+  alias Weld.Core.ReleaseOrder, as: ReleasePlan
 
   test "release plans use resolved dependencies and the manifest root outside Git" do
     manifest = coordinated_manifest!()
 
-    report =
-      capture_io(fn -> ReleasePlan.run([manifest, "--format", "json"]) end)
-      |> Jason.decode!()
+    assert {:ok, report} = Weld.run(CLI.parse!("release-plan", ["--manifest", manifest]))
+    report = CLI.json_value(report)
 
     assert Enum.map(report["order"], & &1["package"]) == ["base_package", "extension"]
 
@@ -32,12 +29,11 @@ defmodule Weld.ReleasePlanTest do
     raw = put_in(raw, [:artifacts, :base, :package, :version], "0.3.0")
     File.write!(manifest, inspect(raw, pretty: true, limit: :infinity))
 
-    assert_raise Mix.Error, ~r/Unsatisfied version constraints/, fn ->
-      capture_io(fn -> ReleasePlan.run([manifest, "--format", "json"]) end)
-    end
+    assert {:error, [%{message: "unsatisfied release version constraints"}]} =
+             Weld.run(CLI.parse!("release-plan", ["--manifest", manifest]))
 
-    json = capture_io(fn -> ReleasePlan.run([manifest, "--no-check", "--format", "json"]) end)
-    assert [%{"satisfied" => false}] = Jason.decode!(json)["constraints"]
+    assert {:ok, %{constraints: [%{satisfied: false}]}} =
+             Weld.run(CLI.parse!("release-plan", ["--manifest", manifest, "--no-check"]))
   end
 
   test "release ordering rejects cycles instead of reporting an impossible order" do
@@ -48,7 +44,7 @@ defmodule Weld.ReleasePlanTest do
       %{package: "b", dependency: "a"}
     ]
 
-    assert_raise Mix.Error, ~r/cycle/, fn -> ReleasePlan.order(artifacts, constraints) end
+    assert_raise Error, ~r/cycle/, fn -> ReleasePlan.order(artifacts, constraints) end
   end
 
   test "release ordering is deterministic across diamonds and independent packages" do
@@ -66,7 +62,7 @@ defmodule Weld.ReleasePlanTest do
   end
 
   test "duplicate publication package identities are rejected" do
-    assert_raise Mix.Error, ~r/duplicate.*package/i, fn ->
+    assert_raise Error, ~r/duplicate.*package/i, fn ->
       ReleasePlan.order([%{package: "same"}, %{package: "same"}], [])
     end
   end
@@ -81,7 +77,7 @@ defmodule Weld.ReleasePlanTest do
     ]
 
     constraints = ReleasePlan.constraints(artifacts)
-    assert_raise Mix.Error, ~r/cycle/, fn -> ReleasePlan.order(artifacts, constraints) end
+    assert_raise Error, ~r/cycle/, fn -> ReleasePlan.order(artifacts, constraints) end
   end
 
   defp coordinated_manifest! do

@@ -334,24 +334,47 @@ defmodule Weld.Output do
 
   def activate!(stage, target, valid_existing?) do
     File.mkdir_p!(Path.dirname(target))
+    previous = target <> ".weld-previous"
+    recover_activation!(target, previous, valid_existing?)
     reject_link!(target)
 
     if File.exists?(target) do
       unless valid_existing?.(target), do: raise(Error, "unmanaged output: #{target}")
-      previous = stage <> "-previous"
       File.rename!(target, previous)
+    end
 
-      try do
-        File.rename!(stage, target)
-      rescue
-        error ->
-          File.rename!(previous, target)
-          reraise error, __STACKTRACE__
-      end
+    try do
+      File.rename!(stage, target)
+    rescue
+      error ->
+        recover_activation!(target, previous, valid_existing?)
+        reraise error, __STACKTRACE__
+    end
 
+    if File.dir?(previous), do: File.rm_rf!(previous)
+  end
+
+  # The managed backup name records that an earlier activation reached its
+  # first rename. With a target present, the new view already took its place.
+  defp recover_activation!(target, previous, valid_existing?) do
+    reject_link!(previous)
+
+    if File.exists?(previous) do
+      unless valid_existing?.(previous),
+        do: raise(Error, "unmanaged activation backup: #{previous}")
+
+      reject_link!(target)
+
+      restore_or_clean_backup!(target, previous, valid_existing?)
+    end
+  end
+
+  defp restore_or_clean_backup!(target, previous, valid_existing?) do
+    if File.exists?(target) do
+      unless valid_existing?.(target), do: raise(Error, "unmanaged output: #{target}")
       File.rm_rf!(previous)
     else
-      File.rename!(stage, target)
+      File.rename!(previous, target)
     end
   end
 

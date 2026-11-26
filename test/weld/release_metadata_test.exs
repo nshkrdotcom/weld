@@ -26,8 +26,8 @@ defmodule Weld.ReleaseMetadataTest do
              :credo,
              :dialyxir,
              :ex_doc,
+             :hex_core,
              :jason,
-             :multigraph,
              :nimble_options,
              :telemetry
            ]

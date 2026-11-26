@@ -49,11 +49,7 @@ defmodule Mix.Tasks.Weld do
     IO.puts(Jason.encode!(Weld.CLI.json_value(envelope)))
 
     unless ok,
-      do:
-        exit(
-          {:shutdown,
-           if(is_map(data) && data[:partial_failure], do: 5, else: if(data, do: 4, else: 3))}
-        )
+      do: exit({:shutdown, failure_status(data, diagnostics)})
   end
 
   defp emit("path", _, {:ok, %{path: path}}), do: IO.puts(path)
@@ -66,8 +62,16 @@ defmodule Mix.Tasks.Weld do
 
   defp emit(_, _, {:error, diagnostics}) do
     Enum.each(diagnostics, &IO.puts(:stderr, "#{&1.code}: #{&1.message}"))
-    exit({:shutdown, 3})
+    exit({:shutdown, failure_status(nil, diagnostics)})
   end
+
+  defp failure_status(%{partial_failure: true}, _), do: 5
+  defp failure_status(%{}, _), do: 4
+
+  defp failure_status(nil, [%{code: code} | _])
+       when code in [:invalid_arguments, :invalid_request], do: 2
+
+  defp failure_status(nil, _), do: 3
 
   defp failed?(data) when is_map(data),
     do: data[:partial_failure] == true or data[:state] in ["unknown", "conflict"]

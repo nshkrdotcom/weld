@@ -22,11 +22,11 @@ defmodule Weld.WorkspaceTest do
     assert workspace.projects["runtime/api"].test_paths == ["test/fixture"]
   end
 
-  test "discovers projects from blitz_workspace when the root has a mix.exs" do
+  test "discovers projects from explicit manifest globs when the root has a mix.exs" do
     manifest = Manifest.load!(FixtureCase.manifest_path("root_workspace", "artifacts"))
     workspace = Workspace.load!(manifest)
 
-    assert workspace.discovery.source == :blitz_workspace
+    assert workspace.discovery.source == :manifest
     assert workspace.discovery.root_project?
 
     assert Map.keys(workspace.projects) == [
@@ -47,7 +47,7 @@ defmodule Weld.WorkspaceTest do
       manifest = Manifest.load!(manifest_path)
       workspace = Workspace.load!(manifest)
 
-      assert workspace.discovery.source == :blitz_workspace
+      assert workspace.discovery.source == :manifest
       assert Map.has_key?(workspace.projects, ".")
     end)
   end
@@ -79,6 +79,56 @@ defmodule Weld.WorkspaceTest do
                "tooling/test_support"
              ]
     end)
+  end
+
+  test "explicit dot directories and overlapping globs are detected before probing" do
+    root = FixtureCase.copy_fixture("root_workspace")
+    manifest = Manifest.load!(Path.join(root, "packaging/weld/artifacts.exs"))
+    hidden = Path.join(root, ".nested/hidden")
+    File.mkdir_p!(hidden)
+    File.write!(Path.join(hidden, "mix.exs"), "# discovery only")
+    globs = manifest.workspace.project_globs ++ [".nested/*"]
+    manifest = put_in(manifest.workspace.project_globs, globs)
+
+    assert ".nested/hidden" in Workspace.Discovery.discover(manifest).project_ids
+
+    manifest = put_in(manifest.workspace.project_globs, globs ++ [".nested/hidden"])
+
+    assert_raise Weld.Error, ~r/globs overlap at .nested\/hidden/, fn ->
+      Workspace.Discovery.discover(manifest)
+    end
+  end
+
+  test "Mix probes isolate same-named projects and evaluate the test environment" do
+    path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    manifest = Manifest.load!(path)
+
+    for {dir, app} <- [
+          {"core/contracts", :fixture_contracts},
+          {"runtime/local", :fixture_runtime}
+        ] do
+      File.write!(Path.join([manifest.repo_root, dir, "mix.exs"]), """
+      defmodule WeldFixture.IsolatedProject do
+        use Mix.Project
+        @env Mix.env()
+        def project do
+          [app: #{inspect(app)}, version: "0.1.0",
+           test_paths: if(@env == :test, do: ["test/isolated"], else: ["wrong-env"])]
+        end
+      end
+      """)
+    end
+
+    parent_project = Mix.Project.get()
+    parent_env = Mix.env()
+    workspace = Workspace.load!(manifest)
+
+    assert workspace.projects["core/contracts"].app == :fixture_contracts
+    assert workspace.projects["runtime/local"].app == :fixture_runtime
+    assert workspace.projects["runtime/local"].test_paths == ["test/isolated"]
+    assert Mix.Project.get() == parent_project
+    assert Mix.env() == parent_env
+    refute Code.ensure_loaded?(WeldFixture.IsolatedProject)
   end
 
   defp purge_module(module) do

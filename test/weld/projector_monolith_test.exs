@@ -44,8 +44,8 @@ defmodule Weld.ProjectorMonolithTest do
     assert ".formatter.exs" in result.package_files
     assert "CHANGELOG.md" in result.package_files
     assert "assets/monolith_bundle.svg" in result.package_files
-    assert "guides" in result.package_files
-    refute "guides/release.md" in result.package_files
+    assert "guides/release.md" in result.package_files
+    refute "guides" in result.package_files
     assert mixfile =~ "\".formatter.exs\""
     assert mixfile =~ "\"CHANGELOG.md\""
     assert mixfile =~ "\"assets/monolith_bundle.svg\""

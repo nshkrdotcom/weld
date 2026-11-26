@@ -6,6 +6,7 @@ defmodule Weld.Core.Manifest do
   Mix metadata (including preserve package identity) are supplied by the shell.
   """
 
+  alias Weld.Core.Inventory
   alias Weld.Error
 
   @roles ~w(runtime compiled native test docs metadata generation)a
@@ -123,12 +124,23 @@ defmodule Weld.Core.Manifest do
     if Enum.any?(a[:external], &(&1 in (a[:roots] ++ a[:include]))),
       do: raise(Error, "external boundary overlaps roots/includes")
 
-    verify = validate!(a[:verify], @verify, "#{name}.verify")
+    verify = verification!(a[:verify], a[:layout], name)
+
+    a =
+      a
+      |> Keyword.put(:verify, verify)
+      |> Keyword.update!(:inputs, &Enum.map(&1, fn d -> declaration!(d, false) end))
+
+    layout_options!(a[:layout], a, name)
+  end
+
+  defp verification!(raw_verify, layout, name) do
+    verify = validate!(raw_verify, @verify, "#{name}.verify")
 
     if not verify[:hex_build] and verify[:hex_publish_check],
       do: raise(Error, "hex_publish_check requires hex_build")
 
-    if verify[:component_tests] and a[:layout] != :components,
+    if verify[:component_tests] and layout != :components,
       do: raise(Error, "component_tests requires components layout")
 
     smoke =
@@ -136,72 +148,67 @@ defmodule Weld.Core.Manifest do
         do:
           validate!(verify[:smoke], [entry_file: [type: :string, required: true]], "verify.smoke")
 
-    verify = Keyword.put(verify, :smoke, smoke)
+    Keyword.put(verify, :smoke, smoke)
+  end
 
-    a =
-      a
-      |> Keyword.put(:verify, verify)
-      |> Keyword.update!(:inputs, &Enum.map(&1, fn d -> declaration!(d, false) end))
+  defp layout_options!(:preserve, a, name) do
+    forbid!(a, [:package, :docs, :files, :flat], name)
 
-    case a[:layout] do
-      :preserve ->
-        forbid!(a, [:package, :docs, :files, :flat], name)
+    unless length(a[:roots]) == 1 and a[:include] == [] and a[:features] == [],
+      do: raise(Error, "preserve requires one root and no include/features")
 
-        unless length(a[:roots]) == 1 and a[:include] == [] and a[:features] == [],
-          do: raise(Error, "preserve requires one root and no include/features")
+    preserve =
+      validate!(
+        a[:preserve] || [],
+        [
+          files: [type: {:list, :string}, required: true],
+          inputs: [type: {:list, :keyword_list}, default: []]
+        ],
+        "#{name}.preserve"
+      )
 
-        preserve =
-          validate!(
-            a[:preserve] || [],
-            [
-              files: [type: {:list, :string}, required: true],
-              inputs: [type: {:list, :keyword_list}, default: []]
-            ],
-            "#{name}.preserve"
-          )
+    unique_nonempty!(preserve[:files], "preserve.files")
+    Enum.each(preserve[:files], &safe_path!(&1, false))
 
-        unique_nonempty!(preserve[:files], "preserve.files")
-        Enum.each(preserve[:files], &safe_path!(&1, false))
+    Keyword.put(
+      a,
+      :preserve,
+      Keyword.update!(preserve, :inputs, &Enum.map(&1, fn d -> declaration!(d, false) end))
+    )
+  end
 
-        Keyword.put(
-          a,
-          :preserve,
-          Keyword.update!(preserve, :inputs, &Enum.map(&1, fn d -> declaration!(d, false) end))
-        )
+  defp layout_options!(layout, a, name) do
+    forbid!(a, [:preserve] ++ if(layout == :components, do: [:flat], else: []), name)
+    package = validate!(a[:package] || [], @package, "#{name}.package")
 
-      layout ->
-        forbid!(a, [:preserve] ++ if(layout == :components, do: [:flat], else: []), name)
-        package = validate!(a[:package] || [], @package, "#{name}.package")
+    files =
+      validate!(
+        a[:files] || [],
+        [
+          docs: [type: {:list, :string}, default: []],
+          assets: [type: {:list, :string}, default: []]
+        ],
+        "#{name}.files"
+      )
 
-        files =
-          validate!(
-            a[:files] || [],
-            [
-              docs: [type: {:list, :string}, default: []],
-              assets: [type: {:list, :string}, default: []]
-            ],
-            "#{name}.files"
-          )
+    Enum.each(files[:docs] ++ files[:assets], &safe_path!(&1, false))
 
-        Enum.each(files[:docs] ++ files[:assets], &safe_path!(&1, false))
+    flat =
+      validate!(
+        a[:flat] || [],
+        [
+          readme: [type: :string],
+          shared_test_configs: [type: {:list, :string}, default: []],
+          extra_test_deps: [type: {:list, :atom}, default: []],
+          test_support: [type: {:list, :string}, default: []]
+        ],
+        "#{name}.flat"
+      )
 
-        flat =
-          validate!(
-            a[:flat] || [],
-            [
-              readme: [type: :string],
-              shared_test_configs: [type: {:list, :string}, default: []],
-              extra_test_deps: [type: {:list, :atom}, default: []],
-              test_support: [type: {:list, :string}, default: []]
-            ],
-            "#{name}.flat"
-          )
-
-        a
-        |> Keyword.put(:package, package)
-        |> Keyword.put(:files, files)
-        |> Keyword.put(:flat, flat)
-    end
+    a
+    |> Keyword.put(:package, package)
+    |> Keyword.put(:files, files)
+    |> Keyword.put(:flat, flat)
   end
 
   defp declaration!(raw, project?) do
@@ -269,7 +276,7 @@ defmodule Weld.Core.Manifest do
   defp safe_path!(".", true), do: :ok
 
   defp safe_path!(path, _) do
-    Weld.Core.Inventory.validate_path!(path)
+    Inventory.validate_path!(path)
     :ok
   end
 

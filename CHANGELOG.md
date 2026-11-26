@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add `package.docs.hook_file` and `Weld.docs_options!/2` so a single checked-in
+- Add `package.docs.hook_file` and Weld.docs_options!/2 so a single checked-in
   HTML file can own the ExDoc `before_closing_body_tag` hook across both the
   source checkout's `mix docs` and projected builds.
 - Add `Weld.DocsSmoke` and `mix weld.docs.check` to verify generated ExDoc HTML

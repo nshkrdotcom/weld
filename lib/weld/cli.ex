@@ -1,6 +1,22 @@
 defmodule Weld.CLI do
   @moduledoc false
-  alias Weld.{Commands, Error, Git, Manifest, Output, Plan, Projector}
+  alias Weld.{
+    Commands,
+    Error,
+    Git,
+    Manifest,
+    Output,
+    Plan,
+    Projector,
+    Release,
+    ReleaseStatus,
+    Verifier,
+    Workspace
+  }
+
+  alias Weld.Core.ReleaseOrder
+  alias Weld.Shell.Diff
+  alias Weld.Shell.GC
 
   @common [manifest: :string, root: :string, format: :string, verbose: :boolean, help: :boolean]
   @selection [artifact: :string, all: :boolean]
@@ -48,6 +64,15 @@ defmodule Weld.CLI do
     "recover" => {0, [lease: :string]}
   }
   @batch ~w(plan project verify prepare archive affected)
+  @views %{
+    "all" => :all,
+    "runtime" => :runtime,
+    "compile" => :compile,
+    "docs" => :docs,
+    "test" => :test,
+    "package" => :package,
+    "smoke" => :smoke
+  }
 
   def help,
     do:
@@ -91,12 +116,29 @@ defmodule Weld.CLI do
     {arity, flags} = Map.get(@registry, command) || raise(Error, "unknown command: #{command}")
     unless valid_arity?(arity, args), do: raise(Error, "invalid command arguments")
 
-    unless Enum.all?(Keyword.keys(opts), &Keyword.has_key?(@common ++ flags, &1)),
-      do: raise(Error, "unsupported command option")
+    unless Enum.all?(opts, &typed_option?(&1, @common ++ flags)),
+      do: raise(Error, "unsupported command option or value")
 
     validate!(command, opts)
-    result = dispatch(command, args, opts)
-    {:ok, result}
+    dispatch_result(command, args, opts)
+  rescue
+    error in [Error, ArgumentError] ->
+      {:error, [diagnostic(:invalid_arguments, Exception.message(error))]}
+  end
+
+  def execute(_, _), do: {:error, [diagnostic(:invalid_request, "expected command request map")]}
+
+  defp typed_option?({name, value}, flags) do
+    case flags[name] do
+      :string -> is_binary(value)
+      :boolean -> is_boolean(value)
+      :integer -> is_integer(value)
+      nil -> false
+    end
+  end
+
+  defp dispatch_result(command, args, opts) do
+    {:ok, dispatch(command, args, opts)}
   rescue
     error in [
       Error,
@@ -109,47 +151,70 @@ defmodule Weld.CLI do
       {:error, [diagnostic(:operation_failed, Exception.message(error))]}
   end
 
-  def execute(_, _), do: {:error, [diagnostic(:invalid_request, "expected command request map")]}
-
   defp validate!(command, opts) do
     if opts[:artifact] && opts[:all],
       do: raise(Error, "--artifact and --all are mutually exclusive")
 
-    if opts[:identity] && opts[:current],
-      do: raise(Error, "--identity and --current are mutually exclusive")
+    validate_pin!(command, opts)
+    validate_context!(opts)
+    validate_command_options!(command, opts)
+  end
 
-    if opts[:identity] && not Regex.match?(~r/\A[0-9a-f]{64}\z/, opts[:identity]),
+  defp validate_pin!(command, opts) do
+    identity = opts[:identity]
+    if identity, do: validate_identity!(identity, opts)
+
+    if command in ~w(track stage publish archive) and is_nil(identity) and opts[:current] != true,
+      do: raise(Error, "pass --identity ID or --current explicitly")
+  end
+
+  defp validate_identity!(identity, opts) do
+    unless Regex.match?(~r/\A[0-9a-f]{64}\z/, identity),
       do: raise(Error, "identity must be 64 lower-hex characters")
 
-    if opts[:identity] && opts[:all], do: raise(Error, "identity requires one artifact")
+    if opts[:current], do: raise(Error, "--identity and --current are mutually exclusive")
+    if opts[:all], do: raise(Error, "identity requires one artifact")
+  end
 
-    if command in ~w(track stage publish archive) and is_nil(opts[:identity]) and
-         opts[:current] != true, do: raise(Error, "pass --identity ID or --current explicitly")
-
+  defp validate_context!(opts) do
     if opts[:fresh] && opts[:reuse],
       do: raise(Error, "--fresh and --reuse are mutually exclusive")
 
     if opts[:reuse] && opts[:context] && opts[:reuse] != opts[:context],
       do: raise(Error, "reuse context mismatch")
+  end
 
+  defp validate_command_options!(command, opts) do
     formats = if command == "graph", do: ~w(text json dot), else: ~w(text json)
-    if (opts[:format] || "text") not in formats, do: raise(Error, "unsupported format")
+    format = opts[:format] || "text"
+    if format not in formats, do: raise(Error, "unsupported format")
 
     if opts[:apply] && opts[:dry_run],
       do: raise(Error, "--apply and --dry-run are mutually exclusive")
 
-    if command == "affected" and
-         (is_nil(opts[:base]) or is_nil(opts[:head]) or
-            opts[:task] not in ~w(verify package docs project release)),
-       do: raise(Error, "affected requires --base, --head and --task")
+    if opts[:view] && not Map.has_key?(@views, opts[:view]),
+      do: raise(Error, "unsupported graph view")
 
-    :ok
+    validate_affected!(command, opts)
   end
+
+  defp validate_affected!("affected", opts) do
+    if is_nil(opts[:base]) or is_nil(opts[:head]) or
+         opts[:task] not in ~w(verify package docs project release),
+       do: raise(Error, "affected requires --base, --head and --task")
+  end
+
+  defp validate_affected!(_, _), do: :ok
 
   defp root(opts), do: Path.expand(opts[:root] || Git.root(File.cwd!()) || File.cwd!())
 
   defp manifest(opts) do
-    path = Path.expand(opts[:manifest] || "build_support/weld.exs", root(opts))
+    path =
+      case opts[:manifest] do
+        nil -> Path.join(root(opts), "build_support/weld.exs")
+        override -> Path.expand(override)
+      end
+
     unless File.regular?(path), do: raise(Error, "manifest not found: #{path}; use --manifest")
 
     if opts[:root] && Manifest.load!(path).repo_root != root(opts),
@@ -171,7 +236,7 @@ defmodule Weld.CLI do
   defp dispatch("lint", _, opts), do: unwrap!(Weld.AgentsVerifier.verify(root(opts)))
 
   defp dispatch("gc", _, opts),
-    do: Weld.Shell.GC.prune(root(opts), keep: opts[:keep] || 2, dry_run: opts[:apply] != true)
+    do: GC.prune(root(opts), keep: opts[:keep] || 2, dry_run: opts[:apply] != true)
 
   defp dispatch("recover", _, opts), do: Weld.Output.recovery_report(root(opts))
 
@@ -187,15 +252,17 @@ defmodule Weld.CLI do
 
   defp dispatch("verify-tag", [tag], opts) do
     location = if opts[:manifest], do: Manifest.load!(manifest(opts)).repo_root, else: root(opts)
-    Weld.ReleaseStatus.verify_tag(location, tag, opts)
+    ReleaseStatus.verify_tag(location, tag, opts)
   end
 
   defp dispatch("release-plan", _, opts) do
-    path = manifest(opts)
+    manifest = Manifest.load!(manifest(opts))
+    workspace = Workspace.load!(manifest)
 
     artifacts =
-      for id <- Commands.artifact_ids!(path) do
-        plan = path |> Plan.build!(artifact: id) |> Plan.ensure_valid!()
+      for id <- manifest.artifacts |> Map.keys() |> Enum.sort() do
+        plan =
+          manifest |> Plan.build_from_workspace!(workspace, artifact: id) |> Plan.ensure_valid!()
 
         %{
           artifact: id,
@@ -205,7 +272,7 @@ defmodule Weld.CLI do
         }
       end
 
-    constraints = Weld.Core.ReleaseOrder.constraints(artifacts)
+    constraints = ReleaseOrder.constraints(artifacts)
 
     if Keyword.get(opts, :check, true) and Enum.any?(constraints, &(not &1.satisfied)),
       do: raise(Error, "unsatisfied release version constraints")
@@ -213,15 +280,13 @@ defmodule Weld.CLI do
     %{
       order:
         artifacts
-        |> Weld.Core.ReleaseOrder.order(constraints)
+        |> ReleaseOrder.order(constraints)
         |> Enum.map(&Map.delete(&1, :dependencies)),
       constraints: constraints
     }
   end
 
   defp dispatch("status", _, opts) do
-    if opts[:remote], do: raise(Error, "remote status requires a qualified remote adapter")
-
     Commands.release_status!(manifest(opts), opts)
     |> List.wrap()
     |> Enum.map(&with_next_command/1)
@@ -231,43 +296,76 @@ defmodule Weld.CLI do
     path = manifest(opts)
 
     if command in @batch && (opts[:all] || (command == "affected" && is_nil(opts[:artifact]))) do
-      revision = Git.revision(Manifest.load!(path).repo_root)
-
-      results =
-        for id <- Commands.artifact_ids!(path) do
-          if Git.revision(Manifest.load!(path).repo_root) != revision,
-            do: raise(Error, "source changed during batch")
-
-          case execute(
-                 %{
-                   command: command,
-                   arguments: args,
-                   options: opts |> Keyword.delete(:all) |> Keyword.put(:artifact, id)
-                 },
-                 []
-               ) do
-            {:ok, result} -> %{artifact: id, ok: true, data: result}
-            {:error, diagnostics} -> %{artifact: id, ok: false, diagnostics: diagnostics}
-          end
-        end
-
-      %{results: results, partial_failure: Enum.any?(results, &(not &1.ok))}
+      dispatch_batch(command, args, Manifest.load!(path), opts)
     else
       one(command, args, path, opts)
     end
   end
 
+  defp dispatch_batch(command, args, manifest, opts) do
+    revision = Git.revision(manifest.repo_root)
+    workspace = if command == "affected", do: nil, else: Workspace.load!(manifest)
+
+    results =
+      for id <- manifest.artifacts |> Map.keys() |> Enum.sort() do
+        if Git.revision(manifest.repo_root) != revision,
+          do: raise(Error, "source changed during batch")
+
+        options = opts |> Keyword.delete(:all) |> Keyword.put(:artifact, id)
+        batch_entry(command, args, manifest, workspace, options)
+      end
+
+    %{results: results, partial_failure: Enum.any?(results, &(not &1.ok))}
+  end
+
+  defp batch_entry(command, args, manifest, workspace, opts) do
+    result =
+      if command == "affected",
+        do: one(command, args, manifest.manifest_path, opts),
+        else: run_from_plan(command, Plan.build_from_workspace!(manifest, workspace, opts), opts)
+
+    %{artifact: opts[:artifact], ok: true, data: result}
+  rescue
+    error in [Error, ArgumentError, File.Error, File.RenameError, KeyError, Mix.Error] ->
+      %{
+        artifact: opts[:artifact],
+        ok: false,
+        diagnostics: [diagnostic(:operation_failed, Exception.message(error))]
+      }
+  end
+
+  defp run_from_plan("plan", plan, _opts), do: Commands.inspect_plan(plan)
+
+  defp run_from_plan("project", plan, opts) do
+    Projector.project!(plan,
+      live: kind!(opts, ~w(full live)) == :live,
+      no_cache: opts[:fresh] == true
+    )
+  end
+
+  defp run_from_plan("verify", plan, opts), do: Verifier.verify!(plan, opts)
+
+  defp run_from_plan("prepare", plan, opts),
+    do: Release.prepare!(plan, opts ++ [no_cache: opts[:fresh] == true])
+
+  defp run_from_plan("archive", plan, opts), do: Release.archive!(plan, opts)
+
   defp one("plan", _, path, opts), do: Commands.inspect!(path, opts)
 
-  defp one("graph", _, path, opts),
-    do:
-      if(opts[:format] == "dot",
-        do: Commands.graph_dot!(path, opts),
-        else: Commands.graph!(path, opts)
-      )
+  defp one("graph", _, path, opts) do
+    opts = graph_options(opts)
 
-  defp one("query", ["deps", project], path, opts), do: Commands.query_deps!(path, project, opts)
-  defp one("query", ["why", from, to], path, opts), do: Commands.query_why!(path, from, to, opts)
+    if opts[:format] == "dot",
+      do: Commands.graph_dot!(path, opts),
+      else: Commands.graph!(path, opts)
+  end
+
+  defp one("query", ["deps", project], path, opts),
+    do: Commands.query_deps!(path, project, graph_options(opts))
+
+  defp one("query", ["why", from, to], path, opts),
+    do: Commands.query_why!(path, from, to, graph_options(opts))
+
   defp one("affected", _, path, opts), do: Commands.affected!(path, opts)
 
   defp one("project", _, path, opts),
@@ -285,12 +383,12 @@ defmodule Weld.CLI do
 
   defp one("track", _, path, opts), do: Commands.release_track!(path, opts)
   defp one("archive", _, path, opts), do: Commands.release_archive!(path, opts)
-  defp one("stage", _, path, opts), do: Commands.release_stage!(path, opts ++ [fresh: true])
+  defp one("stage", _, path, opts), do: Commands.release_stage!(path, opts)
 
   defp one("publish", _, path, opts),
     do: Commands.release_publish!(path, opts ++ [allow_stale: opts[:allow_source_drift] == true])
 
-  defp one("reconcile", _, path, opts), do: Weld.Release.reconcile!(Plan.build!(path, opts), opts)
+  defp one("reconcile", _, path, opts), do: Release.reconcile!(Plan.build!(path, opts), opts)
 
   defp one("diff", _, path, opts) do
     plan = Plan.build!(path, opts)
@@ -298,10 +396,10 @@ defmodule Weld.CLI do
 
     target =
       if kind == :bundle,
-        do: Path.join(Weld.Release.bundle_path(plan, opts[:identity]), "project"),
+        do: Path.join(Release.bundle_path(plan, opts[:identity]), "project"),
         else: Projector.build_path(plan, kind)
 
-    Weld.Shell.Diff.compare(plan, target, kind)
+    Diff.compare(plan, target, kind)
   end
 
   defp one("path", _, path, opts) do
@@ -314,22 +412,25 @@ defmodule Weld.CLI do
           Projector.build_path(plan, kind)
 
         :bundle ->
-          Weld.Release.bundle_path(plan, opts[:identity])
+          Release.bundle_path(plan, opts[:identity])
 
         :docs ->
-          Path.join(Weld.Release.bundle_path(plan, opts[:identity]), "docs")
+          Path.join(Release.bundle_path(plan, opts[:identity]), "docs")
 
         :archive ->
-          bundle = Weld.Release.bundle_path(plan, opts[:identity])
-          metadata = Weld.ReleaseStatus.validate_bundle_integrity!(bundle, Path.basename(bundle))
+          bundle = Release.bundle_path(plan, opts[:identity])
+          metadata = ReleaseStatus.validate_bundle_integrity!(bundle, Path.basename(bundle))
           Path.join(bundle, metadata["tarball_path"] || raise(Error, "no archive"))
 
         :run ->
-          raise Error, "explicit run lookup is not implemented"
+          run = opts[:run] || raise(Error, "--kind run requires --run ID")
+          Output.path(plan.manifest.repo_root, ["runs", plan.artifact.id, run, "project"])
       end
 
     %{path: location, exists: File.exists?(location)}
   end
+
+  defp graph_options(opts), do: Keyword.update(opts, :view, :all, &Map.fetch!(@views, &1))
 
   defp kind!(opts, allowed) do
     kind = opts[:kind] || "full"
@@ -349,6 +450,7 @@ defmodule Weld.CLI do
         else: "prepare"
 
     pin = if action == "prepare", do: "", else: " --identity " <> entry.identity
+    dry_run = if action == "publish", do: " --dry-run", else: ""
 
     Map.put(
       entry,
@@ -356,7 +458,8 @@ defmodule Weld.CLI do
       base <>
         action <>
         " --manifest " <>
-        quote_arg(entry.manifest_path) <> " --artifact " <> quote_arg(entry.artifact) <> pin
+        quote_arg(entry.manifest_path) <>
+        " --artifact " <> quote_arg(entry.artifact) <> pin <> dry_run
     )
   end
 

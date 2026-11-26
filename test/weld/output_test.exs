@@ -70,9 +70,29 @@ defmodule Weld.OutputTest do
     assert_raise Error, ~r/symlink/, fn -> Weld.Output.setup!(root) end
     File.rm!(output)
     File.mkdir!(output)
-    File.write!(Path.join(output, "user-data"), "preserve")
+    File.mkdir!(Path.join(output, "v2"))
+    File.write!(Path.join(output, "v2/user-data"), "preserve")
     assert_raise Error, ~r/unmanaged/, fn -> Weld.Output.setup!(root) end
-    assert File.read!(Path.join(output, "user-data")) == "preserve"
+    assert File.read!(Path.join(output, "v2/user-data")) == "preserve"
+  end
+
+  test "activation restores a managed interrupted backup before another rename", %{root: root} do
+    Output.setup!(root)
+    target = Output.path(root, ["full", "demo", "project"])
+    previous = target <> ".weld-previous"
+    File.mkdir_p!(previous)
+    File.write!(Path.join(previous, "owner"), "weld fixture")
+    File.write!(Path.join(previous, "value"), "prior projection")
+    managed? = &(File.read(Path.join(&1, "owner")) == {:ok, "weld fixture"})
+
+    missing_stage = Output.path(root, ["staging", "missing"])
+
+    assert_raise File.RenameError, fn ->
+      Output.with_lock(root, fn -> Output.activate!(missing_stage, target, managed?) end)
+    end
+
+    assert File.read!(Path.join(target, "value")) == "prior projection"
+    refute File.exists?(previous)
   end
 
   test "linked worktrees get independent output roots", %{root: root} do

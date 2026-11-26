@@ -2,6 +2,19 @@ defmodule Weld.ReleaseWorkflow018Test do
   use ExUnit.Case, async: false
 
   alias Weld.{Error, FixtureCase, Git, Hash, ReleaseReceipt, ReleaseStatus}
+  alias Weld.Shell.Hex
+
+  test "receipt parser refuses duplicated fields, malformed trailers and missing digests" do
+    schema = "Weld-Receipt-Schema: weld.receipt/v2"
+
+    assert {:error, "duplicate receipt field:" <> _} =
+             ReleaseReceipt.parse(schema <> "\n" <> schema)
+
+    assert {:error, "malformed Weld receipt field"} =
+             ReleaseReceipt.parse(schema <> "\nWeld-Identity:")
+
+    assert {:error, "missing required receipt fields:" <> _} = ReleaseReceipt.parse(schema)
+  end
 
   test "status lists all artifacts by default and identifies their release paths" do
     manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
@@ -18,7 +31,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert first.state == :unprepared
     assert first.default_tag == "fixture_bundle-v0.1.0"
     assert first.projection.branch == "projection/fixture_bundle"
-    assert String.ends_with?(first.paths.releases, "/.weld/v2/releases/fixture_bundle")
+    assert String.ends_with?(first.paths.releases, "/.weld/v2/bundles/fixture_bundle")
     assert String.ends_with?(first.paths.full_project, "/.weld/v2/full/fixture_bundle/project")
     assert first.paths.bundle == nil
     assert second.paths.releases != first.paths.releases
@@ -35,11 +48,11 @@ defmodule Weld.ReleaseWorkflow018Test do
 
     output =
       ExUnit.CaptureIO.capture_io(fn ->
-        Mix.Task.rerun("release.status", [manifest_path, "--format", "json"])
+        Mix.Task.rerun("weld", ["status", "--manifest", manifest_path, "--format", "json"])
       end)
 
     assert [%{"state" => "corrupt_bundle"}, %{"state" => "malformed_pointer"}] =
-             Jason.decode!(output)
+             Jason.decode!(output)["data"]
   end
 
   test "batch archive continues after an artifact fails and names the failure" do
@@ -56,21 +69,44 @@ defmodule Weld.ReleaseWorkflow018Test do
     FixtureCase.init_git!(repo_root)
     bundle = write_bundle!(repo_root, manifest_path, "archive")
 
-    assert_raise Mix.Error, ~r/Release operation failed for a_missing/, fn ->
-      Mix.Task.rerun("release.archive", [manifest_path, "--all"])
-    end
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        assert catch_exit(
+                 Mix.Task.rerun(
+                   "weld",
+                   [
+                     "archive",
+                     "--manifest",
+                     manifest_path,
+                     "--all",
+                     "--current",
+                     "--format",
+                     "json"
+                   ]
+                 )
+               ) == {:shutdown, 5}
+      end)
+
+    assert %{
+             "data" => %{
+               "results" => [
+                 %{"artifact" => "a_missing", "ok" => false},
+                 %{"artifact" => "fixture_bundle", "ok" => true}
+               ]
+             }
+           } = Jason.decode!(output)
 
     assert File.regular?(
              Path.join([
                repo_root,
                ".weld/v2/archive/fixture_bundle",
                bundle.identity,
-               "release.json"
+               "bundle.json"
              ])
            )
   end
 
-  test "track writes weld.receipt/v1 trailers, annotated tags, same-tree commits, and verifies tags" do
+  test "track writes weld.receipt/v2 trailers, annotated tags, same-tree commits, and verifies tags" do
     manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
     repo_root = Path.expand("../../..", manifest_path)
     remote = FixtureCase.unique_tmp_dir("weld_remote_018")
@@ -94,7 +130,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert {:ok, commit_receipt} =
              ReleaseReceipt.from_commit(repo_root, "refs/heads/projection/fixture_bundle")
 
-    assert commit_receipt.schema == "weld.receipt/v1"
+    assert commit_receipt.schema == "weld.receipt/v2"
     assert commit_receipt.identity == bundle1.identity
     assert commit_receipt.archive_sha256 == bundle1.archive_sha256
     assert commit_receipt.docs_sha256 == bundle1.docs_sha256
@@ -230,7 +266,6 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert ready.state == :ready
     assert ready.identity == bundle1.identity
     assert ready.has_tarball
-    assert ready.publish_workspace == :none
     refute ready.archived
 
     # Write a second bundle (CURRENT now points to bundle2), then archive bundle1 via --identity.
@@ -273,187 +308,104 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert hd(all).artifact == "fixture_bundle"
   end
 
-  test "stage --fresh recovers dirty symlink workspaces and publish verifies rebuilt archive bytes" do
-    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    repo_root = Path.expand("../../..", manifest_path)
-    FixtureCase.init_git!(repo_root)
+  test "stage isolates edits and run lookup identifies each review copy" do
+    {manifest, plan, bundle} = publication_fixture!()
+    first = Weld.Release.stage!(plan, identity: bundle.identity)
+    File.write!(Path.join(first.project_path, "README.md"), "local edit")
+    second = Weld.Release.stage!(plan, identity: bundle.identity)
+    refute first.project_path == second.project_path
+    refute File.read!(Path.join(second.project_path, "README.md")) == "local edit"
 
-    bundle = write_bundle!(repo_root, manifest_path, "exact-tar-bytes")
+    request =
+      Weld.CLI.parse!("path", ["--manifest", manifest, "--kind", "run", "--run", second.run])
 
-    staged = Weld.Commands.release_stage!(manifest_path, artifact: "fixture_bundle")
-    assert staged.identity == bundle.identity
-    assert staged.archive_sha256 == bundle.archive_sha256
-
-    # Simulate Mix writing a _build symlink into the publish workspace.
-    priv_link = Path.join(staged.project_path, "_build/dev/lib/fixture_bundle/priv")
-    File.mkdir_p!(Path.dirname(priv_link))
-    File.ln_s!(Path.join(staged.project_path, "README.md"), priv_link)
-
-    assert_raise Error, ~r/re-run with --fresh/, fn ->
-      Weld.Commands.release_stage!(manifest_path, artifact: "fixture_bundle")
-    end
-
-    refreshed =
-      Weld.Commands.release_stage!(manifest_path, artifact: "fixture_bundle", fresh: true)
-
-    assert refreshed.refreshed?
-    refute File.exists?(priv_link)
-
-    # Track and tag so we can test --tag verification in publish!.
-    Weld.Commands.release_track!(manifest_path, artifact: "fixture_bundle", tag_release: true)
-
-    scripts_dir = FixtureCase.unique_tmp_dir("weld_fake_cmds")
-
-    build_ok =
-      write_script!(scripts_dir, "build_ok.sh", """
-      #!/usr/bin/env bash
-      printf 'exact-tar-bytes' > fixture_bundle-0.1.0.tar
-      """)
-
-    build_bad =
-      write_script!(scripts_dir, "build_bad.sh", """
-      #!/usr/bin/env bash
-      printf 'different-bytes' > fixture_bundle-0.1.0.tar
-      """)
-
-    pub_ok = write_script!(scripts_dir, "pub_ok.sh", "#!/usr/bin/env bash\nexit 0\n")
-    pub_fail = write_script!(scripts_dir, "pub_fail.sh", "#!/usr/bin/env bash\nexit 1\n")
-
-    # Mismatched rebuild stops before publish_cmd.
-    assert_raise Error, ~r/does not match prepared SHA-256/, fn ->
-      Weld.Commands.release_publish!(manifest_path,
-        artifact: "fixture_bundle",
-        tag: "fixture_bundle-v0.1.0",
-        build_cmd: {build_bad, []},
-        publish_cmd: {pub_ok, []}
-      )
-    end
-
-    # Matching rebuild + successful publish returns completed?: true.
-    ok_res =
-      Weld.Commands.release_publish!(manifest_path,
-        artifact: "fixture_bundle",
-        tag: "fixture_bundle-v0.1.0",
-        build_cmd: {build_ok, []},
-        publish_cmd: {pub_ok, []}
-      )
-
-    assert ok_res.completed?
-    assert ok_res.exit_status == 0
-    assert ok_res.identity == bundle.identity
-
-    # Failed publish returns completed?: false with exit status.
-    fail_res =
-      Weld.Commands.release_publish!(manifest_path,
-        artifact: "fixture_bundle",
-        build_cmd: {build_ok, []},
-        publish_cmd: {pub_fail, []}
-      )
-
-    refute fail_res.completed?
-    assert fail_res.exit_status == 1
-
-    # Stale HEAD blocks publish unless --allow-stale is passed.
-    File.write!(Path.join(repo_root, "NEXT.txt"), "new\n")
-    Git.run!(repo_root, ["add", "NEXT.txt"])
-    Git.run!(repo_root, ["commit", "-m", "move head"])
-
-    assert_raise Error, ~r/head_moved/, fn ->
-      Weld.Commands.release_publish!(manifest_path,
-        artifact: "fixture_bundle",
-        build_cmd: {build_ok, []},
-        publish_cmd: {pub_ok, []}
-      )
-    end
-
-    allowed =
-      Weld.Commands.release_publish!(manifest_path,
-        artifact: "fixture_bundle",
-        allow_stale: true,
-        build_cmd: {build_ok, []},
-        publish_cmd: {pub_ok, []}
-      )
-
-    assert allowed.completed?
+    assert {:ok, %{path: path, exists: true}} = Weld.run(request)
+    assert path == second.project_path
   end
 
-  test "declining the Hex confirmation is a failed handoff" do
-    ExUnit.CaptureIO.capture_io([input: "n\n"], fn ->
-      assert_raise Mix.Error, "Hex publication cancelled", fn ->
-        Weld.ReleasePublishShell.yes?("Proceed?")
+  test "publication requires confirmation and dry-run makes no transport calls" do
+    {_manifest, plan, bundle} = publication_fixture!()
+
+    transport = %{
+      read: fn _, _, _ -> flunk("unexpected remote read") end,
+      write: fn _, _, _, _ -> flunk("unexpected upload") end
+    }
+
+    assert %{dry_run: true, archive_sha256: sha} =
+             Weld.Release.publish!(plan,
+               identity: bundle.identity,
+               transport: transport,
+               dry_run: true
+             )
+
+    assert sha == bundle.archive_sha256
+
+    assert_raise Error, ~r/requires --yes/, fn ->
+      Weld.Release.publish!(plan, identity: bundle.identity, transport: transport)
+    end
+  end
+
+  test "publication submits exactly the pinned package and docs bytes" do
+    {_manifest, plan, bundle} = publication_fixture!()
+    parent = self()
+    {:ok, server} = Agent.start_link(fn -> %{} end)
+
+    transport = %{
+      read: fn part, _, _ ->
+        case Agent.get(server, &Map.get(&1, part)) do
+          nil -> {:ok, {404, [], ""}}
+          body -> {:ok, {200, [], body}}
+        end
+      end,
+      write: fn part, name, version, body ->
+        send(parent, {part, name, version, Hash.sha256_binary(body)})
+        Agent.update(server, &Map.put(&1, part, body))
+        {:ok, {201, [], ""}}
       end
-    end)
+    }
+
+    assert %{state: "confirmed", completed?: true} =
+             Weld.Release.publish!(plan,
+               identity: bundle.identity,
+               transport: transport,
+               yes: true
+             )
+
+    assert_receive {:package, "fixture_bundle", "0.1.0", archive_sha}
+    assert_receive {:docs, "fixture_bundle", "0.1.0", docs_sha}
+    assert archive_sha == bundle.archive_sha256
+    assert docs_sha == Hash.sha256_file(Path.join(bundle.bundle_path, "docs.tar.gz"))
   end
 
-  test "publish protects the active run and isolates Mix subprocess settings" do
-    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    repo_root = Path.expand("../../..", manifest_path)
-    FixtureCase.init_git!(repo_root)
-    bundle = write_bundle!(repo_root, manifest_path, "exact-tar-bytes")
-    plan = Weld.Plan.build!(manifest_path, artifact: "fixture_bundle")
-    scripts_dir = FixtureCase.unique_tmp_dir("weld_publish_environment")
+  test "crash after docs submission blocks a repeat; read-only reconciliation can confirm it" do
+    {_manifest, plan, bundle} = publication_fixture!()
+    {:ok, server} = Agent.start_link(fn -> %{package: File.read!(bundle.tarball_path)} end)
 
-    for name <- ~w(MIX_EXS MIX_LOCKFILE MIX_TARGET MIX_BUILD_PATH MIX_BUILD_ROOT MIX_DEPS_PATH) do
-      previous = System.get_env(name)
-      System.put_env(name, "unexpected-inherited-setting")
+    transport = %{
+      read: fn part, _, _ ->
+        case Agent.get(server, &Map.get(&1, part)) do
+          nil -> {:ok, {404, [], ""}}
+          body -> {:ok, {200, [], body}}
+        end
+      end,
+      write: fn :docs, _, _, body ->
+        Agent.update(server, &Map.put(&1, :docs, body))
+        raise Error, "connection failed after submission"
+      end
+    }
 
-      on_exit(fn ->
-        if previous, do: System.put_env(name, previous), else: System.delete_env(name)
-      end)
-    end
-
-    guard = """
-    #!/usr/bin/env bash
-    set -eu
-    test -f ../ACTIVE
-    test "$MIX_ENV" = dev
-    test "${MIX_EXS+x}" != x
-    test "${MIX_LOCKFILE+x}" != x
-    test "${MIX_TARGET+x}" != x
-    test "${MIX_BUILD_PATH+x}" != x
-    test "${MIX_BUILD_ROOT+x}" != x
-    test "${MIX_DEPS_PATH+x}" != x
-    """
-
-    build =
-      write_script!(
-        scripts_dir,
-        "build.sh",
-        guard <> "printf 'exact-tar-bytes' > fixture_bundle-0.1.0.tar\n"
-      )
-
-    publish = write_script!(scripts_dir, "publish.sh", guard)
-    result = Weld.Release.publish!(plan, build_cmd: {build, []}, publish_cmd: {publish, []})
-
-    assert result.completed?
-    assert result.identity == bundle.identity
-    refute File.exists?(Path.join(Path.dirname(result.project_path), "ACTIVE"))
+    opts = [identity: bundle.identity, transport: transport, yes: true]
+    assert_raise Error, ~r/connection failed/, fn -> Weld.Release.publish!(plan, opts) end
+    assert_raise Error, ~r/unresolved/, fn -> Weld.Release.publish!(plan, opts) end
+    assert %{state: "confirmed"} = Weld.Release.reconcile!(plan, opts)
   end
 
-  test "publish clears its active marker when the build fails" do
-    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    repo_root = Path.expand("../../..", manifest_path)
-    FixtureCase.init_git!(repo_root)
-    bundle = write_bundle!(repo_root, manifest_path, "exact-tar-bytes")
-    scripts_dir = FixtureCase.unique_tmp_dir("weld_publish_failure")
-
-    build =
-      write_script!(scripts_dir, "fail.sh", """
-      #!/usr/bin/env bash
-      test -f ../ACTIVE || exit 99
-      exit 42
-      """)
-
-    assert_raise Error, ~r/hex.build failed \(exit 42\)/, fn ->
-      Weld.Commands.release_publish!(manifest_path,
-        artifact: "fixture_bundle",
-        build_cmd: {build, []}
-      )
-    end
-
-    runs = Path.join([repo_root, ".weld/v2/publish/fixture_bundle", bundle.identity, "run-*"])
-    assert length(Path.wildcard(runs)) == 1
-    assert Path.wildcard(Path.join(runs, "ACTIVE")) == []
+  defp publication_fixture! do
+    manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    plan = Weld.Plan.build!(manifest)
+    root = plan.manifest.repo_root
+    FixtureCase.init_git!(root)
+    {manifest, plan, write_bundle!(root, manifest, "exact package archive bytes")}
   end
 
   test "docs_source_ref_warnings flags mutable source_ref and tag mismatches" do
@@ -492,7 +444,11 @@ defmodule Weld.ReleaseWorkflow018Test do
     archive_sha = Hash.sha256_file(tarball)
     docs_sha = Hash.sha256_tree(docs)
 
+    docs_archive = Hex.freeze_docs!(docs, Path.join(stage, "docs.tar.gz"))
+
     metadata = %{
+      schema: "weld.bundle/2",
+      lock_sha256: nil,
       artifact: "fixture_bundle",
       package: %{name: "fixture_bundle", version: "0.1.0", otp_app: :fixture_bundle},
       source_revision: revision,
@@ -506,23 +462,27 @@ defmodule Weld.ReleaseWorkflow018Test do
         project_sha256: Hash.sha256_tree(project),
         project_identity: Hash.content_identity(project),
         docs_sha256: docs_sha,
+        docs_archive_sha256: Hash.sha256_file(docs_archive),
         docs_identity: Hash.content_identity(docs),
         archive_sha256: archive_sha
       }
     }
 
     identity = Weld.Release.identity(metadata)
-    release_root = Path.join(repo_root, ".weld/v2/releases/fixture_bundle")
+    release_root = Path.join(repo_root, ".weld/v2/bundles/fixture_bundle")
     bundle = Path.join(release_root, identity)
     File.mkdir_p!(release_root)
     File.rename!(stage, bundle)
 
     File.write!(
-      Path.join(bundle, "release.json"),
+      Path.join(bundle, "bundle.json"),
       Jason.encode!(Map.put(metadata, :identity, identity), pretty: true)
     )
 
-    File.write!(Path.join(release_root, "CURRENT"), "weld.release/v2 #{identity}\n")
+    File.write!(
+      Path.join(release_root, "CURRENT"),
+      Jason.encode!(%{schema: "weld.current/2", artifact: "fixture_bundle", bundle_id: identity})
+    )
 
     %{
       identity: identity,
@@ -531,12 +491,5 @@ defmodule Weld.ReleaseWorkflow018Test do
       archive_sha256: archive_sha,
       docs_sha256: docs_sha
     }
-  end
-
-  defp write_script!(dir, name, content) do
-    path = Path.join(dir, name)
-    File.write!(path, content)
-    File.chmod!(path, 0o755)
-    path
   end
 end

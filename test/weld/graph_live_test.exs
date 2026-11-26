@@ -3,6 +3,32 @@ defmodule Weld.GraphLiveTest do
 
   alias Weld.{Error, FixtureCase}
 
+  test "graph views expose cycle witnesses and stable dependency paths" do
+    graph = Weld.Graph.new()
+    graph = %{graph | projects: %{"a" => nil, "b" => nil, "c" => nil}}
+
+    graph =
+      Enum.reduce(
+        [{"a", "b", :runtime}, {"b", "c", :runtime}, {"c", "a", :test}],
+        graph,
+        fn {from, to, kind}, graph ->
+          Weld.Graph.add_edge(graph, %Weld.Graph.Edge{
+            from: from,
+            to: to,
+            app: :example,
+            kind: kind,
+            opts: [],
+            requirement: nil
+          })
+        end
+      )
+
+    assert {:ok, ["a", "b", "c"]} = Weld.Graph.topology(graph, :package)
+    assert {:cycle, ["a", "b", "c", "a"]} = Weld.Graph.topology(graph, :test)
+    assert {:ok, ["a", "b", "c"]} = Weld.Graph.path(graph, "a", "c", :package)
+    assert :no_path = Weld.Graph.path(graph, "c", "a", :package)
+  end
+
   test "package live links component directories and keeps generated files regular" do
     root = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
@@ -28,7 +54,7 @@ defmodule Weld.GraphLiveTest do
     File.write!(manifest, File.read!(manifest) <> "\n# layout changed\n")
     assert {message, status} = evaluate(live.build_path)
     assert status != 0
-    assert message =~ "mix weld.project --artifact fixture_bundle --live"
+    assert message =~ "mix weld project --artifact fixture_bundle --kind live"
     assert message =~ manifest
     refreshed = Weld.Commands.project!(manifest, live: true)
     assert {_, 0} = evaluate(refreshed.build_path)
@@ -92,7 +118,7 @@ defmodule Weld.GraphLiveTest do
     File.write!(addition, "defmodule Extra, do: def(value, do: :ok)\n")
     assert {message, status} = evaluate(live.build_path)
     assert status != 0
-    assert message =~ "--live"
+    assert message =~ "--kind live"
     File.rm!(addition)
     config = Path.join(root, "core/store/config/config.exs")
     File.write!(config, File.read!(config) <> "\n# transformed input\n")

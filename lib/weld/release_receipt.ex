@@ -66,34 +66,54 @@ defmodule Weld.ReleaseReceipt do
   def parse(nil), do: :none
 
   def parse(message) when is_binary(message) do
-    parsed =
-      message
-      |> String.split(~r/\r?\n/)
-      |> Enum.reduce(%{}, &parse_trailer_line/2)
+    message
+    |> String.split(~r/\r?\n/)
+    |> Enum.reduce_while(%{}, &parse_trailer_line/2)
+    |> validate_receipt()
+  end
+
+  defp validate_receipt({:error, _reason} = error), do: error
+  defp validate_receipt(parsed) when map_size(parsed) == 0, do: :none
+
+  defp validate_receipt(%{schema: @schema} = parsed) do
+    required = Map.values(@trailer_keys) -- [:archive_sha256]
+    missing = Enum.reject(required, &Map.has_key?(parsed, &1))
 
     cond do
-      map_size(parsed) == 0 ->
-        :none
+      missing != [] ->
+        {:error, "missing required receipt fields: #{Enum.sort(missing) |> Enum.join(", ")}"}
 
-      parsed[:schema] != @schema ->
-        {:error, "unsupported receipt schema: #{inspect(parsed[:schema])}"}
+      not valid_digests?(parsed) ->
+        {:error, "invalid digest in receipt"}
 
-      not valid_sha256?(parsed[:identity]) ->
-        {:error, "invalid Weld-Identity in receipt"}
+      not Regex.match?(~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/, parsed.source_revision) ->
+        {:error, "invalid source revision in receipt"}
 
       true ->
         {:ok, parsed}
     end
   end
 
+  defp validate_receipt(parsed),
+    do: {:error, "unsupported receipt schema: #{inspect(parsed[:schema])}"}
+
+  defp valid_digests?(parsed) do
+    required = [:identity, :project_sha256, :docs_sha256]
+
+    fields =
+      if Map.has_key?(parsed, :archive_sha256), do: [:archive_sha256 | required], else: required
+
+    Enum.all?(fields, &valid_sha256?(parsed[&1]))
+  end
+
   @spec from_commit(Path.t(), String.t()) ::
-          {:ok, map()} | :legacy | :missing | {:error, String.t()}
+          {:ok, map()} | :missing | {:error, String.t()}
   def from_commit(repo_root, ref) do
     case Git.commit_message(repo_root, ref) do
       {:ok, message} ->
         case parse(message) do
           {:ok, receipt} -> {:ok, receipt}
-          :none -> :legacy
+          :none -> {:error, "commit has no Weld receipt"}
           {:error, reason} -> {:error, reason}
         end
 
@@ -128,14 +148,19 @@ defmodule Weld.ReleaseReceipt do
     end
   end
 
-  defp parse_trailer_line(line, acc) do
+  defp parse_trailer_line("Weld-" <> _ = line, acc) do
     with [key, value] <- String.split(line, ": ", parts: 2),
-         {:ok, field} <- Map.fetch(@trailer_keys, String.trim(key)) do
-      Map.put(acc, field, String.trim(value))
+         {:ok, field} <- Map.fetch(@trailer_keys, key),
+         true <- value != "" and value == String.trim(value) do
+      if Map.has_key?(acc, field),
+        do: {:halt, {:error, "duplicate receipt field: #{key}"}},
+        else: {:cont, Map.put(acc, field, value)}
     else
-      _ -> acc
+      _ -> {:halt, {:error, "malformed Weld receipt field"}}
     end
   end
+
+  defp parse_trailer_line(_line, acc), do: {:cont, acc}
 
   defp valid_sha256?(value) when is_binary(value),
     do: Regex.match?(~r/\A[0-9a-f]{64}\z/, value)

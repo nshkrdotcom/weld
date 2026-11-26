@@ -20,19 +20,7 @@ defmodule Weld.Affected do
     head = Keyword.fetch!(opts, :head)
     task = Keyword.get(opts, :task, "verify")
 
-    snapshots =
-      for ref <- [base, head] do
-        Git.with_tree!(root, ref, fn directory, commit ->
-          try do
-            plan = Plan.build!(Path.join(directory, relative), opts)
-            entries = Map.new(plan.output_inventory, &{&1.target, &1})
-            %{revision: commit, plan: plan, entries: entries}
-          rescue
-            error in [Weld.Error, File.Error, ArgumentError, KeyError] ->
-              %{revision: commit, error: Exception.message(error)}
-          end
-        end)
-      end
+    snapshots = Enum.map([base, head], &snapshot!(root, &1, relative, opts))
 
     [before, after_] = snapshots
     changed = Git.changed_files(root, before.revision, after_.revision)
@@ -48,55 +36,79 @@ defmodule Weld.Affected do
         reasons: Enum.flat_map(snapshots, &List.wrap(&1[:error]))
       }
     else
-      role = if task in ["package", "publish"], do: :package, else: :verify
-      expected = Weld.Core.Inventory.view(before.plan.output_inventory, role)
-
-      actual =
-        after_.plan.output_inventory
-        |> Weld.Core.Inventory.view(role)
-        |> Map.new(&{&1.target, &1})
-
-      delta = Weld.Core.Inventory.diff(expected, actual) |> Enum.reject(&(&1.state == :identical))
-      structural = Enum.uniq(before.plan.structural_inputs ++ after_.plan.structural_inputs)
-      structural_changed? = relative in changed or Enum.any?(changed, &(&1 in structural))
-
-      old_report =
-        run!(
-          before.plan,
-          Keyword.merge(opts,
-            base: before.revision,
-            head: after_.revision,
-            task: task,
-            changed_files: changed
-          )
-        )
-
-      new_report =
-        run!(
-          after_.plan,
-          Keyword.merge(opts,
-            base: before.revision,
-            head: after_.revision,
-            task: task,
-            changed_files: changed
-          )
-        )
-
-      projects =
-        Enum.sort(Enum.uniq(old_report.affected_projects ++ new_report.affected_projects))
-
-      %{
-        base: before.revision,
-        head: after_.revision,
-        task: task,
-        changed_files: changed,
-        affected?: delta != [] or structural_changed? or projects != [],
-        unknown?: false,
-        structural_changed?: structural_changed?,
-        entries: delta,
-        affected_projects: projects
-      }
+      compare_plans(before, after_, relative, changed, task, opts)
     end
+  end
+
+  defp compare_plans(before, after_, relative, changed, task, opts) do
+    role =
+      case task do
+        "package" -> :package
+        "docs" -> :docs
+        _ -> :verify
+      end
+
+    expected = Weld.Core.Inventory.view(before.plan.output_inventory, role)
+
+    actual =
+      after_.plan.output_inventory
+      |> Weld.Core.Inventory.view(role)
+      |> Map.new(&{&1.target, &1})
+
+    delta = Weld.Core.Inventory.diff(expected, actual) |> Enum.reject(&(&1.state == :identical))
+    structural = Enum.uniq(before.plan.structural_inputs ++ after_.plan.structural_inputs)
+    structural_changed? = relative in changed or Enum.any?(changed, &(&1 in structural))
+
+    old_report =
+      run!(
+        before.plan,
+        Keyword.merge(opts,
+          base: before.revision,
+          head: after_.revision,
+          task: task,
+          changed_files: changed
+        )
+      )
+
+    new_report =
+      run!(
+        after_.plan,
+        Keyword.merge(opts,
+          base: before.revision,
+          head: after_.revision,
+          task: task,
+          changed_files: changed
+        )
+      )
+
+    projects =
+      Enum.sort(Enum.uniq(old_report.affected_projects ++ new_report.affected_projects))
+
+    %{
+      base: before.revision,
+      head: after_.revision,
+      task: task,
+      changed_files: changed,
+      affected?: delta != [] or structural_changed? or projects != [],
+      unknown?: false,
+      structural_changed?: structural_changed?,
+      entries: delta,
+      direct_projects:
+        Enum.sort(Enum.uniq(old_report.direct_projects ++ new_report.direct_projects)),
+      affected_projects: projects
+    }
+  end
+
+  defp snapshot!(root, ref, relative, opts) do
+    Git.with_tree!(root, ref, fn directory, commit ->
+      try do
+        plan = Plan.build!(Path.join(directory, relative), opts)
+        %{revision: commit, plan: plan}
+      rescue
+        error in [Weld.Error, File.Error, ArgumentError, KeyError] ->
+          %{revision: commit, error: Exception.message(error)}
+      end
+    end)
   end
 
   @spec run!(Plan.t(), keyword()) :: map()

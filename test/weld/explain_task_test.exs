@@ -3,17 +3,14 @@ defmodule Weld.ExplainTaskTest do
 
   import ExUnit.CaptureIO
 
-  alias Mix.Tasks.Weld.Explain
+  test "help exposes all lifecycle commands without a manifest" do
+    help = capture_io(fn -> Mix.Task.rerun("weld", ["help"]) end)
 
-  test "json output lists every projection kind with an existing creating task" do
-    json = capture_io(fn -> Explain.run(["--format", "json"]) end)
-    kinds = Jason.decode!(json)
+    for command <- ~w(project verify prepare stage track publish reconcile archive path) do
+      assert help =~ command
 
-    assert Enum.map(kinds, & &1["kind"]) == ~w(live full release publish tracked)
-
-    for %{"task" => "mix " <> command} <- kinds do
-      task = command |> String.split() |> hd()
-      assert Mix.Task.get(task), "#{task} is not a Mix task"
+      assert capture_io(fn -> Mix.Task.rerun("weld", ["help", command]) end) =~
+               "mix weld #{command}"
     end
   end
 end

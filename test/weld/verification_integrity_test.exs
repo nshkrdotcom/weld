@@ -27,7 +27,7 @@ defmodule Weld.VerificationIntegrityTest do
       raw =
         update_in(
           raw,
-          [:artifacts, artifact, :output, :assets],
+          [:artifacts, artifact, :files, :assets],
           &Enum.uniq([path | List.wrap(&1)])
         )
 
@@ -92,7 +92,7 @@ defmodule Weld.VerificationIntegrityTest do
     raw =
       update_in(
         raw,
-        [:artifacts, :workshop_palette, :source_project, :files],
+        [:artifacts, :workshop_palette, :preserve, :files],
         &["guides/a.md" | &1]
       )
 

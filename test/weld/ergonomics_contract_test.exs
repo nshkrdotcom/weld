@@ -3,8 +3,8 @@ defmodule Weld.ErgonomicsContractTest do
 
   import ExUnit.CaptureIO
 
-  alias Mix.Tasks.Weld.{Diff, Gc, Status}
-  alias Weld.{FixtureCase, Output}
+  alias Weld.{Error, FixtureCase, Hash}
+  alias Weld.Shell.{Diff, GC}
 
   @moduletag :tmp_dir
 
@@ -27,11 +27,10 @@ defmodule Weld.ErgonomicsContractTest do
       File.write!(path, "generated")
     end
 
-    report = Diff.diff_trees(root, projection, "demo", :full)
+    plan = diff_plan(root, [".formatter.exs", "dropped.ex"])
 
-    assert report.root_only == ["dropped.ex"]
-    assert report.modified == [".formatter.exs"]
-    assert report.projection_only == ["added.ex"]
+    assert diff_states(plan, projection, :full) ==
+             %{".formatter.exs" => :modified, "dropped.ex" => :missing, "added.ex" => :unexpected}
   end
 
   test "diff reports a source mix.exs missing from the projection", %{tmp_dir: dir} do
@@ -41,7 +40,9 @@ defmodule Weld.ErgonomicsContractTest do
     File.mkdir_p!(projection)
     File.write!(Path.join(root, "mix.exs"), "source")
 
-    assert Diff.diff_trees(root, projection, "demo", :full).mix_exs_differs
+    assert diff_states(diff_plan(root, ["mix.exs"]), projection, :full) == %{
+             "mix.exs" => :missing
+           }
   end
 
   test "diff follows live directory links while rejecting link cycles", %{tmp_dir: dir} do
@@ -52,16 +53,17 @@ defmodule Weld.ErgonomicsContractTest do
     File.write!(Path.join(root, "lib/example.ex"), "source")
     File.ln_s!(Path.join(root, "lib"), Path.join(projection, "lib"))
 
-    report = Diff.diff_trees(root, projection, "demo", :live)
-    assert report.identical_count == 1
-    assert report.root_only == []
-    assert report.projection_only == []
+    plan = diff_plan(root, ["lib/example.ex"])
+    assert diff_states(plan, projection, :live) == %{"lib/example.ex" => :identical}
 
     File.ln_s!(root, Path.join(root, "lib/loop"))
-    assert_raise Weld.Error, ~r/cycle/, fn -> Diff.diff_trees(root, projection, "demo", :live) end
+
+    assert_raise Error, ~r/unexpected projection symlink: lib\/loop/, fn ->
+      Diff.compare(plan, projection, :live)
+    end
   end
 
-  test "diff ignores dangling links alongside live linked files", %{tmp_dir: dir} do
+  test "diff refuses to follow an unplanned dangling link", %{tmp_dir: dir} do
     root = Path.join(dir, "source")
     projection = Path.join(dir, "projection")
     File.mkdir_p!(Path.join(root, "lib"))
@@ -72,24 +74,21 @@ defmodule Weld.ErgonomicsContractTest do
     File.ln_s!("missing-file", Path.join(projection, "optional.txt"))
     File.ln_s!("lib/example.ex/child", Path.join(root, "not-a-directory"))
 
-    report = Diff.diff_trees(root, projection, "demo", :live)
-
-    assert report.identical_count == 1
-    assert report.root_only == []
-    assert report.projection_only == []
-    assert report.modified == []
+    assert_raise Error, ~r/unexpected projection symlink: optional.txt/, fn ->
+      Diff.compare(diff_plan(root, ["lib/example.ex"]), projection, :live)
+    end
   end
 
   test "gc preserves active runs independently of completed-run retention", %{tmp_dir: dir} do
     Weld.Git.run!(dir, ["init", "--quiet"])
     Weld.Output.setup!(dir)
-    active = Path.join(dir, ".weld/v2/publish/demo/identity/run-active")
-    completed = Path.join(dir, ".weld/v2/publish/demo/identity/run-completed")
+    active = Path.join(dir, ".weld/v2/runs/demo/verify-active")
+    completed = Path.join(dir, ".weld/v2/runs/demo/stage-completed")
     File.mkdir_p!(active)
     File.mkdir_p!(completed)
     File.write!(Path.join(active, "ACTIVE"), "publisher active")
 
-    report = Gc.prune(dir, keep: 0)
+    report = GC.prune(dir, keep: 0, dry_run: false)
 
     assert report.active == [active]
     assert active in report.kept
@@ -98,36 +97,70 @@ defmodule Weld.ErgonomicsContractTest do
     refute File.exists?(completed)
   end
 
-  test "gc rejects symlinked publish parents without deleting their targets", %{tmp_dir: dir} do
+  test "gc rejects symlinked run parents without deleting their targets", %{tmp_dir: dir} do
     Weld.Git.run!(dir, ["init", "--quiet"])
     Weld.Output.setup!(dir)
     outside = FixtureCase.unique_tmp_dir("weld_gc_outside")
-    run = Path.join(outside, "identity/run-outside")
+    run = Path.join(outside, "verify-outside")
     File.mkdir_p!(run)
-    File.mkdir_p!(Path.join(dir, ".weld/v2/publish"))
-    File.ln_s!(outside, Path.join(dir, ".weld/v2/publish/linked"))
+    File.mkdir_p!(Path.join(dir, ".weld/v2/runs"))
+    File.ln_s!(outside, Path.join(dir, ".weld/v2/runs/linked"))
 
-    assert_raise Weld.Error, ~r/symlink/, fn -> Gc.prune(dir, keep: 0) end
+    assert_raise Weld.Error, ~r/symlink/, fn -> GC.prune(dir, keep: 0) end
     assert File.dir?(run)
   end
 
   test "gc dry-run does not create output state", %{tmp_dir: dir} do
     Weld.Git.run!(dir, ["init", "--quiet"])
-    assert %{removed: [], kept: []} = Gc.prune(dir, dry_run: true)
+    assert %{removed: [], kept: []} = GC.prune(dir, dry_run: true)
     refute File.exists?(Path.join(dir, ".weld"))
     refute File.exists?(Path.join(dir, ".gitignore"))
   end
 
   test "gc rejects a negative retention count", %{tmp_dir: dir} do
-    assert_raise Mix.Error, ~r/non-negative/, fn -> Gc.prune(dir, keep: -1) end
+    assert_raise Error, ~r/non-negative/, fn -> GC.prune(dir, keep: -1) end
   end
 
   test "status commands preserve an explicit manifest path from another working directory" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    json = capture_io(fn -> Status.run([manifest, "--format", "json"]) end)
-    assert [entry] = Jason.decode!(json)
+
+    json =
+      capture_io(fn ->
+        Mix.Task.rerun("weld", ["status", "--manifest", manifest, "--format", "json"])
+      end)
+
+    assert %{"data" => [entry]} = Jason.decode!(json)
 
     assert entry["next_command"] ==
-             "mix release.prepare #{Weld.TaskSupport.shell_arg(manifest)} --artifact 'fixture_bundle'"
+             "mix weld prepare --manifest '#{manifest}' --artifact 'fixture_bundle'"
+  end
+
+  defp diff_plan(root, paths) do
+    entries =
+      for path <- paths do
+        file = Path.join(root, path)
+
+        %{
+          target: path,
+          sha256: Hash.sha256_file(file),
+          size: File.stat!(file).size,
+          executable: false,
+          inputs: [%{source: path}],
+          operation: :link_or_copy
+        }
+      end
+
+    %{
+      artifact: %{id: "demo", mode: :source_project},
+      manifest: %{repo_root: root},
+      output_inventory: entries
+    }
+  end
+
+  defp diff_states(plan, projection, kind) do
+    plan
+    |> Diff.compare(projection, kind)
+    |> Map.fetch!(:entries)
+    |> Map.new(&{&1.target, &1.state})
   end
 end

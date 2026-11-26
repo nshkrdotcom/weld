@@ -3,14 +3,16 @@ defmodule Weld.Plan do
   Resolves one artifact view from the manifest and workspace graph.
   """
 
+  alias Weld.Core.Inventory, as: CoreInventory
   alias Weld.Error
   alias Weld.Graph
   alias Weld.Graph.View
+  alias Weld.Layout.{Components, Flat}
   alias Weld.Manifest
   alias Weld.Output
   alias Weld.Plan.Boundary
   alias Weld.Plan.Inventory
-  alias Weld.Layout.{Components, Flat}
+  alias Weld.Shell.Inputs
   alias Weld.Violation
   alias Weld.Workspace
   alias Weld.Workspace.Project
@@ -94,8 +96,12 @@ defmodule Weld.Plan do
   end
 
   def build!(%Manifest{} = manifest, opts) do
+    build_from_workspace!(manifest, Workspace.load!(manifest), opts)
+  end
+
+  @doc false
+  def build_from_workspace!(%Manifest{} = manifest, %Workspace{} = workspace, opts) do
     artifact = Manifest.artifact!(manifest, opts[:artifact])
-    workspace = Workspace.load!(manifest)
     artifact = Manifest.bind_native(artifact, workspace.projects)
     graph = workspace.graph
 
@@ -219,13 +225,12 @@ defmodule Weld.Plan do
       violations: violations
     }
 
-    watches = Weld.Shell.Inputs.collect!(plan)
+    watches = Inputs.collect!(plan)
 
     plan = %{
       plan
       | input_watches: watches,
-        structural_inputs:
-          Enum.sort(Enum.uniq(plan.structural_inputs ++ Weld.Shell.Inputs.sources(watches)))
+        structural_inputs: Enum.sort(Enum.uniq(plan.structural_inputs ++ Inputs.sources(watches)))
     }
 
     finalize_layout!(plan)
@@ -235,14 +240,14 @@ defmodule Weld.Plan do
        when mode in [:monolith, :package_projection] do
     layout = if mode == :monolith, do: Flat.plan!(plan), else: Components.plan!(plan)
     {sources, outputs} = Inventory.layout_inventory(plan, layout)
-    outputs = Weld.Core.Inventory.validate!(outputs)
+    outputs = CoreInventory.validate!(outputs)
     %{plan | layout: layout, source_inventory: sources, output_inventory: outputs}
   end
 
   defp finalize_layout!(%__MODULE__{violations: [], artifact: %{mode: :source_project}} = plan) do
     outputs = Inventory.preserve_inventory(plan)
 
-    for entry <- Weld.Shell.Inputs.mapped(plan) do
+    for entry <- Inputs.mapped(plan) do
       unless Enum.any?(outputs, &(&1.target == entry.target and &1.publish == entry.publish)),
         do:
           raise(

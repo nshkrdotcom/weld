@@ -1,11 +1,12 @@
 defmodule Weld.Layout.Components do
   @moduledoc false
 
-  alias Weld.{Error, Git, Hash, Plan, SourceFormatter}
   alias Weld.Config.Generator
+  alias Weld.{Error, Git, Hash, Plan, SourceFormatter}
   alias Weld.Layout.{FilePlan, Support}
   alias Weld.Plan.Inventory
   alias Weld.Projector.{Live, SourceProject}
+  alias Weld.Shell.Inputs
 
   # The component layout produces the same operations as flat layout before
   # the materializer creates the output. Generation is never rerun in the stage.
@@ -43,30 +44,7 @@ defmodule Weld.Layout.Components do
         &(&1.target == "test" and not plan.artifact.verify.component_tests)
       )
 
-    source_ops =
-      for entry <- plan.source_inventory do
-        operation =
-          if entry.kind == :artifact_test and not plan.artifact.verify.component_tests,
-            do: :copy,
-            else: :link_or_copy
-
-        FilePlan.copy(Path.join(root, entry.source), entry.target, entry.kind, operation)
-      end
-
-    operations = Weld.Shell.Inputs.add_operations!(plan, source_ops ++ config.operations)
-
-    operations =
-      if Enum.any?(operations, &(&1.target == "README.md")),
-        do: operations,
-        else:
-          operations ++
-            [FilePlan.generated("README.md", "# #{plan.artifact.package.name}\n", :docs)]
-
-    for path <- projected_test_paths(plan) do
-      unless Enum.any?(operations, &(&1.target == Path.join(path, "test_helper.exs"))) do
-        raise Error, "projected test path requires test_helper.exs: #{path}"
-      end
-    end
+    operations = source_operations!(plan, root, config.operations)
 
     opts = [
       bootstrapped_apps: config.bootstrapped_apps,
@@ -84,7 +62,7 @@ defmodule Weld.Layout.Components do
       Keyword.put(
         opts,
         :package_files,
-        Weld.Shell.Inputs.publication_files(plan, targets, package_files(plan, opts))
+        Inputs.publication_files(plan, targets, package_files(plan, opts))
       )
 
     generated_inputs = Enum.uniq(inputs ++ Enum.flat_map(config.operations, & &1.sources))
@@ -114,6 +92,35 @@ defmodule Weld.Layout.Components do
       live_roots: roots,
       config_warnings: config.warnings
     }
+  end
+
+  defp source_operations!(plan, root, config_operations) do
+    source_ops =
+      for entry <- plan.source_inventory do
+        operation =
+          if entry.kind == :artifact_test and not plan.artifact.verify.component_tests,
+            do: :copy,
+            else: :link_or_copy
+
+        FilePlan.copy(Path.join(root, entry.source), entry.target, entry.kind, operation)
+      end
+
+    operations = Inputs.add_operations!(plan, source_ops ++ config_operations)
+
+    operations =
+      if Enum.any?(operations, &(&1.target == "README.md")),
+        do: operations,
+        else:
+          operations ++
+            [FilePlan.generated("README.md", "# #{plan.artifact.package.name}\n", :docs)]
+
+    for path <- projected_test_paths(plan) do
+      unless Enum.any?(operations, &(&1.target == Path.join(path, "test_helper.exs"))) do
+        raise Error, "projected test path requires test_helper.exs: #{path}"
+      end
+    end
+
+    operations
   end
 
   defp generated_operations(plan, opts, inputs) do

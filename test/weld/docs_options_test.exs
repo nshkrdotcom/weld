@@ -2,7 +2,7 @@ defmodule Weld.DocsOptionsTest do
   alias Weld.Layout.Support
   use ExUnit.Case, async: false
 
-  alias Weld.{FixtureCase, Manifest, Plan, Projector}
+  alias Weld.{FixtureCase, Manifest, Plan}
 
   test "root docs options do not load Mix projects while project configuration is being built" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")

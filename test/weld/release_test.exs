@@ -17,7 +17,7 @@ defmodule Weld.ReleaseTest do
     assert prepared.identity =~ ~r/^[0-9a-f]{64}$/
 
     assert prepared.bundle_path ==
-             Path.join([repo_root, ".weld", "releases", "fixture_bundle", prepared.identity])
+             Path.join([repo_root, ".weld/v2/bundles", "fixture_bundle", prepared.identity])
 
     assert Weld.Commands.release_bundle_path!(manifest_path) == prepared.bundle_path
     assert File.regular?(prepared.release_metadata_path)
@@ -43,7 +43,8 @@ defmodule Weld.ReleaseTest do
         dry_run: true
       )
 
-    assert dry_run.completed?
+    assert dry_run.dry_run
+    refute dry_run.completed?
     assert dry_run.archive_sha256 == Weld.Hash.sha256_file(prepared.tarball_path)
 
     publish = Weld.Commands.release_stage!(manifest_path)
@@ -51,35 +52,30 @@ defmodule Weld.ReleaseTest do
     assert publish.project_path ==
              Path.join([
                repo_root,
-               ".weld",
-               "publish",
+               ".weld/v2/runs",
                "fixture_bundle",
-               prepared.identity,
+               publish.run,
                "project"
              ])
 
     assert Weld.Hash.content_identity(publish.project_path) ==
              Weld.Hash.content_identity(prepared.project_path)
 
-    assert Weld.Commands.release_stage!(manifest_path).project_path == publish.project_path
     File.mkdir!(Path.join(publish.project_path, "doc"))
     File.write!(Path.join(publish.project_path, "doc/index.html"), "generated documentation")
-
-    assert_raise Weld.Error, ~r/publish workspace has changed/, fn ->
-      Weld.Commands.release_stage!(manifest_path)
-    end
 
     assert File.regular?(Path.join(publish.project_path, "doc/index.html"))
     refute File.exists?(Path.join(prepared.project_path, "doc"))
 
     refreshed = Weld.Commands.release_stage!(manifest_path, fresh: true)
     assert refreshed.refreshed?
-    assert File.regular?(Path.join(dry_run.project_path, "doc/index.html"))
+    refute refreshed.project_path == publish.project_path
+    refute File.exists?(Path.join(refreshed.project_path, "doc/index.html"))
 
     archived = Weld.Commands.release_archive!(manifest_path)
 
     assert File.dir?(archived.archive_path)
-    assert File.regular?(Path.join(archived.archive_path, "release.json"))
+    assert File.regular?(Path.join(archived.archive_path, "bundle.json"))
     tracked = Weld.Commands.release_track!(manifest_path)
     assert tracked.committed?
 
@@ -88,7 +84,7 @@ defmodule Weld.ReleaseTest do
 
     assert tracked_lock == File.read!(Path.join(prepared.project_path, "projection.lock.json"))
     assert_release_metadata(manifest_path, prepared)
-    assert_handoff(repo_root, prepared)
+    assert_bundle_metadata(repo_root, prepared)
     assert_reproducible(repo_root, prepared)
   end
 
@@ -135,26 +131,24 @@ defmodule Weld.ReleaseTest do
     assert %{
              "manifest" => %{"path" => "packaging/weld/fixture_bundle.exs"},
              "workspace" => %{"root" => "."},
-             "projection" => %{"build_path" => ".weld/v2/full/fixture_bundle/project"}
+             "projection" => %{"build_path" => "."}
            } = Jason.decode!(lockfile)
   end
 
-  defp assert_handoff(repo_root, prepared) do
+  defp assert_bundle_metadata(repo_root, prepared) do
     metadata = prepared.release_metadata_path |> File.read!() |> Jason.decode!()
-    handoff = metadata["handoff"]
+    assert metadata["schema"] == "weld.bundle/2"
+    assert metadata["package"]["name"] == "fixture_bundle"
+    assert metadata["source_revision"] =~ ~r/^[0-9a-f]{40}$/
+    assert metadata["manifest_path"] == "packaging/weld/fixture_bundle.exs"
 
-    assert handoff["schema"] == "mix_workspace_ops.prepared_artifact/v2"
-    assert handoff["package"] == "fixture_bundle"
-    assert handoff["source_revision"] =~ ~r/^[0-9a-f]{40}$/
-    assert handoff["manifest_path"] == "packaging/weld/fixture_bundle.exs"
+    assert metadata["manifest_digest"] ==
+             Weld.Hash.sha256_file(Path.join(repo_root, metadata["manifest_path"]))
 
-    assert handoff["manifest_sha256"] ==
-             Weld.Hash.sha256_file(Path.join(repo_root, handoff["manifest_path"]))
-
-    assert handoff["project_path"] == "project"
-    assert handoff["project_sha256"] == Weld.Hash.sha256_tree(prepared.project_path)
-    assert handoff["archive_path"] == Path.basename(prepared.tarball_path)
-    assert handoff["archive_sha256"] == Weld.Hash.sha256_file(prepared.tarball_path)
+    assert metadata["project_path"] == "project"
+    assert metadata["integrity"]["project_sha256"] == Weld.Hash.sha256_tree(prepared.project_path)
+    assert metadata["tarball_path"] == Path.basename(prepared.tarball_path)
+    assert metadata["integrity"]["archive_sha256"] == Weld.Hash.sha256_file(prepared.tarball_path)
   end
 
   defp assert_reproducible(repo_root, prepared_a) do
@@ -182,9 +176,7 @@ defmodule Weld.ReleaseTest do
     manifest_path = Path.join(repo_root, "packaging/weld/fixture_bundle.exs")
     FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
-    assert_raise Weld.Error, ~r/no Hex archive/, fn ->
-      Weld.Commands.release_stage!(manifest_path)
-    end
+    assert %{archive_sha256: nil} = Weld.Commands.release_stage!(manifest_path)
 
     bundle = Weld.Commands.release_bundle_path!(manifest_path)
     File.write!(Path.join(bundle, "project/README.md"), "changed after prepare")
@@ -364,7 +356,7 @@ defmodule Weld.ReleaseTest do
               docs: ["README.md"]
             ],
             verify: [
-              hex_build: false
+              hex_build: false, hex_publish_check: false
             ]
           ]
         ]

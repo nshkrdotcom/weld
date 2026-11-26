@@ -4,16 +4,17 @@ defmodule Weld.Layout.Flat do
   alias Weld.Config.Generator
   alias Weld.Error
   alias Weld.Hash
-  alias Weld.Manifest
-  alias Weld.Output
-  alias Weld.Plan
-  alias Weld.Layout.Support
-  alias Weld.Projector.Live
   alias Weld.Layout.FilePlan
   alias Weld.Layout.Flat.Migrations
   alias Weld.Layout.Flat.MixFile
   alias Weld.Layout.Flat.TestHelper
+  alias Weld.Layout.Support
+  alias Weld.Manifest
+  alias Weld.Output
+  alias Weld.Plan
+  alias Weld.Projector.Live
   alias Weld.Projector.SourceProject
+  alias Weld.Shell.Inputs
 
   @source_dirs ~w(lib src c_src include)
 
@@ -66,7 +67,7 @@ defmodule Weld.Layout.Flat do
 
     operations =
       operations
-      |> then(&Weld.Shell.Inputs.add_operations!(plan, &1))
+      |> then(&Inputs.add_operations!(plan, &1))
       |> ensure_readme(plan.artifact, root)
 
     # A migration or configuration input affects generated configuration and the

@@ -44,7 +44,7 @@ defmodule Weld.ComponentTestsTest do
       for component <- ~w(pure runtime) do
         prefix = "components/components/#{component}"
         assert source =~ "#{prefix}/test"
-        assert "#{prefix}/lib" in result.package_files
+        assert Enum.any?(result.package_files, &String.starts_with?(&1, "#{prefix}/lib/"))
         refute prefix in result.package_files
         refute "#{prefix}/test" in result.package_files
         assert "#{prefix}/test/value_test.exs" in result.verification_files
@@ -95,7 +95,10 @@ defmodule Weld.ComponentTestsTest do
 
     verified = Weld.Commands.verify!(ctx.manifest)
     baseline = Enum.find(verified.verification_results, &(&1.task == "selected_tests_baseline"))
-    projected = Enum.find(verified.verification_results, &(&1.task == "test"))
+
+    projected =
+      Enum.find(verified.verification_results, &(&1.task == "test --warnings-as-errors"))
+
     assert baseline.test_count == 3
     assert projected.test_count == baseline.test_count
 

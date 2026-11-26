@@ -3,16 +3,19 @@ defmodule Weld.Projector do
   Generates the welded Mix project and its initial lockfile.
   """
 
+  alias Weld.Core.Inventory, as: CoreInventory
   alias Weld.Error
   alias Weld.Git
   alias Weld.Hash
+  alias Weld.Layout.{FilePlan, Flat, Support}
   alias Weld.Lockfile
   alias Weld.Output
   alias Weld.Plan
   alias Weld.Plan.Inventory
-  alias Weld.Layout.{FilePlan, Flat, Support}
   alias Weld.Projector.SourceProject
   alias Weld.Receipt
+  alias Weld.Shell.Files
+  alias Weld.Shell.Inputs
 
   @spec project!(Plan.t(), keyword()) :: map()
   def project!(%Plan{} = plan, opts \\ []) do
@@ -81,7 +84,7 @@ defmodule Weld.Projector do
 
     Receipt.digest(
       {Receipt.implementation(), kind, revision, Git.remote_url(root), plan, files,
-       Weld.Shell.Inputs.collect!(plan), Hash.sha256_file(plan.manifest.manifest_path)}
+       Inputs.collect!(plan), Hash.sha256_file(plan.manifest.manifest_path)}
     )
   end
 
@@ -90,54 +93,7 @@ defmodule Weld.Projector do
     stage = Output.temporary!(root, "staging")
 
     try do
-      projection =
-        case plan.artifact.mode do
-          :source_project -> SourceProject.project!(plan, stage, kind)
-          _ -> project_by_mode!(plan, stage, kind)
-        end
-
-      linked = Map.get(projection, :linked_files, [])
-
-      inventory =
-        Hash.list_files(stage)
-        |> Enum.map(&Path.relative_to(&1, stage))
-        |> Kernel.++(linked)
-        |> Enum.uniq()
-        |> Enum.sort()
-
-      if plan.layout do
-        expected = Enum.map(plan.output_inventory, & &1.target) |> Enum.sort()
-
-        unless inventory == expected,
-          do: raise(Error, "materialized inventory differs from plan")
-
-        if kind == :full do
-          observed = Weld.Shell.Files.observe_many!(stage, expected) |> Map.new(&{&1.target, &1})
-
-          unless Enum.all?(
-                   Weld.Core.Inventory.diff(plan.output_inventory, observed),
-                   &(&1.state == :identical)
-                 ), do: raise(Error, "materialized bytes or executable modes differ from plan")
-        end
-      end
-
-      files = inventory -- linked
-      tree_digest = write_marker!(stage, plan.artifact.id, kind)
-
-      projection =
-        Map.merge(projection, %{
-          copied_files: files,
-          linked_files: linked,
-          verification_files: inventory,
-          build_path: target,
-          git_revision: revision,
-          tree_digest: tree_digest
-        })
-
-      lockname = "projection.lock.json"
-      lockfile = Lockfile.build(plan, projection, [])
-      File.write!(Path.join(stage, lockname), Lockfile.encode!(lockfile), [:exclusive])
-      reject_published_reports!(stage, projection)
+      projection = materialize!(plan, stage, target, kind, revision)
 
       unless input_digest(plan, Git.revision(root), kind) == input do
         raise Error, "source inputs changed during projection"
@@ -145,11 +101,80 @@ defmodule Weld.Projector do
 
       digest = output_digest(stage, kind)
       Output.activate!(stage, target, &managed?(&1, plan.artifact.id, kind))
-      result = Map.put(projection, :lockfile_path, Path.join(target, lockname))
-      Receipt.write!(receipt, input, {digest, result})
-      Map.put(result, :reused?, false)
+      Receipt.write!(receipt, input, {digest, projection})
+      Map.put(projection, :reused?, false)
     after
       File.rm_rf!(stage)
+    end
+  end
+
+  def materialize_verification!(plan, stage) do
+    Plan.ensure_valid!(plan)
+    Support.validate_inputs!(plan)
+    root = plan.manifest.repo_root
+    revision = Git.revision(root)
+    input = input_digest(plan, revision, :full)
+    projection = materialize!(plan, stage, stage, :full, revision)
+
+    unless input_digest(plan, Git.revision(root), :full) == input,
+      do: raise(Error, "source inputs changed during qualification materialization")
+
+    projection
+  end
+
+  defp materialize!(plan, stage, target, kind, revision) do
+    projection =
+      case plan.artifact.mode do
+        :source_project -> SourceProject.project!(plan, stage, kind)
+        _ -> project_by_mode!(plan, stage, kind)
+      end
+
+    linked = Map.get(projection, :linked_files, [])
+
+    inventory =
+      Hash.list_files(stage)
+      |> Enum.map(&Path.relative_to(&1, stage))
+      |> Kernel.++(linked)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    check_materialization!(plan, stage, kind, inventory)
+
+    files = inventory -- linked
+    tree_digest = write_marker!(stage, plan.artifact.id, kind)
+
+    projection =
+      Map.merge(projection, %{
+        copied_files: files,
+        linked_files: linked,
+        verification_files: inventory,
+        build_path: target,
+        git_revision: revision,
+        tree_digest: tree_digest
+      })
+
+    lockname = "projection.lock.json"
+    lockfile = Lockfile.build(plan, projection, [])
+    File.write!(Path.join(stage, lockname), Lockfile.encode!(lockfile), [:exclusive])
+    reject_published_reports!(stage, projection)
+
+    Map.put(projection, :lockfile_path, Path.join(target, lockname))
+  end
+
+  defp check_materialization!(%{layout: nil}, _stage, _kind, _inventory), do: :ok
+
+  defp check_materialization!(plan, stage, kind, inventory) do
+    expected = Enum.map(plan.output_inventory, & &1.target) |> Enum.sort()
+    unless inventory == expected, do: raise(Error, "materialized inventory differs from plan")
+
+    if kind == :full do
+      observed = Files.observe_many!(stage, expected) |> Map.new(&{&1.target, &1})
+
+      unless Enum.all?(
+               CoreInventory.diff(plan.output_inventory, observed),
+               &(&1.state == :identical)
+             ),
+             do: raise(Error, "materialized bytes or executable modes differ from plan")
     end
   end
 

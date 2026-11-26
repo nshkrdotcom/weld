@@ -3,8 +3,9 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
 
   import ExUnit.CaptureIO
 
-  alias Mix.Tasks.Weld.{Diff, Doctor, Gc, Status}
   alias Weld.{DocsSmoke, FixtureCase}
+  alias Weld.Layout.Support
+  alias Weld.Shell.{Diff, GC}
 
   @moduletag :tmp_dir
 
@@ -43,7 +44,7 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     assert Enum.any?(errors, &(&1 =~ "broken.html" and &1 =~ "exdoc:loaded"))
   end
 
-  test "Diff.diff_trees/4 reports modified and projection-only files", %{
+  test "semantic diff reports modified and unexpected files", %{
     tmp_dir: dir
   } do
     root = Path.join(dir, "root")
@@ -57,37 +58,51 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     File.write!(Path.join(proj, "mix.exs"), "proj")
     File.write!(Path.join(proj, "weld.provenance.json"), "{}")
 
-    report = Diff.diff_trees(root, proj, "demo", :full)
-    assert report.mix_exs_differs
-    assert report.identical_count == 1
-    assert report.modified == ["mix.exs"]
-    assert report.projection_only == ["weld.provenance.json"]
+    File.write!(Path.join(proj, "only.txt"), "unexpected")
+
+    entries =
+      for path <- ["same.txt", "mix.exs"] do
+        file = Path.join(root, path)
+
+        %{
+          target: path,
+          sha256: Weld.Hash.sha256_file(file),
+          size: File.stat!(file).size,
+          executable: false
+        }
+      end
+
+    plan = %{artifact: %{id: "demo"}, manifest: %{repo_root: root}, output_inventory: entries}
+    report = Diff.compare(plan, proj, :full)
+
+    assert Map.new(report.entries, &{&1.target, &1.state}) ==
+             %{"mix.exs" => :modified, "only.txt" => :unexpected, "same.txt" => :identical}
   end
 
-  test "Gc.prune/2 keeps newest publish runs and supports dry_run", %{tmp_dir: dir} do
+  test "GC.prune/2 keeps newest qualification runs and supports dry_run", %{tmp_dir: dir} do
     Weld.Git.run!(dir, ["init", "--quiet"])
     Weld.Output.setup!(dir)
 
     for idx <- 1..3 do
-      run_dir = Path.join([dir, ".weld", "v2", "publish", "demo", "abc", "run-#{idx}"])
+      run_dir = Path.join([dir, ".weld", "v2", "runs", "demo", "verify-#{idx}"])
       File.mkdir_p!(run_dir)
       File.touch!(run_dir, {{2026, 11, 25}, {10, 0, idx}})
     end
 
-    dry = Gc.prune(dir, keep: 1, dry_run: true)
+    dry = GC.prune(dir, keep: 1, dry_run: true)
     assert length(dry.kept) == 1
     assert length(dry.removed) == 2
     assert Enum.all?(dry.removed, &File.dir?/1)
 
-    actual = Gc.prune(dir, keep: 1, dry_run: false)
+    actual = GC.prune(dir, keep: 1, dry_run: false)
     assert length(actual.removed) == 2
     refute Enum.any?(actual.removed, &File.dir?/1)
     assert Enum.all?(actual.kept, &File.dir?/1)
   end
 
-  test "Mix.Tasks.Weld.Doctor outputs valid JSON" do
-    json = capture_io(fn -> Doctor.run(["--format", "json"]) end)
-    data = Jason.decode!(json)
+  test "mix weld doctor outputs valid JSON" do
+    json = capture_io(fn -> Mix.Task.rerun("weld", ["doctor", "--format", "json"]) end)
+    assert %{"ok" => true, "data" => data} = Jason.decode!(json)
     assert is_binary(data["elixir"])
     assert is_boolean(data["git"])
   end
@@ -95,8 +110,12 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
   test "mix weld.status adds a next command to each artifact" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
 
-    json = capture_io(fn -> Status.run([manifest, "--format", "json"]) end)
-    assert [%{"next_command" => "mix release." <> _}] = Jason.decode!(json)
+    json =
+      capture_io(fn ->
+        Mix.Task.rerun("weld", ["status", "--manifest", manifest, "--format", "json"])
+      end)
+
+    assert %{"data" => [%{"next_command" => "mix weld prepare" <> _}]} = Jason.decode!(json)
   end
 
   test "docs.hook_file is the single owner of the hook text and a missing file fails" do
@@ -104,7 +123,7 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     plan = Weld.Plan.build!(manifest)
     repo_root = plan.manifest.repo_root
 
-    assert Weld.Layout.Support.mermaid_hook(plan) == Weld.Layout.Support.mermaid_hook()
+    assert Support.mermaid_hook(plan) == Support.mermaid_hook()
 
     File.mkdir_p!(Path.join(repo_root, "build_support"))
     File.write!(Path.join(repo_root, "build_support/hook.html"), "<!-- custom -->\n")
@@ -122,11 +141,11 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
       }
     end
 
-    assert Weld.Layout.Support.mermaid_hook(with_file.("build_support/hook.html")) ==
+    assert Support.mermaid_hook(with_file.("build_support/hook.html")) ==
              "<!-- custom -->\n"
 
     assert_raise Weld.Error, ~r/hook_file not found/, fn ->
-      Weld.Layout.Support.mermaid_hook(with_file.("build_support/missing.html"))
+      Support.mermaid_hook(with_file.("build_support/missing.html"))
     end
   end
 end

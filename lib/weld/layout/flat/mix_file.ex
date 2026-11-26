@@ -2,10 +2,11 @@ defmodule Weld.Layout.Flat.MixFile do
   @moduledoc false
 
   alias Weld.Git
-  alias Weld.Plan
-  alias Weld.Layout.Support
-  alias Weld.Projector.Live
   alias Weld.Layout.FilePlan
+  alias Weld.Layout.Support
+  alias Weld.Plan
+  alias Weld.Projector.Live
+  alias Weld.Shell.Inputs
   alias Weld.SourceFormatter
 
   def plan!(%Plan{} = plan, operations, opts) do
@@ -32,7 +33,7 @@ defmodule Weld.Layout.Flat.MixFile do
     paths = Enum.map(operations ++ app_operations, & &1.target)
 
     files =
-      Weld.Shell.Inputs.publication_files(plan, ["mix.exs" | paths], package_files(plan, paths))
+      Inputs.publication_files(plan, ["mix.exs" | paths], package_files(plan, paths))
 
     opts = Keyword.put(opts, :package_files, files)
 
@@ -67,6 +68,12 @@ defmodule Weld.Layout.Flat.MixFile do
     test_elixirc_paths =
       if has_path?(paths, "test/support"), do: ["lib", "test/support"], else: ["lib"]
 
+    test_helpers =
+      Enum.filter(paths, fn path ->
+        String.starts_with?(path, "test/") and
+          (String.ends_with?(path, "_helper.exs") or String.starts_with?(path, "test/support/"))
+      end)
+
     deps =
       render_deps(
         Keyword.get(opts, :runtime_external_deps, plan.external_deps),
@@ -94,6 +101,7 @@ defmodule Weld.Layout.Flat.MixFile do
           start_permanent: Mix.env() == :prod,
           elixirc_paths: elixirc_paths(Mix.env()),
           erlc_paths: erlc_paths(Mix.env()),
+          test_ignore_filters: #{inspect(test_helpers)},
           #{if(opts[:live?], do: "aliases: #{Live.aliases_source()},", else: "")}
           deps: deps(),
           description: #{inspect(package.description)},

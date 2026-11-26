@@ -6,6 +6,7 @@ defmodule Weld.Projector.SourceProject do
 
   alias Weld.{Error, Hash, Output}
   alias Weld.Projector.Live
+  alias Weld.Shell.Runner
 
   @hex_default_files ~w(lib priv .formatter.exs mix.exs README* readme* LICENSE* license*
                         CHANGELOG* changelog* src c_src Makefile)
@@ -237,10 +238,10 @@ defmodule Weld.Projector.SourceProject do
     end
     """
 
-    case System.cmd("elixir", ["-e", script],
+    case Runner.run!("elixir", ["-e", script],
            cd: stage,
            env: [{"MIX_ENV", Atom.to_string(Mix.env())}],
-           stderr_to_stdout: true
+           seconds: 30
          ) do
       {_output, 0} -> :ok
       {output, _} -> raise Error, "staged source project failed validation:\n#{output}"

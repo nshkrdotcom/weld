@@ -19,7 +19,7 @@ defmodule Weld.AffectedTest do
       Weld.Commands.affected!(
         manifest_path,
         artifact: "fixture_bundle",
-        task: "verify.all",
+        task: "verify",
         base: "HEAD~1",
         head: "HEAD"
       )

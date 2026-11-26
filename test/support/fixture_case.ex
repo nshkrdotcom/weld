@@ -1,4 +1,5 @@
 defmodule Weld.FixtureCase do
+  alias Weld.Shell.Hex
   @moduledoc false
 
   def fixture_path(name) do
@@ -33,30 +34,51 @@ defmodule Weld.FixtureCase do
   def write_tracking_fixture!(repo_root, manifest_path) do
     stage = unique_tmp_dir("weld_tracking")
     project = Path.join(stage, "project")
-    File.mkdir_p!(project)
+    docs = Path.join(stage, "docs")
+    File.mkdir!(project)
+    File.mkdir!(docs)
     File.cp!(Path.join(repo_root, "README.md"), Path.join(project, "README.md"))
-    revision = git_output!(repo_root, ["rev-parse", "HEAD"])
+    File.write!(Path.join(docs, "index.html"), "<html>Fixture docs</html>")
+    docs_archive = Hex.freeze_docs!(docs, Path.join(stage, "docs.tar.gz"))
+    hash = Weld.Hash
 
     metadata = %{
-      source_revision: revision,
-      artifact: :fixture_bundle,
-      package: %{name: "fixture_bundle", version: "0.1.0"},
-      manifest_digest: Weld.Hash.sha256_file(manifest_path),
-      handoff: %{project_sha256: Weld.Hash.sha256_tree(project)}
+      schema: "weld.bundle/2",
+      source_revision: git_output!(repo_root, ["rev-parse", "HEAD"]),
+      artifact: "fixture_bundle",
+      package: %{name: "fixture_bundle", version: "0.1.0", otp_app: :fixture_bundle},
+      manifest_path: Path.relative_to(manifest_path, repo_root),
+      manifest_digest: hash.sha256_file(manifest_path),
+      weld_version: Weld.version(),
+      project_path: "project",
+      docs_path: "docs",
+      tarball_path: nil,
+      lock_sha256: nil,
+      integrity: %{
+        project_sha256: hash.sha256_tree(project),
+        project_identity: hash.content_identity(project),
+        docs_sha256: hash.sha256_tree(docs),
+        docs_identity: hash.content_identity(docs),
+        docs_archive_sha256: hash.sha256_file(docs_archive),
+        archive_sha256: nil
+      }
     }
 
     identity = Weld.Release.identity(metadata)
-    release_root = Path.join(repo_root, ".weld/v2/releases/fixture_bundle")
+    release_root = Path.join(repo_root, ".weld/v2/bundles/fixture_bundle")
     bundle = Path.join(release_root, identity)
     File.mkdir_p!(release_root)
     File.rename!(stage, bundle)
 
     File.write!(
-      Path.join(bundle, "release.json"),
+      Path.join(bundle, "bundle.json"),
       Jason.encode!(Map.put(metadata, :identity, identity))
     )
 
-    File.write!(Path.join(release_root, "CURRENT"), "weld.release/v2 #{identity}\n")
+    File.write!(
+      Path.join(release_root, "CURRENT"),
+      Jason.encode!(%{schema: "weld.current/2", artifact: "fixture_bundle", bundle_id: identity})
+    )
   end
 
   def init_git!(repo_root) do

@@ -18,15 +18,24 @@ defmodule Weld.Workspace.Discovery do
 
     projects =
       globs
-      |> Enum.flat_map(&Path.wildcard(Path.join(root, &1), match_dot: false))
+      |> Enum.flat_map(&Path.wildcard(Path.join(root, &1), match_dot: true))
       |> Enum.map(&Path.relative_to(Path.expand(&1), root))
       |> Enum.reject(fn id -> Enum.any?(Path.split(id), &(&1 in @ignored)) end)
       |> Enum.filter(fn id ->
         project = if id == ".", do: root, else: Output.source!(root, id)
-        File.regular?(Output.source!(project, "mix.exs"))
+        File.dir?(project) and File.regular?(Output.source!(project, "mix.exs"))
       end)
-      |> Enum.uniq()
       |> Enum.sort()
+
+    case Enum.frequencies(projects)
+         |> Enum.filter(fn {_id, count} -> count > 1 end)
+         |> Enum.sort() do
+      [{duplicate, _} | _] ->
+        raise Error, "workspace.projects globs overlap at #{duplicate}"
+
+      [] ->
+        :ok
+    end
 
     if projects == [], do: raise(Error, "workspace.projects matched no Mix projects")
 

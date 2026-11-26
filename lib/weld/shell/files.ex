@@ -1,8 +1,8 @@
 defmodule Weld.Shell.Files do
   @moduledoc false
 
-  alias Weld.{Error, Hash, Output}
   alias Weld.Core.Inventory
+  alias Weld.{Error, Hash, Output}
 
   @doc "Observe a regular file without following a symlink at its leaf."
   def observe!(root, relative) do

@@ -218,8 +218,9 @@ defmodule Weld.Projector.Live do
   end
 
   defp refresh_command(plan) do
-    "live projection inputs changed; run mix weld.project --artifact " <>
-      plan.artifact.id <> " --live " <> inspect(plan.manifest.manifest_path)
+    "live projection inputs changed; run mix weld project --artifact " <>
+      plan.artifact.id <>
+      " --kind live --manifest " <> shell_argument(plan.manifest.manifest_path)
   end
 
   defp discovery_patterns(plan) do
@@ -283,4 +284,6 @@ defmodule Weld.Projector.Live do
       [path | ancestors(Path.dirname(path), root)]
     end
   end
+
+  defp shell_argument(value), do: "'" <> String.replace(value, "'", "'\\''") <> "'"
 end

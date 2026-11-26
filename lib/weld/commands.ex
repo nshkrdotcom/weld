@@ -13,8 +13,11 @@ defmodule Weld.Commands do
 
   @spec inspect!(Path.t(), keyword()) :: map()
   def inspect!(manifest_path, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
+    inspect_plan(Plan.build!(manifest_path, opts))
+  end
 
+  @doc false
+  def inspect_plan(plan) do
     %{
       manifest: %{
         path: plan.manifest.manifest_path,
@@ -77,19 +80,21 @@ defmodule Weld.Commands do
             membership: membership(plan, project.id)
           }
         end),
-      edges: Enum.map(reported_edges(plan), &report_edge(plan, &1))
+      edges: Enum.map(reported_edges(plan, opts[:view] || :all), &report_edge(plan, &1))
     }
   end
 
   @spec graph_dot!(Path.t(), keyword()) :: String.t()
   def graph_dot!(manifest_path, opts \\ []) do
-    {:ok, dot} =
-      manifest_path
-      |> Plan.build!(opts)
-      |> then(fn plan -> Graph.subgraph(plan.graph, :all) end)
-      |> Multigraph.to_dot()
+    plan = Plan.build!(manifest_path, opts)
+    nodes = for project <- Graph.projects(plan.graph), do: "  #{Jason.encode!(project.id)};\n"
 
-    dot
+    edges =
+      for edge <- Graph.scoped_edges(plan.graph, opts[:view] || :all) do
+        "  #{Jason.encode!(edge.from)} -> #{Jason.encode!(edge.to)} [label=#{Jason.encode!(edge.kind)}];\n"
+      end
+
+    IO.iodata_to_binary(["digraph weld {\n", nodes, edges, "}\n"])
   end
 
   @spec query_deps!(Path.t(), String.t(), keyword()) :: map()
@@ -100,7 +105,7 @@ defmodule Weld.Commands do
       project: project_id,
       outgoing:
         plan
-        |> reported_edges()
+        |> reported_edges(opts[:view] || :all)
         |> Enum.filter(&(&1.from == project_id))
         |> Enum.map(fn edge ->
           report_edge(plan, edge) |> Map.delete(:from)
@@ -122,8 +127,8 @@ defmodule Weld.Commands do
     %{
       from: from,
       to: to,
-      path: dependency_path(plan.graph, from, to),
-      artifact_path: dependency_path(plan.artifact_graph, from, to),
+      path: dependency_path(plan.graph, from, to, opts[:view] || :all),
+      artifact_path: dependency_path(plan.artifact_graph, from, to, opts[:view] || :all),
       source_membership: from in plan.artifact.roots and to in plan.source_member_ids,
       externalized_edges:
         plan.externalized_edges
@@ -132,7 +137,6 @@ defmodule Weld.Commands do
     }
   end
 
-  @spec affected!(Path.t(), keyword()) :: map()
   def affected!(manifest_path, opts) do
     Affected.compare!(manifest_path, opts)
   end
@@ -174,7 +178,7 @@ defmodule Weld.Commands do
     with_plan!(manifest_path, opts, &Release.stage_locked!(&1, opts))
   end
 
-  @doc "Stages an isolated workspace, checks rebuilt archive bytes, and delegates interactively to Hex."
+  @doc "Submits the frozen package and documentation archives."
   @spec release_publish!(Path.t(), keyword()) :: map()
   def release_publish!(manifest_path, opts \\ []) do
     manifest_path
@@ -194,11 +198,13 @@ defmodule Weld.Commands do
       |> Plan.build!(opts)
       |> ReleaseStatus.status(opts)
     else
+      workspace = Weld.Workspace.load!(manifest)
+
       manifest.artifacts
       |> Map.keys()
       |> Enum.sort()
       |> Enum.map(fn id ->
-        plan = Plan.build!(manifest, Keyword.put(opts, :artifact, id))
+        plan = Plan.build_from_workspace!(manifest, workspace, Keyword.put(opts, :artifact, id))
         ReleaseStatus.status(plan, opts)
       end)
     end
@@ -241,16 +247,17 @@ defmodule Weld.Commands do
     |> Enum.map(& &1.id)
   end
 
-  defp dependency_path(graph, from, to) do
-    case Graph.path(graph, from, to, :package) do
+  defp dependency_path(graph, from, to, view) do
+    case Graph.path(graph, from, to, view) do
       {:ok, path} -> path
       :no_path -> []
     end
   end
 
-  defp reported_edges(plan) do
+  defp reported_edges(plan, view) do
     (Graph.edges(plan.graph) ++ plan.externalized_edges)
     |> Enum.uniq()
+    |> Enum.filter(&Graph.View.allowed?(&1.kind, view))
     |> Enum.sort_by(&{&1.from, &1.to, &1.kind, &1.app})
   end
 

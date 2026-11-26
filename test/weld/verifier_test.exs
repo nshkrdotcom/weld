@@ -39,7 +39,7 @@ defmodule Weld.VerifierTest do
       )
 
     assert File.regular?(result.tarball_path)
-    assert Enum.any?(result.verification_results, &(&1.task == "test"))
+    assert Enum.any?(result.verification_results, &(&1.task == "test --warnings-as-errors"))
   end
 
   @tag ci_build: "source_docs_output"
@@ -99,7 +99,9 @@ defmodule Weld.VerifierTest do
            end)
 
     baseline = Enum.find(result.verification_results, &(&1.task == "selected_tests_baseline"))
-    monolith_test = Enum.find(result.verification_results, &(&1.task == "test"))
+
+    monolith_test =
+      Enum.find(result.verification_results, &(&1.task == "test --warnings-as-errors"))
 
     assert baseline.test_count == 2
     assert monolith_test.test_count == 2

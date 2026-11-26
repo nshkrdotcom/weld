@@ -1,8 +1,10 @@
 defmodule Weld.Plan.Inventory do
   @moduledoc false
 
+  alias Weld.Core.Inventory, as: CoreInventory
   alias Weld.{Error, Output, Workspace}
   alias Weld.Layout.FilePlan
+  alias Weld.Shell.Files
   alias Weld.Workspace.Project
 
   @tooling_files ~w(.formatter.exs .credo.exs .dialyzer_ignore.exs)
@@ -136,7 +138,7 @@ defmodule Weld.Plan.Inventory do
       |> MapSet.new()
 
     for entry <- plan.source_inventory do
-      observed = Weld.Shell.Files.observe!(root, entry.source)
+      observed = Files.observe!(root, entry.source)
 
       Map.merge(observed, %{
         target: entry.target,
@@ -147,7 +149,7 @@ defmodule Weld.Plan.Inventory do
         generated_digest: nil
       })
     end
-    |> Weld.Core.Inventory.validate!()
+    |> CoreInventory.validate!()
   end
 
   def covered?(path, root),

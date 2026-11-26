@@ -6,6 +6,7 @@ defmodule Weld.SmokeApp do
 
   alias Weld.Error
   alias Weld.Plan
+  alias Weld.Shell.Runner
 
   @spec verify!(Plan.t(), Path.t()) :: map()
   def verify!(%Plan{} = plan, build_path) do
@@ -47,7 +48,7 @@ defmodule Weld.SmokeApp do
 
     IO.puts(:stderr, "Weld: verifying the smoke application")
     run!(smoke_root, ["deps.get"])
-    run!(smoke_root, ["compile"])
+    run!(smoke_root, ["compile", "--warnings-as-errors"])
 
     %{task: "smoke", env: :dev, status: :ok}
   end
@@ -67,7 +68,7 @@ defmodule Weld.SmokeApp do
     ]
 
     {output, status} =
-      System.cmd("mix", args, cd: smoke_root, env: env, stderr_to_stdout: true)
+      Runner.run!("mix", args, cd: smoke_root, env: env, seconds: 300)
 
     if status != 0 do
       raise Error, "smoke app command failed: mix #{Enum.join(args, " ")}\n\n#{output}"

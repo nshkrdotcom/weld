@@ -45,18 +45,18 @@ defmodule Weld.AgentsVerifierTest do
     assert Enum.map(report.violations, & &1.code) == [:missing_root_agents]
   end
 
-  test "mix weld.agents.verify emits JSON for valid repos" do
+  test "mix weld lint emits JSON for valid repos" do
     repo_root = FixtureCase.unique_tmp_dir("weld_agents_task")
     write_agents!(repo_root)
 
     output =
       capture_io(fn ->
         File.cd!(repo_root, fn ->
-          Mix.Task.rerun("weld.agents.verify", ["--format", "json"])
+          Mix.Task.rerun("weld", ["lint", "--root", repo_root, "--format", "json"])
         end)
       end)
 
-    assert %{"ok" => true, "repo_root" => ^repo_root} = Jason.decode!(output)
+    assert %{"ok" => true, "data" => %{"repo_root" => ^repo_root}} = Jason.decode!(output)
   end
 
   defp write_agents!(dir) do
