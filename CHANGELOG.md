@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-11-26
+
+### Changed
+
+- Make artifact compilation, inventory, materialization and qualification
+  explicit stages; share layout support between components and flat artifacts.
+- Introduce schema 2 manifests with explicit workspace projects, layout policies,
+  declared native inputs and stricter validation.
+- Consolidate the CLI into `mix weld COMMAND` and the public `Weld.run/2` API.
+- Add canonical domain-separated identity and inventory comparison primitives;
+  compare affected inputs across Git revisions.
+- Isolate qualification copies, freeze dependency locks, validate exact package
+  contents, and separate managed v2 state and bundle metadata from old formats.
+- Freeze documentation archives and publish the qualified package bytes directly;
+  record unresolved external outcomes and expose reconciliation.
+
+### Removed
+
+- Remove dotted Mix tasks, implicit workspace discovery, the old public bang API,
+  and the rebuild-and-publish Mix task handoff.
+- Do not migrate or consume legacy manifests, receipts, or generated state.
+
 ## [0.19.0] - 2026-11-25
 
 ### Added

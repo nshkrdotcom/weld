@@ -2,7 +2,7 @@ defmodule Weld.Config.Generator do
   @moduledoc false
 
   alias Weld.Error
-  alias Weld.Projector.Monolith.FilePlan
+  alias Weld.Layout.FilePlan
   alias Weld.SourceFormatter
 
   @spec generate!([Weld.Workspace.Project.t()], Path.t(), [map()], map(), keyword()) :: %{

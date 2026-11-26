@@ -6,15 +6,16 @@ defmodule Weld.Output do
 
   alias Weld.{Error, Git}
 
-  @owner "weld-output/v1\n"
+  @owner "weld.state/2\n"
   @ignore_rules [".weld", "/.weld", ".weld/", "/.weld/"]
   @forbidden ~w(.git .weld _build deps)
 
   def checkout(root), do: Git.root(root) || Path.expand(root)
 
   def path(root, parts) do
-    base = Path.join(checkout(root), ".weld")
-
+    parent = Path.join(checkout(root), ".weld")
+    reject_link!(parent)
+    base = Path.join(parent, "v2")
     reject_link!(base)
 
     Enum.reduce(parts, base, fn part, parent ->
@@ -29,35 +30,80 @@ defmodule Weld.Output do
     end)
   end
 
-  def with_lock(root, fun) do
-    checkout = checkout(root)
-    key = {__MODULE__, :mutation, checkout}
-
-    if Process.get(key) do
-      fun.()
-    else
-      with_checkout_lock(checkout, key, fun)
-    end
+  @doc "Initialize managed v2 state and its checkout ignore rule explicitly."
+  def setup!(root) do
+    with_checkout_lock(checkout(root), true, fn -> :ok end)
   end
 
-  defp with_checkout_lock(checkout, key, fun) do
-    base = Path.join(checkout, ".weld")
+  def with_lock(root, fun), do: with_checkout_lock(checkout(root), false, fun)
+
+  defp with_checkout_lock(checkout, setup?, fun) do
+    parent = Path.join(checkout, ".weld")
     ensure_untracked!(checkout)
+    reject_link!(parent)
+    mkdir!(parent)
+    base = Path.join(parent, "v2")
     reject_link!(base)
     mkdir!(base)
     lock = Path.join(base, ".lock")
     acquire!(lock, System.monotonic_time(:millisecond) + 120_000)
 
     try do
-      File.write!(Path.join(lock, "owner"), "pid=#{System.pid()} node=#{node()}\n")
+      File.write!(
+        Path.join(lock, "owner"),
+        Jason.encode!(%{
+          schema: "weld.lease/2",
+          pid: System.pid(),
+          host: to_string(:inet.gethostname() |> elem(1)),
+          nonce: nonce(),
+          started_at: DateTime.utc_now() |> DateTime.to_iso8601()
+        }),
+        [:exclusive]
+      )
+
       own_root!(base)
-      ensure_ignore!(checkout, base)
-      Process.put(key, true)
+      if setup?, do: ensure_ignore!(checkout, base), else: check_ignore!(checkout)
       fun.()
     after
-      Process.delete(key)
       File.rm_rf!(lock)
     end
+  end
+
+  defp check_ignore!(checkout) do
+    if Git.root(checkout) &&
+         not match?(
+           {:ok, _},
+           Git.run(checkout, ["check-ignore", "--quiet", "--no-index", "--", ".weld/v2/probe"])
+         ) do
+      raise Error, "Weld state must be ignored; run mix weld setup and commit the ignore rule"
+    end
+  end
+
+  @doc "Report local interrupted operations without guessing whether their owner is dead."
+  def recovery_report(root) do
+    base = path(root, [])
+    lock = Path.join(base, ".lock")
+    staging = Path.join(base, "staging")
+    owner = Path.join(lock, "owner")
+    reject_link!(owner)
+
+    %{
+      path: base,
+      lock:
+        if(File.dir?(lock),
+          do: %{
+            path: lock,
+            owner:
+              case File.read(owner) do
+                {:ok, text} -> text
+                _ -> nil
+              end
+          }
+        ),
+      staging: if(File.dir?(staging), do: File.ls!(staging) |> Enum.sort(), else: []),
+      action:
+        "Inspect owners and recorded activation facts before removing any state; never retry publication here."
+    }
   end
 
   defp ensure_untracked!(checkout) do
@@ -136,7 +182,7 @@ defmodule Weld.Output do
     if updated != old, do: replace_ignore!(target, base, before, updated)
 
     if Git.root(checkout) do
-      for path <- ~w(.weld/live/probe .weld/full/probe/project .weld/cache/probe) do
+      for path <- ~w(.weld/v2/live/probe .weld/v2/full/probe/project .weld/v2/cache/probe) do
         Git.run!(checkout, ["check-ignore", "--quiet", "--no-index", "--", path])
       end
     end
@@ -241,7 +287,8 @@ defmodule Weld.Output do
   def reject_link!(path) do
     case File.lstat(path) do
       {:ok, %{type: :symlink}} -> raise Error, "symlink is not permitted: #{path}"
-      {:ok, _stat} -> :ok
+      {:ok, %{type: type}} when type in [:regular, :directory] -> :ok
+      {:ok, _stat} -> raise Error, "unsafe filesystem node: #{path}"
       {:error, :enoent} -> :ok
       {:error, reason} -> raise Error, "cannot inspect #{path}: #{reason}"
     end

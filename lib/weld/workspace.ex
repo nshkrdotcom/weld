@@ -103,6 +103,8 @@ defmodule Weld.Workspace do
       version: Keyword.fetch!(config, :version),
       package_name: to_string(Keyword.get(package, :name, app)),
       package_files: Keyword.get(package, :files),
+      description: Keyword.get(config, :description, ""),
+      docs_source_ref: if(is_list(config[:docs]), do: config[:docs][:source_ref]),
       elixir: Keyword.get(config, :elixir, "~> 1.18"),
       deps: configured_deps(config, test_config),
       application: normalize_application(application),

@@ -29,7 +29,7 @@ defmodule Weld.PlanTest do
 
   test "explains why one runtime project depends on another" do
     result =
-      Weld.query_why!(
+      Weld.Commands.query_why!(
         FixtureCase.manifest_path("root_workspace", "artifacts"),
         "apps/web",
         "apps/core",
@@ -171,9 +171,10 @@ defmodule Weld.PlanTest do
       manifest_path,
       """
       [
+        schema: 2,
         workspace: [
           root: "../..",
-          project_globs: ["core/*", "apps/*"]
+          projects: ["core/*", "apps/*"]
         ],
         dependencies: [
           external_lib: [requirement: "~> 1.2.0"],
@@ -181,6 +182,7 @@ defmodule Weld.PlanTest do
         ],
         artifacts: [
           app_bundle: [
+            layout: :components,
             roots: ["apps/app"],
             package: [
               name: "app_bundle",
@@ -188,7 +190,7 @@ defmodule Weld.PlanTest do
               version: "0.1.0",
               description: "External dependency fixture"
             ],
-            output: [
+            files: [
               docs: ["README.md"]
             ]
           ]
@@ -287,15 +289,17 @@ defmodule Weld.PlanTest do
       manifest_path,
       """
       [
+        schema: 2,
         workspace: [
           root: "../..",
-          project_globs: ["apps/*", "tooling/*"]
+          projects: ["apps/*", "tooling/*"]
         ],
         classify: [
           tooling: ["tooling/root"]
         ],
         artifacts: [
           runtime_bundle: [
+            layout: :components,
             roots: ["apps/runtime"],
             package: [
               name: "runtime_bundle",
@@ -303,7 +307,7 @@ defmodule Weld.PlanTest do
               version: "0.1.0",
               description: "Tooling violation fixture"
             ],
-            output: [
+            files: [
               docs: ["README.md"]
             ]
           ]
@@ -381,12 +385,14 @@ defmodule Weld.PlanTest do
       manifest_path,
       """
       [
+        schema: 2,
         workspace: [
           root: "../..",
-          project_globs: ["apps/*", "core/*"]
+          projects: ["apps/*", "core/*"]
         ],
         artifacts: [
           cycle_bundle: [
+            layout: :components,
             roots: ["apps/runtime"],
             package: [
               name: "cycle_bundle",
@@ -394,7 +400,7 @@ defmodule Weld.PlanTest do
               version: "0.1.0",
               description: "Test cycle fixture"
             ],
-            output: [
+            files: [
               docs: ["README.md"]
             ]
           ]

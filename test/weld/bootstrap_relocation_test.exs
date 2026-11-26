@@ -12,7 +12,13 @@ defmodule Weld.BootstrapRelocationTest do
 
       root = Manifest.load!(manifest).repo_root
       {raw, _binding} = Code.eval_file(manifest)
-      raw = put_in(raw, [:artifacts, :package_bootstrap_bundle, :mode], mode)
+
+      raw =
+        put_in(
+          raw,
+          [:artifacts, :package_bootstrap_bundle, :layout],
+          if(mode == :monolith, do: :flat, else: :components)
+        )
 
       raw =
         if mode == :monolith,
@@ -41,7 +47,7 @@ defmodule Weld.BootstrapRelocationTest do
       )
 
       File.write!(Path.join(config, "value.txt"), "relocated")
-      projected = Weld.project!(manifest)
+      projected = Weld.Commands.project!(manifest)
 
       compiled =
         Path.join(FixtureCase.unique_tmp_dir("weld_compiled"), "package_bootstrap_bundle-0.1.0")

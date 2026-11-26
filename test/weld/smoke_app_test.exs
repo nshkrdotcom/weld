@@ -32,7 +32,7 @@ defmodule Weld.SmokeAppTest do
       System.put_env("PATH", scratch <> ":" <> (saved["PATH"] || ""))
       for key <- tl(variables), do: System.put_env(key, "caller-state")
       assert %{task: "smoke", env: :dev, status: :ok} = SmokeApp.verify!(plan, root)
-      [record] = Path.wildcard(Path.join(root, ".weld/smoke/*/checked-commands"))
+      [record] = Path.wildcard(Path.join(root, ".weld/v2/smoke/*/checked-commands"))
       assert File.read!(record) == "deps.get\ncompile\n"
     after
       for {key, value} <- saved do

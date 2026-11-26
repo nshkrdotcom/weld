@@ -1,12 +1,12 @@
 defmodule Weld.ReleaseReceipt do
   @moduledoc """
-  Formats and parses versioned Git release receipts (`weld.receipt/v1`)
+  Formats and parses versioned Git release receipts (`weld.receipt/v2`)
   embedded as structured trailers in `projection/*` commits and annotated tags.
   """
 
   alias Weld.{Git, Plan}
 
-  @schema "weld.receipt/v1"
+  @schema "weld.receipt/v2"
 
   @trailer_keys %{
     "Weld-Receipt-Schema" => :schema,
@@ -43,7 +43,7 @@ defmodule Weld.ReleaseReceipt do
 
   @spec format_trailers(Plan.t(), map()) :: String.t()
   def format_trailers(%Plan{} = plan, metadata) when is_map(metadata) do
-    integrity = metadata["integrity"] || metadata["handoff"] || %{}
+    integrity = metadata["integrity"] || %{}
     package = metadata["package"] || %{}
 
     [

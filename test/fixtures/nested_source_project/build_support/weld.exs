@@ -1,21 +1,16 @@
 [
-  workspace: [root: "..", project_globs: ["extensions/*"]],
+  schema: 2,
+  workspace: [root: "..", projects: [".", "extensions/*"]],
   artifacts: [
     workshop_palette: [
-      mode: :source_project,
+      layout: :preserve,
       roots: ["extensions/palette"],
-      external_projects: ["."],
-      source_project: [
+      external: ["."],
+      preserve: [
         files: ~w(mix.exs VERSION build_support source priv checks),
-        structural_inputs: ["VERSION", "build_support/package.exs"]
+        inputs: [[path: "VERSION", type: :file], [path: "build_support/package.exs", type: :file]]
       ],
-      package: [
-        name: "workshop_palette",
-        otp_app: :workshop_palette,
-        version: "0.1.0",
-        description: "Portable workshop palette"
-      ],
-      verify: [hex_publish: false]
+      verify: [hex_publish_check: false]
     ]
   ]
 ]

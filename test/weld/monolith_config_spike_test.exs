@@ -4,7 +4,10 @@ defmodule Weld.MonolithConfigSpikeTest do
   alias Weld.FixtureCase
 
   test "stages package config files and imports shared config from the generated root config" do
-    result = Weld.project!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
+    result =
+      Weld.Commands.project!(
+        FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
+      )
 
     config = File.read!(Path.join(result.build_path, "config/config.exs"))
     test_config = File.read!(Path.join(result.build_path, "config/test.exs"))

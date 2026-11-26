@@ -4,23 +4,17 @@ root = Path.expand("..", __DIR__)
 lock = if File.regular?(Path.join(root, "mix.lock")), do: ["mix.lock"], else: []
 
 [
-  workspace: [root: "..", project_globs: ["."]],
+  schema: 2,
+  workspace: [root: "..", projects: ["."]],
   artifacts: [
     weld: [
-      mode: :source_project,
+      layout: :preserve,
       roots: ["."],
-      source_project: [
+      preserve: [
         files: ~w(mix.exs .formatter.exs .credo.exs README.md CHANGELOG.md LICENSE AGENTS.md lib assets guides scripts test build_support) ++ lock,
-        structural_inputs: ["mix.exs"]
+        inputs: [[path: "mix.exs", type: :file]]
       ],
-      package: [
-        name: "weld",
-        otp_app: :weld,
-        version: "0.19.0",
-        elixir: "~> 1.18",
-        description: "Deterministic Mix project composition and release preparation"
-      ],
-      verify: [hex_build: true, hex_publish: false]
+      verify: [hex_build: true, hex_publish_check: false]
     ]
   ]
 ]

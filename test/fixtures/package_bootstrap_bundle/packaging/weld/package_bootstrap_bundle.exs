@@ -1,10 +1,12 @@
 [
+  schema: 2,
   workspace: [
     root: "../..",
-    project_globs: ["core/*"]
+    projects: ["core/*"]
   ],
   artifacts: [
     package_bootstrap_bundle: [
+      layout: :components,
       roots: ["core/bootstrap"],
       package: [
         name: "package_bootstrap_bundle",
@@ -12,11 +14,11 @@
         version: "0.1.0",
         description: "Fixture bundle for package-mode config bootstrap verification"
       ],
-      output: [
+      files: [
         docs: ["README.md"]
       ],
       verify: [
-        hex_publish: false,
+        hex_publish_check: false,
         artifact_tests: ["packaging/weld/package_bootstrap_bundle/test"]
       ]
     ]

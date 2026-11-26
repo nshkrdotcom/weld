@@ -21,7 +21,7 @@ defmodule Weld.MonolithPlanTest do
     plan = Plan.build!(c.manifest)
     refute File.exists?(Path.join(c.root, ".weld"))
     assert plan.output_inventory != []
-    report = Weld.inspect!(c.manifest).artifact
+    report = Weld.Commands.inspect!(c.manifest).artifact
     assert report.source_target_basis == :projection
     assert report.source_inventory == plan.source_inventory
     assert report.output_inventory == plan.output_inventory
@@ -115,7 +115,7 @@ defmodule Weld.MonolithPlanTest do
   end
 
   test "a stale plan or a generated path collision cannot replace an active view", c do
-    previous = Weld.project!(c.manifest)
+    previous = Weld.Commands.project!(c.manifest)
     marker = File.read!(Path.join(previous.build_path, "weld.provenance.json"))
     stale = Plan.build!(c.manifest)
     put(c.root, "runtime/api/lib/new.txt", "changed after planning")
@@ -136,7 +136,7 @@ defmodule Weld.MonolithPlanTest do
 
     fragment =
       Enum.find(
-        plan.monolith_plan.full,
+        plan.layout.full,
         &String.ends_with?(&1.target, "/core_store_test_helper.exs")
       )
 

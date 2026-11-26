@@ -44,10 +44,11 @@ defmodule Weld.ReleaseStatus do
   @spec validate_bundle_integrity!(Path.t(), String.t()) :: map()
   def validate_bundle_integrity!(bundle, expected_identity) do
     Output.reject_tree_links!(bundle)
-    metadata_path = Path.join(bundle, "release.json")
+    metadata_path = Path.join(bundle, "bundle.json")
 
     with {:ok, json} <- File.read(metadata_path),
          {:ok, %{} = metadata} <- Jason.decode(json),
+         "weld.bundle/2" <- metadata["schema"],
          true <-
            metadata["identity"] == expected_identity and
              Release.identity(metadata) == expected_identity,
@@ -145,7 +146,7 @@ defmodule Weld.ReleaseStatus do
       target_sha: target_sha,
       tag_receipt: nil,
       commit_receipt: commit_receipt,
-      message: "lightweight tag predates weld.receipt/v1: #{tag}"
+      message: "lightweight tag predates weld.receipt/v2: #{tag}"
     }
   end
 
@@ -223,14 +224,14 @@ defmodule Weld.ReleaseStatus do
 
   defp check_local_bundle(repo_root, artifact, identity, receipt) do
     bundle =
-      Enum.find_value(["releases", "archive"], fn kind ->
+      Enum.find_value(["bundles", "archive"], fn kind ->
         path = Output.path(repo_root, [kind, artifact, identity])
         if File.exists?(path), do: path
       end)
 
     if bundle do
       metadata = validate_bundle_integrity!(bundle, identity)
-      integrity = metadata["integrity"] || metadata["handoff"] || %{}
+      integrity = metadata["integrity"] || %{}
       package = metadata["package"]
 
       expected = %{
@@ -275,7 +276,7 @@ defmodule Weld.ReleaseStatus do
     do: "Tag #{tag} failed receipt or local evidence verification"
 
   defp resolve_target(plan, nil) do
-    current = Output.path(plan.manifest.repo_root, ["releases", plan.artifact.id, "CURRENT"])
+    current = Output.path(plan.manifest.repo_root, ["bundles", plan.artifact.id, "CURRENT"])
 
     case File.read(current) do
       {:error, :enoent} ->
@@ -291,7 +292,7 @@ defmodule Weld.ReleaseStatus do
 
   defp resolve_target(plan, identity) when is_binary(identity) do
     if Regex.match?(~r/\A[0-9a-f]{64}\z/, identity) do
-      bundle = Output.path(plan.manifest.repo_root, ["releases", plan.artifact.id, identity])
+      bundle = Output.path(plan.manifest.repo_root, ["bundles", plan.artifact.id, identity])
 
       if File.dir?(bundle),
         do: {:ok, identity, bundle},
@@ -301,7 +302,7 @@ defmodule Weld.ReleaseStatus do
     end
   end
 
-  defp resolve_pointer(plan, "weld.release/v1 " <> rest) do
+  defp resolve_pointer(plan, "weld.release/v2 " <> rest) do
     identity = String.trim_trailing(rest, "\n")
     resolve_target(plan, identity)
   end
@@ -311,7 +312,7 @@ defmodule Weld.ReleaseStatus do
   defp inspect_bundle(plan, identity, bundle, current_revision, warnings) do
     metadata = validate_bundle_integrity!(bundle, identity)
     reasons = freshness_reasons(plan, metadata, current_revision)
-    integrity = metadata["integrity"] || metadata["handoff"] || %{}
+    integrity = metadata["integrity"] || %{}
     state = if reasons == [], do: :ready, else: :stale
 
     %{
@@ -371,9 +372,9 @@ defmodule Weld.ReleaseStatus do
   end
 
   defp release_paths(plan, identity) do
-    root = Path.join(Output.checkout(plan.manifest.repo_root), ".weld")
+    root = Output.path(plan.manifest.repo_root, [])
     artifact = plan.artifact.id
-    releases = Path.join([root, "releases", artifact])
+    releases = Path.join([root, "bundles", artifact])
 
     %{
       releases: releases,
@@ -390,7 +391,7 @@ defmodule Weld.ReleaseStatus do
       Output.path(plan.manifest.repo_root, ["publish", plan.artifact.id, identity, "project"])
 
     if File.dir?(project) do
-      integrity = metadata["integrity"] || metadata["handoff"] || %{}
+      integrity = metadata["integrity"] || %{}
 
       try do
         Output.reject_tree_links!(project)
@@ -463,12 +464,14 @@ defmodule Weld.ReleaseStatus do
   end
 
   defp valid_inventory?(bundle, metadata) do
-    known = ["release.json", "project", "docs"] ++ List.wrap(metadata["tarball_path"])
-    File.ls!(bundle) -- known == []
+    known =
+      ["bundle.json", "project", "docs", "docs.tar.gz"] ++ List.wrap(metadata["tarball_path"])
+
+    Enum.sort(File.ls!(bundle)) == Enum.sort(known)
   end
 
   defp valid_bundle_contents?(bundle, metadata, archive_name) do
-    integrity = metadata["integrity"] || metadata["handoff"]
+    integrity = metadata["integrity"]
     project = Path.join(bundle, "project")
     docs = Path.join(bundle, "docs")
     archive = Path.join(bundle, archive_name)
@@ -477,6 +480,8 @@ defmodule Weld.ReleaseStatus do
       valid_archive?(archive, metadata["tarball_path"], archive_name, integrity["archive_sha256"]) and
       valid_project?(project, metadata, integrity) and
       valid_docs?(docs, metadata["integrity"]) and
+      File.regular?(Path.join(bundle, "docs.tar.gz")) and
+      Hash.sha256_file(Path.join(bundle, "docs.tar.gz")) == integrity["docs_archive_sha256"] and
       match_identity?(docs, integrity["docs_identity"])
   end
 

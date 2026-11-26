@@ -13,7 +13,7 @@ defmodule Weld.ErgonomicsContractTest do
          tmp_dir: dir
        } do
     root = Path.join(dir, "source")
-    projection = Path.join(root, ".weld/full/demo/project")
+    projection = Path.join(root, ".weld/v2/full/demo/project")
     File.mkdir_p!(projection)
     File.write!(Path.join(root, ".formatter.exs"), "[inputs: []]")
     File.write!(Path.join(projection, ".formatter.exs"), "[inputs: [\"lib/**/*.ex\"]]")
@@ -82,9 +82,9 @@ defmodule Weld.ErgonomicsContractTest do
 
   test "gc preserves active runs independently of completed-run retention", %{tmp_dir: dir} do
     Weld.Git.run!(dir, ["init", "--quiet"])
-    Output.with_lock(dir, fn -> :ok end)
-    active = Path.join(dir, ".weld/publish/demo/identity/run-active")
-    completed = Path.join(dir, ".weld/publish/demo/identity/run-completed")
+    Weld.Output.setup!(dir)
+    active = Path.join(dir, ".weld/v2/publish/demo/identity/run-active")
+    completed = Path.join(dir, ".weld/v2/publish/demo/identity/run-completed")
     File.mkdir_p!(active)
     File.mkdir_p!(completed)
     File.write!(Path.join(active, "ACTIVE"), "publisher active")
@@ -100,12 +100,12 @@ defmodule Weld.ErgonomicsContractTest do
 
   test "gc rejects symlinked publish parents without deleting their targets", %{tmp_dir: dir} do
     Weld.Git.run!(dir, ["init", "--quiet"])
-    Output.with_lock(dir, fn -> :ok end)
+    Weld.Output.setup!(dir)
     outside = FixtureCase.unique_tmp_dir("weld_gc_outside")
     run = Path.join(outside, "identity/run-outside")
     File.mkdir_p!(run)
-    File.mkdir_p!(Path.join(dir, ".weld/publish"))
-    File.ln_s!(outside, Path.join(dir, ".weld/publish/linked"))
+    File.mkdir_p!(Path.join(dir, ".weld/v2/publish"))
+    File.ln_s!(outside, Path.join(dir, ".weld/v2/publish/linked"))
 
     assert_raise Weld.Error, ~r/symlink/, fn -> Gc.prune(dir, keep: 0) end
     assert File.dir?(run)

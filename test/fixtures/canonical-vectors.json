@@ -1,0 +1,71 @@
+{
+  "note": "Codec vectors only; arbitrary sample values are not valid sealed records.",
+  "raw_sha256": [
+    {
+      "utf8": "abc",
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    {
+      "utf8": "",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "domain_vectors": [
+    {
+      "domain": "plan",
+      "value": {
+        "z": 2,
+        "a": [
+          "x",
+          true,
+          null,
+          {
+            "b": 0,
+            "a": -1
+          }
+        ]
+      },
+      "canonical_utf8": "{\"a\":[\"x\",true,null,{\"a\":-1,\"b\":0}],\"z\":2}",
+      "sha256": "9b46e0e383d40532ffa069c9a0287979aac0e3c84fce811cef4c1bd7dbb0c783"
+    },
+    {
+      "domain": "project",
+      "value": {
+        "entries": [],
+        "empty_dirs": []
+      },
+      "canonical_utf8": "{\"empty_dirs\":[],\"entries\":[]}",
+      "sha256": "75f98cd60597a5f7f36e830af720de9ed02df2a89439b2cc1ff845fc6efb8492"
+    },
+    {
+      "domain": "input",
+      "value": {
+        "path": "café/line\nbreak:codec.c",
+        "executable": false
+      },
+      "canonical_utf8": "{\"executable\":false,\"path\":\"café/line\\nbreak:codec.c\"}",
+      "sha256": "8cdbef7997cb510330922959d308ea22d40cc99b23d183b8262e078d20fb9abd"
+    },
+    {
+      "domain": "input",
+      "value": {
+        "path": "café/line\nbreak:codec.c",
+        "executable": true
+      },
+      "canonical_utf8": "{\"executable\":true,\"path\":\"café/line\\nbreak:codec.c\"}",
+      "sha256": "3e3de4bd58b66056ee1579edf2ac3d996a8e5c3c6898a66aa726733e2bb27565"
+    },
+    {
+      "domain": "bundle",
+      "value": {
+        "schema": "weld.bundle/2",
+        "source": {
+          "commit": "abc",
+          "manifest_path": "weld.exs"
+        }
+      },
+      "canonical_utf8": "{\"schema\":\"weld.bundle/2\",\"source\":{\"commit\":\"abc\",\"manifest_path\":\"weld.exs\"}}",
+      "sha256": "0865081a35d8b5a3abdee618506d4a84f2f61136b73b58831fb0a163d1fb16d5"
+    }
+  ]
+}

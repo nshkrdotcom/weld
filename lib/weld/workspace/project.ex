@@ -20,6 +20,8 @@ defmodule Weld.Workspace.Project do
   defstruct @enforce_keys ++
               [
                 package_name: nil,
+                description: "",
+                docs_source_ref: nil,
                 package_files: nil,
                 test_paths: ["test"],
                 test_elixirc_paths: [],
@@ -50,6 +52,8 @@ defmodule Weld.Workspace.Project do
           app: atom(),
           version: String.t(),
           package_name: String.t() | nil,
+          description: String.t(),
+          docs_source_ref: String.t() | nil,
           package_files: [String.t()] | nil,
           elixir: String.t(),
           deps: [dep()],

@@ -35,7 +35,7 @@ defmodule Weld.VerificationIntegrityTest do
       File.write!(Path.join(root, path), "source must remain untouched\n")
 
       assert_raise Error, ~r/output path overlaps/, fn ->
-        Weld.project!(manifest, live: true)
+        Weld.Commands.project!(manifest, live: true)
       end
 
       assert File.read!(Path.join(root, path)) == "source must remain untouched\n"
@@ -59,11 +59,11 @@ defmodule Weld.VerificationIntegrityTest do
     File.mkdir_p!(Path.dirname(source))
     File.write!(source, "root asset\n")
     {raw, _} = Code.eval_file(manifest)
-    raw = update_in(raw, [:artifacts, :monolith_bundle, :output, :assets], &["priv" | &1])
+    raw = update_in(raw, [:artifacts, :monolith_bundle, :files, :assets], &["priv" | &1])
     File.write!(manifest, inspect(raw, pretty: true, limit: :infinity))
 
     assert_raise Error, ~r/migration path collision/, fn ->
-      Weld.project!(manifest, live: true)
+      Weld.Commands.project!(manifest, live: true)
     end
 
     assert File.read!(source) == "root asset\n"
@@ -99,7 +99,7 @@ defmodule Weld.VerificationIntegrityTest do
     File.write!(manifest, inspect(raw, pretty: true, limit: :infinity))
 
     assert_raise Error, ~r/source inventory missing native package path guides\/b.md/, fn ->
-      Weld.project!(manifest)
+      Weld.Commands.project!(manifest)
     end
   end
 
@@ -121,7 +121,7 @@ defmodule Weld.VerificationIntegrityTest do
       )
 
       assert_raise Error, ~r/mutable path escapes/, fn ->
-        Weld.project!(manifest, live: true)
+        Weld.Commands.project!(manifest, live: true)
       end
 
       refute File.exists?(Path.join(source, "mutable"))
@@ -142,7 +142,7 @@ defmodule Weld.VerificationIntegrityTest do
     )
 
     assert_raise Error, ~r/allowlist includes generated publication metadata/, fn ->
-      Weld.project!(Path.join(root, "build_support/weld.exs"))
+      Weld.Commands.project!(Path.join(root, "build_support/weld.exs"))
     end
   end
 end

@@ -13,13 +13,13 @@ defmodule Weld.ReleaseWorkflow018Test do
       inspect(put_in(manifest[:artifacts][:other], artifact), limit: :infinity)
     )
 
-    assert [first, second] = Weld.release_status!(manifest_path)
+    assert [first, second] = Weld.Commands.release_status!(manifest_path)
     assert [first.artifact, second.artifact] == ["fixture_bundle", "other"]
     assert first.state == :unprepared
     assert first.default_tag == "fixture_bundle-v0.1.0"
     assert first.projection.branch == "projection/fixture_bundle"
-    assert String.ends_with?(first.paths.releases, "/.weld/releases/fixture_bundle")
-    assert String.ends_with?(first.paths.full_project, "/.weld/full/fixture_bundle/project")
+    assert String.ends_with?(first.paths.releases, "/.weld/v2/releases/fixture_bundle")
+    assert String.ends_with?(first.paths.full_project, "/.weld/v2/full/fixture_bundle/project")
     assert first.paths.bundle == nil
     assert second.paths.releases != first.paths.releases
 
@@ -28,7 +28,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     File.mkdir_p!(second.paths.releases)
     File.write!(Path.join(second.paths.releases, "CURRENT"), "invalid pointer")
 
-    assert [corrupt, malformed] = Weld.release_status!(manifest_path)
+    assert [corrupt, malformed] = Weld.Commands.release_status!(manifest_path)
     assert corrupt.state == :corrupt_bundle
     assert corrupt.identity == bundle.identity
     assert malformed.state == :malformed_pointer
@@ -63,7 +63,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert File.regular?(
              Path.join([
                repo_root,
-               ".weld/archive/fixture_bundle",
+               ".weld/v2/archive/fixture_bundle",
                bundle.identity,
                "release.json"
              ])
@@ -81,7 +81,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     bundle1 = write_bundle!(repo_root, manifest_path, "tarball-v1")
 
     tracked1 =
-      Weld.release_track!(manifest_path,
+      Weld.Commands.release_track!(manifest_path,
         artifact: "fixture_bundle",
         tag_release: true,
         push: true
@@ -104,7 +104,7 @@ defmodule Weld.ReleaseWorkflow018Test do
 
     assert tag_receipt == commit_receipt
 
-    status = Weld.release_status!(manifest_path, artifact: "fixture_bundle")
+    status = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
     assert status.projection.tree_matches
     assert status.projection.matches_identity
 
@@ -115,11 +115,11 @@ defmodule Weld.ReleaseWorkflow018Test do
     cloned_manifest = Path.join(clone, Path.relative_to(manifest_path, repo_root))
 
     assert %{status: :missing_local, tag_receipt: ^tag_receipt} =
-             Weld.release_verify_tag!(cloned_manifest, "fixture_bundle-v0.1.0")
+             Weld.Commands.release_verify_tag!(cloned_manifest, "fixture_bundle-v0.1.0")
 
     # Exact retry reuses commit and tag cleanly.
     retry =
-      Weld.release_track!(manifest_path,
+      Weld.Commands.release_track!(manifest_path,
         artifact: "fixture_bundle",
         tag_release: true
       )
@@ -129,7 +129,7 @@ defmodule Weld.ReleaseWorkflow018Test do
 
     # Verify tag matches local bundle and tarball.
     verified =
-      Weld.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0",
+      Weld.Commands.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0",
         artifact: "fixture_bundle",
         tarball: bundle1.tarball_path
       )
@@ -140,20 +140,20 @@ defmodule Weld.ReleaseWorkflow018Test do
     bundle2 = write_bundle!(repo_root, manifest_path, "tarball-v2")
     assert bundle2.identity != bundle1.identity
 
-    status = Weld.release_status!(manifest_path, artifact: "fixture_bundle")
+    status = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
     assert status.projection.tree_matches
     refute status.projection.matches_identity
 
     # Conflicting existing tag is rejected.
     assert_raise Error, ~r/already exists with a different commit or release identity/, fn ->
-      Weld.release_track!(manifest_path,
+      Weld.Commands.release_track!(manifest_path,
         artifact: "fixture_bundle",
         tag: "fixture_bundle-v0.1.0"
       )
     end
 
     tracked2 =
-      Weld.release_track!(manifest_path,
+      Weld.Commands.release_track!(manifest_path,
         artifact: "fixture_bundle",
         tag: "fixture_bundle-v0.1.0-rc2"
       )
@@ -170,12 +170,17 @@ defmodule Weld.ReleaseWorkflow018Test do
     Git.run!(repo_root, ["tag", "legacy-v0.1.0", tracked1.commit_sha])
 
     legacy_verify =
-      Weld.release_verify_tag!(manifest_path, "legacy-v0.1.0", artifact: "fixture_bundle")
+      Weld.Commands.release_verify_tag!(manifest_path, "legacy-v0.1.0",
+        artifact: "fixture_bundle"
+      )
 
     assert legacy_verify.status == :legacy_tag
 
     assert_raise Error, ~r/legacy lightweight tag already exists/, fn ->
-      Weld.release_track!(manifest_path, artifact: "fixture_bundle", tag: "legacy-v0.1.0")
+      Weld.Commands.release_track!(manifest_path,
+        artifact: "fixture_bundle",
+        tag: "legacy-v0.1.0"
+      )
     end
 
     # The receipt selects the artifact even when the manifest has multiple entries.
@@ -187,13 +192,16 @@ defmodule Weld.ReleaseWorkflow018Test do
       inspect(put_in(manifest[:artifacts][:other], artifact), limit: :infinity)
     )
 
-    assert %{status: :match} = Weld.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0")
+    assert %{status: :match} =
+             Weld.Commands.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0")
 
     assert %{status: :mismatch} =
-             Weld.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0", artifact: "other")
+             Weld.Commands.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0",
+               artifact: "other"
+             )
 
     assert %{status: :mismatch} =
-             Weld.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0",
+             Weld.Commands.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0",
                identity: bundle2.identity
              )
 
@@ -201,7 +209,9 @@ defmodule Weld.ReleaseWorkflow018Test do
     File.rm_rf!(bundle1.bundle_path)
 
     missing_local =
-      Weld.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0", artifact: "fixture_bundle")
+      Weld.Commands.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0",
+        artifact: "fixture_bundle"
+      )
 
     assert missing_local.status == :missing_local
   end
@@ -211,12 +221,12 @@ defmodule Weld.ReleaseWorkflow018Test do
     repo_root = Path.expand("../../..", manifest_path)
     FixtureCase.init_git!(repo_root)
 
-    unprepared = Weld.release_status!(manifest_path, artifact: "fixture_bundle")
+    unprepared = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
     assert unprepared.state == :unprepared
     assert unprepared.reasons == [:missing_current]
 
     bundle1 = write_bundle!(repo_root, manifest_path, "archive-one")
-    ready = Weld.release_status!(manifest_path, artifact: "fixture_bundle")
+    ready = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
     assert ready.state == :ready
     assert ready.identity == bundle1.identity
     assert ready.has_tarball
@@ -228,7 +238,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert bundle2.identity != bundle1.identity
 
     archived1 =
-      Weld.release_archive!(manifest_path,
+      Weld.Commands.release_archive!(manifest_path,
         artifact: "fixture_bundle",
         identity: bundle1.identity
       )
@@ -237,7 +247,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert File.dir?(archived1.archive_path)
 
     status1 =
-      Weld.release_status!(manifest_path,
+      Weld.Commands.release_status!(manifest_path,
         artifact: "fixture_bundle",
         identity: bundle1.identity
       )
@@ -246,19 +256,19 @@ defmodule Weld.ReleaseWorkflow018Test do
 
     # Dirty worktree marks status stale without raising.
     File.write!(Path.join(repo_root, "UNTRACKED.txt"), "dirty\n")
-    dirty = Weld.release_status!(manifest_path, artifact: "fixture_bundle")
+    dirty = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
     assert dirty.state == :stale
     assert :dirty_worktree in dirty.reasons
 
     # Commit advances HEAD -> :head_moved.
     Git.run!(repo_root, ["add", "UNTRACKED.txt"])
     Git.run!(repo_root, ["commit", "-m", "advance head"])
-    moved = Weld.release_status!(manifest_path, artifact: "fixture_bundle")
+    moved = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
     assert moved.state == :stale
     assert :head_moved in moved.reasons
 
     # --all returns a deterministic list.
-    all = Weld.release_status!(manifest_path, all: true)
+    all = Weld.Commands.release_status!(manifest_path, all: true)
     assert length(all) == 1
     assert hd(all).artifact == "fixture_bundle"
   end
@@ -270,7 +280,7 @@ defmodule Weld.ReleaseWorkflow018Test do
 
     bundle = write_bundle!(repo_root, manifest_path, "exact-tar-bytes")
 
-    staged = Weld.release_stage!(manifest_path, artifact: "fixture_bundle")
+    staged = Weld.Commands.release_stage!(manifest_path, artifact: "fixture_bundle")
     assert staged.identity == bundle.identity
     assert staged.archive_sha256 == bundle.archive_sha256
 
@@ -280,15 +290,17 @@ defmodule Weld.ReleaseWorkflow018Test do
     File.ln_s!(Path.join(staged.project_path, "README.md"), priv_link)
 
     assert_raise Error, ~r/re-run with --fresh/, fn ->
-      Weld.release_stage!(manifest_path, artifact: "fixture_bundle")
+      Weld.Commands.release_stage!(manifest_path, artifact: "fixture_bundle")
     end
 
-    refreshed = Weld.release_stage!(manifest_path, artifact: "fixture_bundle", fresh: true)
+    refreshed =
+      Weld.Commands.release_stage!(manifest_path, artifact: "fixture_bundle", fresh: true)
+
     assert refreshed.refreshed?
     refute File.exists?(priv_link)
 
     # Track and tag so we can test --tag verification in publish!.
-    Weld.release_track!(manifest_path, artifact: "fixture_bundle", tag_release: true)
+    Weld.Commands.release_track!(manifest_path, artifact: "fixture_bundle", tag_release: true)
 
     scripts_dir = FixtureCase.unique_tmp_dir("weld_fake_cmds")
 
@@ -309,7 +321,7 @@ defmodule Weld.ReleaseWorkflow018Test do
 
     # Mismatched rebuild stops before publish_cmd.
     assert_raise Error, ~r/does not match prepared SHA-256/, fn ->
-      Weld.release_publish!(manifest_path,
+      Weld.Commands.release_publish!(manifest_path,
         artifact: "fixture_bundle",
         tag: "fixture_bundle-v0.1.0",
         build_cmd: {build_bad, []},
@@ -319,7 +331,7 @@ defmodule Weld.ReleaseWorkflow018Test do
 
     # Matching rebuild + successful publish returns completed?: true.
     ok_res =
-      Weld.release_publish!(manifest_path,
+      Weld.Commands.release_publish!(manifest_path,
         artifact: "fixture_bundle",
         tag: "fixture_bundle-v0.1.0",
         build_cmd: {build_ok, []},
@@ -332,7 +344,7 @@ defmodule Weld.ReleaseWorkflow018Test do
 
     # Failed publish returns completed?: false with exit status.
     fail_res =
-      Weld.release_publish!(manifest_path,
+      Weld.Commands.release_publish!(manifest_path,
         artifact: "fixture_bundle",
         build_cmd: {build_ok, []},
         publish_cmd: {pub_fail, []}
@@ -347,7 +359,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     Git.run!(repo_root, ["commit", "-m", "move head"])
 
     assert_raise Error, ~r/head_moved/, fn ->
-      Weld.release_publish!(manifest_path,
+      Weld.Commands.release_publish!(manifest_path,
         artifact: "fixture_bundle",
         build_cmd: {build_ok, []},
         publish_cmd: {pub_ok, []}
@@ -355,7 +367,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     end
 
     allowed =
-      Weld.release_publish!(manifest_path,
+      Weld.Commands.release_publish!(manifest_path,
         artifact: "fixture_bundle",
         allow_stale: true,
         build_cmd: {build_ok, []},
@@ -433,13 +445,13 @@ defmodule Weld.ReleaseWorkflow018Test do
       """)
 
     assert_raise Error, ~r/hex.build failed \(exit 42\)/, fn ->
-      Weld.release_publish!(manifest_path,
+      Weld.Commands.release_publish!(manifest_path,
         artifact: "fixture_bundle",
         build_cmd: {build, []}
       )
     end
 
-    runs = Path.join([repo_root, ".weld/publish/fixture_bundle", bundle.identity, "run-*"])
+    runs = Path.join([repo_root, ".weld/v2/publish/fixture_bundle", bundle.identity, "run-*"])
     assert length(Path.wildcard(runs)) == 1
     assert Path.wildcard(Path.join(runs, "ACTIVE")) == []
   end
@@ -500,7 +512,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     }
 
     identity = Weld.Release.identity(metadata)
-    release_root = Path.join(repo_root, ".weld/releases/fixture_bundle")
+    release_root = Path.join(repo_root, ".weld/v2/releases/fixture_bundle")
     bundle = Path.join(release_root, identity)
     File.mkdir_p!(release_root)
     File.rename!(stage, bundle)
@@ -510,7 +522,7 @@ defmodule Weld.ReleaseWorkflow018Test do
       Jason.encode!(Map.put(metadata, :identity, identity), pretty: true)
     )
 
-    File.write!(Path.join(release_root, "CURRENT"), "weld.release/v1 #{identity}\n")
+    File.write!(Path.join(release_root, "CURRENT"), "weld.release/v2 #{identity}\n")
 
     %{
       identity: identity,

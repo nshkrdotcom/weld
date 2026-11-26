@@ -7,9 +7,9 @@ defmodule Weld.ProjectorConfigCacheTest do
     for live? <- [false, true] do
       {manifest, config_root} = config_fixture!()
       write_config_tree!(config_root)
-      projection = Weld.project!(manifest, live: live?)
+      projection = Weld.Commands.project!(manifest, live: live?)
       refute projection.reused?
-      assert Weld.project!(manifest, live: live?).reused?
+      assert Weld.Commands.project!(manifest, live: live?).reused?
 
       for relative <- ["config.exs", "nested/imported.exs", "nested/value.txt"] do
         source = Path.join(config_root, relative)
@@ -20,12 +20,12 @@ defmodule Weld.ProjectorConfigCacheTest do
         File.write!(source, updated)
         File.touch!(source, mtime)
 
-        refreshed = Weld.project!(manifest, live: live?)
+        refreshed = Weld.Commands.project!(manifest, live: live?)
 
         refute refreshed.reused?
         assert refreshed.build_path == projection.build_path
         assert_runtime_copies!(refreshed, relative, updated)
-        assert Weld.project!(manifest, live: live?).reused?
+        assert Weld.Commands.project!(manifest, live: live?).reused?
       end
     end
   end
@@ -34,12 +34,12 @@ defmodule Weld.ProjectorConfigCacheTest do
     for live? <- [false, true] do
       {manifest, config_root} = config_fixture!()
       File.rm_rf!(config_root)
-      projection = Weld.project!(manifest, live: live?)
+      projection = Weld.Commands.project!(manifest, live: live?)
       refute projection.reused?
-      assert Weld.project!(manifest, live: live?).reused?
+      assert Weld.Commands.project!(manifest, live: live?).reused?
 
       write_config_tree!(config_root)
-      added = Weld.project!(manifest, live: live?)
+      added = Weld.Commands.project!(manifest, live: live?)
       refute added.reused?
 
       assert_runtime_copies!(
@@ -48,29 +48,29 @@ defmodule Weld.ProjectorConfigCacheTest do
         File.read!(Path.join(config_root, "config.exs"))
       )
 
-      assert Weld.project!(manifest, live: live?).reused?
+      assert Weld.Commands.project!(manifest, live: live?).reused?
 
       File.write!(Path.join(config_root, "new.txt"), "new companion")
-      added_file = Weld.project!(manifest, live: live?)
+      added_file = Weld.Commands.project!(manifest, live: live?)
       refute added_file.reused?
       assert_runtime_copies!(added_file, "new.txt", "new companion")
-      assert Weld.project!(manifest, live: live?).reused?
+      assert Weld.Commands.project!(manifest, live: live?).reused?
 
       File.rm!(Path.join(config_root, "new.txt"))
-      removed_file = Weld.project!(manifest, live: live?)
+      removed_file = Weld.Commands.project!(manifest, live: live?)
       refute removed_file.reused?
 
       for path <- runtime_copies(removed_file, "new.txt"), do: refute(File.exists?(path))
 
-      assert Weld.project!(manifest, live: live?).reused?
+      assert Weld.Commands.project!(manifest, live: live?).reused?
 
       File.rm_rf!(config_root)
-      removed = Weld.project!(manifest, live: live?)
+      removed = Weld.Commands.project!(manifest, live: live?)
       refute removed.reused?
 
       for path <- runtime_copies(removed, "config.exs"), do: refute(File.exists?(path))
 
-      assert Weld.project!(manifest, live: live?).reused?
+      assert Weld.Commands.project!(manifest, live: live?).reused?
     end
   end
 
@@ -80,11 +80,11 @@ defmodule Weld.ProjectorConfigCacheTest do
       write_config_tree!(config_root)
       source = Path.join(config_root, "nested/value.txt")
       File.chmod!(source, 0o644)
-      Weld.project!(manifest, live: live?)
-      assert Weld.project!(manifest, live: live?).reused?
+      Weld.Commands.project!(manifest, live: live?)
+      assert Weld.Commands.project!(manifest, live: live?).reused?
 
       File.chmod!(source, 0o600)
-      refreshed = Weld.project!(manifest, live: live?)
+      refreshed = Weld.Commands.project!(manifest, live: live?)
 
       refute refreshed.reused?
       assert_runtime_copies!(refreshed, "nested/value.txt", "first")
@@ -93,7 +93,7 @@ defmodule Weld.ProjectorConfigCacheTest do
         assert Bitwise.band(File.stat!(path).mode, 0o777) == 0o600
       end
 
-      assert Weld.project!(manifest, live: live?).reused?
+      assert Weld.Commands.project!(manifest, live: live?).reused?
     end
   end
 

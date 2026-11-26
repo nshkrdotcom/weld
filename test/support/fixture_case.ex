@@ -46,7 +46,7 @@ defmodule Weld.FixtureCase do
     }
 
     identity = Weld.Release.identity(metadata)
-    release_root = Path.join(repo_root, ".weld/releases/fixture_bundle")
+    release_root = Path.join(repo_root, ".weld/v2/releases/fixture_bundle")
     bundle = Path.join(release_root, identity)
     File.mkdir_p!(release_root)
     File.rename!(stage, bundle)
@@ -56,13 +56,13 @@ defmodule Weld.FixtureCase do
       Jason.encode!(Map.put(metadata, :identity, identity))
     )
 
-    File.write!(Path.join(release_root, "CURRENT"), "weld.release/v1 #{identity}\n")
+    File.write!(Path.join(release_root, "CURRENT"), "weld.release/v2 #{identity}\n")
   end
 
   def init_git!(repo_root) do
     run!(repo_root, ["init"])
 
-    Weld.Output.with_lock(repo_root, fn -> :ok end)
+    Weld.Output.setup!(repo_root)
     ignore_generated_files!(repo_root)
 
     run!(repo_root, ["config", "user.name", "Weld Test"])

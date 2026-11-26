@@ -1,7 +1,7 @@
 defmodule Weld.MixProject do
   use Mix.Project
 
-  @version "0.19.0"
+  @version "0.20.0"
 
   def project do
     [
@@ -23,7 +23,7 @@ defmodule Weld.MixProject do
 
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger, :inets, :ssl, :public_key]
     ]
   end
 
@@ -43,6 +43,7 @@ defmodule Weld.MixProject do
       {:credo, "~> 1.7", runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
+      {:hex_core, "~> 0.21.1"},
       {:jason, "~> 1.4"},
       {:multigraph, "~> 0.16.1-mg.3"},
       {:nimble_options, "~> 1.1"},
@@ -113,30 +114,7 @@ defmodule Weld.MixProject do
           Weld.Git,
           Weld.Error
         ],
-        "Mix Tasks": [
-          Mix.Tasks.Weld.Inspect,
-          Mix.Tasks.Weld.Graph,
-          Mix.Tasks.Weld.Query,
-          Mix.Tasks.Weld.Affected,
-          Mix.Tasks.Weld.Agents.Verify,
-          Mix.Tasks.Weld.Setup,
-          Mix.Tasks.Weld.Project,
-          Mix.Tasks.Weld.Verify,
-          Mix.Tasks.Weld.Release.Prepare,
-          Mix.Tasks.Weld.Release.Status,
-          Mix.Tasks.Weld.Release.Track,
-          Mix.Tasks.Weld.Release.VerifyTag,
-          Mix.Tasks.Weld.Release.Stage,
-          Mix.Tasks.Weld.Release.Publish,
-          Mix.Tasks.Weld.Release.Archive,
-          Mix.Tasks.Release.Prepare,
-          Mix.Tasks.Release.Status,
-          Mix.Tasks.Release.Track,
-          Mix.Tasks.Release.VerifyTag,
-          Mix.Tasks.Release.Stage,
-          Mix.Tasks.Release.Publish,
-          Mix.Tasks.Release.Archive
-        ]
+        "Mix Tasks": [Mix.Tasks.Weld]
       ],
       groups_for_extras: [
         "Start Here": ~r/README.md|guides\/getting_started.md|guides\/workflow.md/,

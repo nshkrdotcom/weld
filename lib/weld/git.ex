@@ -15,6 +15,37 @@ defmodule Weld.Git do
     end
   end
 
+  @doc "Materialize regular tracked blobs for an exact commit in a disposable directory."
+  def with_tree!(root, ref, fun) do
+    commit = run!(root, ["rev-parse", "--verify", "--end-of-options", ref <> "^{commit}"])
+    unless Regex.match?(~r/\A[0-9a-f]{40,64}\z/, commit), do: raise(Error, "invalid Git commit")
+    directory = Path.join(System.tmp_dir!(), "weld-tree-" <> Weld.Output.nonce())
+    File.mkdir!(directory)
+
+    try do
+      {tree, 0} = System.cmd("git", ["ls-tree", "-r", "-z", "--full-tree", commit], cd: root)
+
+      for entry <- String.split(tree, <<0>>, trim: true) do
+        [metadata, relative] = String.split(entry, "\t", parts: 2)
+        [mode, "blob", oid] = String.split(metadata, " ")
+
+        unless mode in ["100644", "100755"],
+          do: raise(Error, "unsupported Git tree entry #{relative}")
+
+        Weld.Core.Inventory.validate_path!(relative)
+        file = Path.join(directory, relative)
+        File.mkdir_p!(Path.dirname(file))
+        {bytes, 0} = System.cmd("git", ["cat-file", "blob", oid], cd: root)
+        File.write!(file, bytes, [:exclusive])
+        File.chmod!(file, if(mode == "100755", do: 0o755, else: 0o644))
+      end
+
+      fun.(directory, commit)
+    after
+      File.rm_rf!(directory)
+    end
+  end
+
   @spec revision(Path.t()) :: String.t() | nil
   def revision(repo_root) do
     repo_root

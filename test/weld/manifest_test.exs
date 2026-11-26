@@ -71,9 +71,11 @@ defmodule Weld.ManifestTest do
       manifest_path,
       """
       [
+        schema: 2,
         workspace: [
-          root: "../.."
-        ],
+          root: "../..",
+      projects: [".", "apps/*", "proofs/*", "tooling/*"]
+      ],
         classify: [
           tooling: [".", "tooling/test_support"],
           proofs: ["proofs/demo"]
@@ -83,10 +85,10 @@ defmodule Weld.ManifestTest do
         ],
         artifacts: [
           web_monolith: [
-            mode: :monolith,
-            monolith_opts: [
-              shared_test_configs: [:apps_web],
-              test_support_projects: [:tooling_test_support, "tooling/test_support"]
+            layout: :flat,
+            flat: [
+              shared_test_configs: ["apps_web"],
+              test_support: ["tooling_test_support", "tooling/test_support"]
             ],
             roots: ["apps/web"],
             package: [
@@ -94,7 +96,7 @@ defmodule Weld.ManifestTest do
               otp_app: :root_web_monolith,
               version: "0.1.0"
             ],
-            output: [
+            files: [
               docs: ["README.md"]
             ]
           ]

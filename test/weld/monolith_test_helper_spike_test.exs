@@ -17,7 +17,7 @@ defmodule Weld.MonolithTestHelperSpikeTest do
     )
 
     assert_raise Weld.Error, ~r/fixture_store/, fn ->
-      Weld.project!(manifest_path)
+      Weld.Commands.project!(manifest_path)
     end
   end
 
@@ -35,7 +35,7 @@ defmodule Weld.MonolithTestHelperSpikeTest do
     )
 
     assert_raise Weld.Error, ~r/helper side effect/, fn ->
-      Weld.project!(manifest_path)
+      Weld.Commands.project!(manifest_path)
     end
   end
 end

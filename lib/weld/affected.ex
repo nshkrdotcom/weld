@@ -9,13 +9,106 @@ defmodule Weld.Affected do
   alias Weld.Plan.Inventory
   alias Weld.Workspace
 
+  @doc "Compare independently planned Git snapshots, without checking out either revision."
+  def compare!(manifest_path, opts) do
+    root =
+      Git.root(Path.dirname(Path.expand(manifest_path))) ||
+        raise(Weld.Error, "affected requires Git")
+
+    relative = Path.relative_to(Path.expand(manifest_path), root)
+    base = Keyword.fetch!(opts, :base)
+    head = Keyword.fetch!(opts, :head)
+    task = Keyword.get(opts, :task, "verify")
+
+    snapshots =
+      for ref <- [base, head] do
+        Git.with_tree!(root, ref, fn directory, commit ->
+          try do
+            plan = Plan.build!(Path.join(directory, relative), opts)
+            entries = Map.new(plan.output_inventory, &{&1.target, &1})
+            %{revision: commit, plan: plan, entries: entries}
+          rescue
+            error in [Weld.Error, File.Error, ArgumentError, KeyError] ->
+              %{revision: commit, error: Exception.message(error)}
+          end
+        end)
+      end
+
+    [before, after_] = snapshots
+    changed = Git.changed_files(root, before.revision, after_.revision)
+
+    if Map.has_key?(before, :error) or Map.has_key?(after_, :error) do
+      %{
+        base: before.revision,
+        head: after_.revision,
+        task: task,
+        changed_files: changed,
+        affected?: true,
+        unknown?: true,
+        reasons: Enum.flat_map(snapshots, &List.wrap(&1[:error]))
+      }
+    else
+      role = if task in ["package", "publish"], do: :package, else: :verify
+      expected = Weld.Core.Inventory.view(before.plan.output_inventory, role)
+
+      actual =
+        after_.plan.output_inventory
+        |> Weld.Core.Inventory.view(role)
+        |> Map.new(&{&1.target, &1})
+
+      delta = Weld.Core.Inventory.diff(expected, actual) |> Enum.reject(&(&1.state == :identical))
+      structural = Enum.uniq(before.plan.structural_inputs ++ after_.plan.structural_inputs)
+      structural_changed? = relative in changed or Enum.any?(changed, &(&1 in structural))
+
+      old_report =
+        run!(
+          before.plan,
+          Keyword.merge(opts,
+            base: before.revision,
+            head: after_.revision,
+            task: task,
+            changed_files: changed
+          )
+        )
+
+      new_report =
+        run!(
+          after_.plan,
+          Keyword.merge(opts,
+            base: before.revision,
+            head: after_.revision,
+            task: task,
+            changed_files: changed
+          )
+        )
+
+      projects =
+        Enum.sort(Enum.uniq(old_report.affected_projects ++ new_report.affected_projects))
+
+      %{
+        base: before.revision,
+        head: after_.revision,
+        task: task,
+        changed_files: changed,
+        affected?: delta != [] or structural_changed? or projects != [],
+        unknown?: false,
+        structural_changed?: structural_changed?,
+        entries: delta,
+        affected_projects: projects
+      }
+    end
+  end
+
   @spec run!(Plan.t(), keyword()) :: map()
   def run!(%Plan{} = plan, opts) do
     base = Keyword.fetch!(opts, :base)
     head = Keyword.fetch!(opts, :head)
     task = Keyword.fetch!(opts, :task)
 
-    changed_files = Git.changed_files(plan.manifest.repo_root, base, head)
+    changed_files =
+      Keyword.get_lazy(opts, :changed_files, fn ->
+        Git.changed_files(plan.manifest.repo_root, base, head)
+      end)
 
     ownership =
       Enum.map(changed_files, fn relative ->

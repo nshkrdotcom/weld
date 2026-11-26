@@ -26,11 +26,11 @@ defmodule Weld.ComponentTestsTest do
     manifest = Path.join(root, "build_support/components.exs")
 
     File.write!(manifest, """
-    [workspace: [root: "..", project_globs: ["components/*", "extensions/*"]],
-     artifacts: [sprout: [roots: ["components/runtime"],
+    [schema: 2, workspace: [root: "..", projects: ["components/*", "extensions/*"]],
+     artifacts: [sprout: [layout: :components, roots: ["components/runtime"],
        package: [name: "sprout", otp_app: :sprout, version: "0.1.0"],
-       output: [docs: ["README.md"], assets: ["priv"]],
-       verify: [component_tests: true, hex_publish: false]]]]
+       files: [docs: ["README.md"], assets: ["priv"]],
+       verify: [component_tests: true, hex_publish_check: false]]]]
     """)
 
     %{root: root, manifest: manifest}
@@ -38,7 +38,7 @@ defmodule Weld.ComponentTestsTest do
 
   test "component paths and helpers remain independent and are excluded from Hex", ctx do
     for kind <- [[], [live: true]] do
-      result = Weld.project!(ctx.manifest, kind)
+      result = Weld.Commands.project!(ctx.manifest, kind)
       source = File.read!(Path.join(result.build_path, "mix.exs"))
 
       for component <- ~w(pure runtime) do
@@ -93,7 +93,7 @@ defmodule Weld.ComponentTestsTest do
     end
     """)
 
-    verified = Weld.verify!(ctx.manifest)
+    verified = Weld.Commands.verify!(ctx.manifest)
     baseline = Enum.find(verified.verification_results, &(&1.task == "selected_tests_baseline"))
     projected = Enum.find(verified.verification_results, &(&1.task == "test"))
     assert baseline.test_count == 3
@@ -123,7 +123,7 @@ defmodule Weld.ComponentTestsTest do
                   bytes =~ "private_suite_config")
            end)
 
-    live = Weld.project!(ctx.manifest, live: true)
+    live = Weld.Commands.project!(ctx.manifest, live: true)
 
     {output, status} =
       System.cmd("mix", ["test"],
@@ -156,7 +156,7 @@ defmodule Weld.ComponentTestsTest do
     )
 
     assert_raise Weld.Error, ~r/test input overlaps a published runtime root/, fn ->
-      Weld.project!(ctx.manifest)
+      Weld.Commands.project!(ctx.manifest)
     end
   end
 
@@ -173,7 +173,7 @@ defmodule Weld.ComponentTestsTest do
     source_lock = Path.join(ctx.root, "components/pure/mix.lock")
     refute File.exists?(source_lock)
 
-    result = Weld.verify!(ctx.manifest)
+    result = Weld.Commands.verify!(ctx.manifest)
 
     assert Enum.any?(result.verification_results, &(&1.task == "selected_tests_baseline"))
     refute File.exists?(source_lock)
@@ -182,7 +182,7 @@ defmodule Weld.ComponentTestsTest do
   @tag integration: true, ci_build: "component_prepare", timeout: 600_000
   test "prepared candidates retain component tests and finalized lock identity", ctx do
     FixtureCase.init_git!(ctx.root)
-    prepared = Weld.release_prepare!(ctx.manifest)
+    prepared = Weld.Commands.release_prepare!(ctx.manifest)
 
     for component <- ~w(pure runtime) do
       assert File.regular?(
@@ -205,6 +205,6 @@ defmodule Weld.ComponentTestsTest do
       prepared.build_path |> Path.join("weld.provenance.json") |> File.read!() |> Jason.decode!()
 
     assert verified_marker["artifact_id"] == marker["artifact_id"]
-    assert Weld.release_prepare!(ctx.manifest).identity == prepared.identity
+    assert Weld.Commands.release_prepare!(ctx.manifest).identity == prepared.identity
   end
 end

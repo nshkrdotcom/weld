@@ -23,7 +23,7 @@ defmodule Weld.MixTasksTest do
       Mix.Task.rerun("weld.project", ["--artifact", "sprout", "--live"])
     end)
 
-    assert File.dir?(Path.join(root, ".weld/live/sprout"))
+    assert File.dir?(Path.join(root, ".weld/v2/live/sprout"))
     refute File.exists?(Path.join(root, "components/pure/.weld"))
   end
 

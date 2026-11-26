@@ -1,10 +1,12 @@
 [
+  schema: 2,
   workspace: [
     root: "../..",
-    project_globs: ["core/*", "runtime/*"]
+    projects: ["core/*", "runtime/*"]
   ],
   artifacts: [
     composite_bundle: [
+      layout: :components,
       roots: ["runtime/local"],
       package: [
         name: "composite_bundle",
@@ -12,11 +14,11 @@
         version: "0.1.0",
         description: "Composite runtime fixture"
       ],
-      output: [
+      files: [
         docs: ["README.md"]
       ],
       verify: [
-        hex_publish: false,
+        hex_publish_check: false,
         artifact_tests: ["packaging/weld/composite_bundle/test"]
       ]
     ]

@@ -13,8 +13,8 @@ defmodule Weld.SourceProjectTest do
     root: root,
     manifest: manifest
   } do
-    full = Weld.project!(manifest)
-    assert full.build_path == Path.join(root, ".weld/full/sprout/project")
+    full = Weld.Commands.project!(manifest)
+    assert full.build_path == Path.join(root, ".weld/v2/full/sprout/project")
     assert %{"kind" => "full", "artifact_id" => digest} = marker(full)
     assert digest =~ ~r/^[0-9a-f]{64}$/
 
@@ -24,36 +24,36 @@ defmodule Weld.SourceProjectTest do
     assert File.read!(Path.join(full.build_path, "VERSION")) == "0.1.0\n"
     assert File.lstat!(Path.join(full.build_path, "priv")).type == :directory
     refute File.exists?(Path.join(full.build_path, "extensions"))
-    assert marker(Weld.project!(manifest)) == marker(full)
+    assert marker(Weld.Commands.project!(manifest)) == marker(full)
 
-    live = Weld.project!(manifest, live: true)
-    assert live.build_path == Path.join(root, ".weld/live/sprout")
+    live = Weld.Commands.project!(manifest, live: true)
+    assert live.build_path == Path.join(root, ".weld/v2/live/sprout")
     assert %{"kind" => "live"} = marker(live)
     refute Map.has_key?(marker(live), "artifact_id")
     assert File.read_link!(Path.join(live.build_path, "priv")) == Path.join(root, "priv")
     File.write!(Path.join(root, "priv/theme.txt"), "azure")
     assert File.read!(Path.join(live.build_path, "priv/theme.txt")) == "azure"
     assert File.read!(Path.join(full.build_path, "priv/theme.txt")) == "sage\n"
-    refute marker(Weld.project!(manifest))["artifact_id"] == digest
+    refute marker(Weld.Commands.project!(manifest))["artifact_id"] == digest
   end
 
   test "duplicate modules and escaping links fail before candidate activation", %{
     root: root,
     manifest: manifest
   } do
-    full = Weld.project!(manifest)
+    full = Weld.Commands.project!(manifest)
     previous = marker(full)
     duplicate = Path.join(root, "components/pure/lib/copy.ex")
     File.write!(duplicate, "if true do\n  defmodule Sprout.Runtime do\n  end\nend\n")
-    assert_raise Error, ~r/duplicate module/, fn -> Weld.project!(manifest) end
+    assert_raise Error, ~r/duplicate module/, fn -> Weld.Commands.project!(manifest) end
     assert previous == marker(full)
     File.rm!(duplicate)
     File.ln_s!(manifest, Path.join(root, "priv/external"))
-    assert_raise Error, fn -> Weld.project!(manifest) end
+    assert_raise Error, fn -> Weld.Commands.project!(manifest) end
     assert previous == marker(full)
     File.rm!(Path.join(root, "priv/external"))
     File.rm!(Path.join(full.build_path, "weld.provenance.json"))
-    assert_raise Error, ~r/unmanaged/, fn -> Weld.project!(manifest) end
+    assert_raise Error, ~r/unmanaged/, fn -> Weld.Commands.project!(manifest) end
     assert File.regular?(Path.join(full.build_path, "mix.exs"))
   end
 
@@ -61,7 +61,7 @@ defmodule Weld.SourceProjectTest do
     root: root,
     manifest: manifest
   } do
-    full = Weld.project!(manifest)
+    full = Weld.Commands.project!(manifest)
     previous = marker(full)
     File.write!(Path.join(root, "build_support/metadata.exs"), ":ok\n")
     mix = Path.join(root, "mix.exs")
@@ -72,7 +72,7 @@ defmodule Weld.SourceProjectTest do
     )
 
     assert_raise Error, ~r/staged source project failed validation/, fn ->
-      Weld.project!(manifest)
+      Weld.Commands.project!(manifest)
     end
 
     assert previous == marker(full)
@@ -83,7 +83,7 @@ defmodule Weld.SourceProjectTest do
     manifest: manifest
   } do
     Mix.Task.rerun("weld.project", [manifest, "--artifact", "sprout", "--live"])
-    assert File.regular?(Path.join(root, ".weld/live/sprout/mix.exs"))
+    assert File.regular?(Path.join(root, ".weld/v2/live/sprout/mix.exs"))
   end
 
   test "a real transitive path dependency stays separate and needs its compiler inputs", ctx do
@@ -117,7 +117,7 @@ defmodule Weld.SourceProjectTest do
     source_lock = Path.join(root, "components/pure/mix.lock")
     File.write!(source_lock, "%{}\n")
 
-    %{build_path: candidate} = Weld.project!(manifest)
+    %{build_path: candidate} = Weld.Commands.project!(manifest)
     mix!(candidate, ["deps.get"])
 
     mix!(candidate, [
@@ -130,7 +130,7 @@ defmodule Weld.SourceProjectTest do
       """
     ])
 
-    %{build_path: live} = Weld.project!(manifest, live: true)
+    %{build_path: live} = Weld.Commands.project!(manifest, live: true)
     projected_lock = Path.join(live, "components/pure/mix.lock")
     assert File.lstat!(projected_lock).type == :regular
     File.write!(projected_lock, "%{local: true}\n")
@@ -146,7 +146,7 @@ defmodule Weld.SourceProjectTest do
     )
 
     assert_raise Error, ~r/source inventory missing components\/pure\/lib/, fn ->
-      Weld.project!(manifest)
+      Weld.Commands.project!(manifest)
     end
 
     File.write!(
@@ -165,7 +165,7 @@ defmodule Weld.SourceProjectTest do
     )
 
     assert_raise Error, ~r/staged source project failed validation/, fn ->
-      Weld.project!(manifest)
+      Weld.Commands.project!(manifest)
     end
   end
 
@@ -175,7 +175,7 @@ defmodule Weld.SourceProjectTest do
     scratch = FixtureCase.unique_tmp_dir("nested_source_consumers")
     source = Path.join(root, "extensions/palette")
 
-    full = Weld.project!(manifest)
+    full = Weld.Commands.project!(manifest)
     assert full.package_files == ~w(VERSION build_support mix.exs priv source)
     assert "checks/palette_test.exs" in full.verification_files
     refute File.exists?(Path.join(full.build_path, "extensions"))
@@ -184,7 +184,11 @@ defmodule Weld.SourceProjectTest do
     mixfile = Path.join(source, "mix.exs")
     original = File.read!(mixfile)
     File.write!(mixfile, String.replace(original, ~s(["source"]), ~s(["missing"])))
-    assert_raise Error, ~r/compiler input is missing: missing/, fn -> Weld.project!(manifest) end
+
+    assert_raise Error, ~r/compiler input is missing: missing/, fn ->
+      Weld.Commands.project!(manifest)
+    end
+
     File.write!(mixfile, original)
 
     detached = Path.join(scratch, "palette")
@@ -194,7 +198,7 @@ defmodule Weld.SourceProjectTest do
     File.cp!(Path.join(root, "mix.exs"), Path.join(base, "mix.exs"))
     File.cp_r!(Path.join(root, "lib"), Path.join(base, "lib"))
 
-    live = Weld.project!(manifest, live: true)
+    live = Weld.Commands.project!(manifest, live: true)
     assert "source/palette.ex" in live.linked_files
 
     assert mix!(live.build_path, ["shade"]) =~ "jade"
@@ -210,7 +214,7 @@ defmodule Weld.SourceProjectTest do
       String.replace(File.read!(manifest), "mix.exs VERSION", "mix.exs mix.lock VERSION")
     )
 
-    refreshed = Weld.project!(manifest, live: true)
+    refreshed = Weld.Commands.project!(manifest, live: true)
     projected_lock = Path.join(refreshed.build_path, "mix.lock")
     assert File.lstat!(projected_lock).type == :regular
     File.write!(projected_lock, "%{new: :entry}\n")

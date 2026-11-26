@@ -15,17 +15,52 @@ defmodule Weld.Verifier do
     Weld.Output.with_lock(plan.manifest.repo_root, fn -> verify_locked!(plan, opts) end)
   end
 
-  defp verify_locked!(plan, opts) do
-    projection = Projector.project!(plan, opts)
-    build_path = projection.build_path
+  def verify_locked!(plan, opts) do
+    projection = Projector.project_locked!(plan, Keyword.put(opts, :live, false))
+
+    run_root =
+      Weld.Output.path(plan.manifest.repo_root, [
+        "runs",
+        plan.artifact.id,
+        "verify-" <> Weld.Output.nonce()
+      ])
+
+    build_path = Path.join(run_root, "project")
+    File.mkdir_p!(run_root)
+    Weld.Output.reject_tree_links!(projection.build_path)
+    File.cp_r!(projection.build_path, build_path)
+
+    projection = %{
+      projection
+      | build_path: build_path,
+        lockfile_path: Path.join(build_path, "projection.lock.json")
+    }
+
+    File.write!(Path.join(run_root, "ACTIVE"), "weld.verify/2\n", [:exclusive])
+
+    try do
+      verify_projection!(plan, projection, build_path)
+    after
+      File.rm(Path.join(run_root, "ACTIVE"))
+    end
+  end
+
+  defp verify_projection!(plan, projection, build_path) do
     input_identity = Hash.verification_identity(build_path, projection.verification_files)
     package_identity = Hash.package_identity(build_path, package_patterns(projection))
 
     workspace = {build_path, cache_root(plan, build_path)}
+    # Resolve once, then require the same lock for the remaining gates.
+    run_mix!(workspace, :dev, ["deps.get"])
+    run_mix!(workspace, :test, ["deps.get"])
+    lock_path = Path.join(build_path, "mix.lock")
+    lock = if File.regular?(lock_path), do: Hash.sha256_file(lock_path)
     verification_results = verify_by_mode!(plan, workspace)
+    ensure_lock!(lock_path, lock)
     ensure_verification_inputs!(projection, input_identity, package_identity)
 
     hex_results = verify_hex!(plan, workspace)
+    ensure_lock!(lock_path, lock)
     ensure_verification_inputs!(projection, input_identity, package_identity)
     verification_results = verification_results ++ hex_results
     projection = finalize_projection_identity!(projection)
@@ -43,6 +78,9 @@ defmodule Weld.Verifier do
 
     tarball_path = tarball_path_for(plan, build_path, hex_results)
 
+    if tarball_path,
+      do: Weld.Shell.Hex.check_package!(tarball_path, build_path, projection.package_files)
+
     %{
       build_path: build_path,
       lockfile_path: projection.lockfile_path,
@@ -52,6 +90,11 @@ defmodule Weld.Verifier do
       tarball_path: tarball_path,
       verification_results: verification_results
     }
+  end
+
+  defp ensure_lock!(path, expected) do
+    actual = if File.regular?(path), do: Hash.sha256_file(path)
+    unless actual == expected, do: raise(Error, "resolved lock changed during qualification")
   end
 
   defp ensure_verification_inputs!(projection, expected, package_identity) do
@@ -105,14 +148,14 @@ defmodule Weld.Verifier do
 
     results = [
       baseline,
-      run_mix!(workspace, :dev, ["deps.get"]),
+      run_mix!(workspace, :dev, ["deps.get", "--check-locked"]),
       run_mix!(workspace, :dev, ["compile", "--warnings-as-errors"]),
-      run_mix!(workspace, :test, ["deps.get"]),
-      run_mix!(workspace, :test, ["test"]),
+      run_mix!(workspace, :test, ["deps.get", "--check-locked"]),
+      run_mix!(workspace, :test, ["test", "--warnings-as-errors"]),
       run_mix!(workspace, :dev, ["docs", "--warnings-as-errors", "--output", "doc"])
     ]
 
-    monolith_test_result = Enum.find(results, &(&1.task == "test"))
+    monolith_test_result = Enum.find(results, &String.starts_with?(&1.task, "test"))
 
     if monolith_test_result.test_count < baseline.test_count do
       raise Error,
@@ -127,16 +170,16 @@ defmodule Weld.Verifier do
       if plan.artifact.verify.component_tests, do: [run_selected_project_tests!(plan)], else: []
 
     results = [
-      run_mix!(workspace, :dev, ["deps.get"]),
+      run_mix!(workspace, :dev, ["deps.get", "--check-locked"]),
       run_mix!(workspace, :dev, ["deps.compile"]),
       run_mix!(workspace, :dev, ["compile", "--warnings-as-errors", "--no-compile-deps"]),
-      run_mix!(workspace, :test, ["deps.get"]),
-      run_mix!(workspace, :test, ["test"]),
+      run_mix!(workspace, :test, ["deps.get", "--check-locked"]),
+      run_mix!(workspace, :test, ["test", "--warnings-as-errors"]),
       run_mix!(workspace, :dev, ["docs", "--warnings-as-errors", "--output", "doc"])
     ]
 
     if baseline != [] do
-      projected = Enum.find(results, &(&1.task == "test"))
+      projected = Enum.find(results, &String.starts_with?(&1.task, "test"))
 
       if Map.get(projected, :test_count, -1) < hd(baseline).test_count,
         do: raise(Error, "component test surface regressed in the projected package")
@@ -144,7 +187,7 @@ defmodule Weld.Verifier do
 
     smoke_results =
       if plan.artifact.verify.smoke.enabled do
-        [SmokeApp.verify!(plan, build_path)]
+        [SmokeApp.verify_locked!(plan, build_path)]
       else
         []
       end
@@ -181,7 +224,7 @@ defmodule Weld.Verifier do
     ]
 
     task = Enum.join(args, " ")
-    Mix.shell().info("Weld: MIX_ENV=#{env} mix #{task}")
+    IO.puts(:stderr, "Weld: MIX_ENV=#{env} mix #{task}")
     started = System.monotonic_time(:millisecond)
 
     {output, status} =
@@ -193,7 +236,7 @@ defmodule Weld.Verifier do
     end
 
     elapsed = System.monotonic_time(:millisecond) - started
-    Mix.shell().info("Weld: mix #{task} passed in #{elapsed}ms")
+    IO.puts(:stderr, "Weld: mix #{task} passed in #{elapsed}ms")
 
     %{task: task, env: env, status: :ok}
     |> maybe_put_test_summary(output)
@@ -220,7 +263,7 @@ defmodule Weld.Verifier do
   defp run_baseline_tests!(plan, mirror) do
     per_project =
       Enum.map(plan.selected_projects, fn project ->
-        Mix.shell().info("Weld: testing selected project #{project.id}")
+        IO.puts(:stderr, "Weld: testing selected project #{project.id}")
 
         cache = cache_root(plan, "baseline:" <> project.abs_path)
         project_root = Path.expand(project.id, mirror)

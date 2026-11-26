@@ -8,9 +8,9 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
 
   @moduletag :tmp_dir
 
-  test "Weld.docs_options!/2 returns manifest-driven options with the exdoc:loaded mermaid hook" do
+  test "Weld.Commands.docs_options!/2 returns manifest-driven options with the exdoc:loaded mermaid hook" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    opts = Weld.docs_options!(manifest)
+    opts = Weld.Commands.docs_options!(manifest)
 
     assert opts[:main] == "readme"
     hook_fn = Keyword.fetch!(opts, :before_closing_body_tag)
@@ -66,10 +66,10 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
 
   test "Gc.prune/2 keeps newest publish runs and supports dry_run", %{tmp_dir: dir} do
     Weld.Git.run!(dir, ["init", "--quiet"])
-    Weld.Output.with_lock(dir, fn -> :ok end)
+    Weld.Output.setup!(dir)
 
     for idx <- 1..3 do
-      run_dir = Path.join([dir, ".weld", "publish", "demo", "abc", "run-#{idx}"])
+      run_dir = Path.join([dir, ".weld", "v2", "publish", "demo", "abc", "run-#{idx}"])
       File.mkdir_p!(run_dir)
       File.touch!(run_dir, {{2026, 11, 25}, {10, 0, idx}})
     end
@@ -104,7 +104,7 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     plan = Weld.Plan.build!(manifest)
     repo_root = plan.manifest.repo_root
 
-    assert Weld.Projector.mermaid_hook(plan) == Weld.Projector.mermaid_hook()
+    assert Weld.Layout.Support.mermaid_hook(plan) == Weld.Layout.Support.mermaid_hook()
 
     File.mkdir_p!(Path.join(repo_root, "build_support"))
     File.write!(Path.join(repo_root, "build_support/hook.html"), "<!-- custom -->\n")
@@ -122,11 +122,11 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
       }
     end
 
-    assert Weld.Projector.mermaid_hook(with_file.("build_support/hook.html")) ==
+    assert Weld.Layout.Support.mermaid_hook(with_file.("build_support/hook.html")) ==
              "<!-- custom -->\n"
 
     assert_raise Weld.Error, ~r/hook_file not found/, fn ->
-      Weld.Projector.mermaid_hook(with_file.("build_support/missing.html"))
+      Weld.Layout.Support.mermaid_hook(with_file.("build_support/missing.html"))
     end
   end
 end

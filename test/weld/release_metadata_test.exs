@@ -7,7 +7,7 @@ defmodule Weld.ReleaseMetadataTest do
     project = Mix.Project.config()
 
     manifest = Weld.Manifest.load!(Path.join(@repo_root, "build_support/weld.exs"))
-    artifact = Weld.Manifest.artifact!(manifest, :weld)
+    artifact = Weld.Plan.build!(manifest, artifact: :weld).artifact
     assert artifact.mode == :source_project
     assert artifact.package.version == project[:version]
     assert artifact.package.otp_app == project[:app]

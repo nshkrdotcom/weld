@@ -12,7 +12,7 @@ defmodule Weld.SmokeApp do
     Weld.Output.with_lock(plan.manifest.repo_root, fn -> verify_locked!(plan, build_path) end)
   end
 
-  defp verify_locked!(plan, build_path) do
+  def verify_locked!(plan, build_path) do
     smoke = plan.artifact.verify.smoke
 
     unless smoke.entry_file do
@@ -45,7 +45,7 @@ defmodule Weld.SmokeApp do
     smoke_source = Path.join(plan.manifest.repo_root, smoke.entry_file)
     File.cp!(smoke_source, Path.join([smoke_root, "lib", "smoke.ex"]))
 
-    Mix.shell().info("Weld: verifying the smoke application")
+    IO.puts(:stderr, "Weld: verifying the smoke application")
     run!(smoke_root, ["deps.get"])
     run!(smoke_root, ["compile"])
 

@@ -37,7 +37,7 @@ defmodule Weld.ArtifactPlanTest do
     |> then(&File.write!(mixfile, &1))
 
     {raw, _binding} = Code.eval_file(manifest)
-    files = [:artifacts, :sprout, :source_project, :files]
+    files = [:artifacts, :sprout, :preserve, :files]
     raw = update_in(raw, files, &["components/pure" | List.delete(&1, "components/pure/lib")])
     File.write!(manifest, inspect(raw, pretty: true, limit: :infinity))
 
@@ -83,7 +83,7 @@ defmodule Weld.ArtifactPlanTest do
     manifest: manifest
   } do
     File.write!(Path.join(root, "extensions/color/VERSION"), "0.1.0\n")
-    write_color_artifact!(manifest, external_projects: ["."])
+    write_color_artifact!(manifest, external: ["."])
 
     plan = Plan.build!(manifest, artifact: :sprout_color) |> Plan.ensure_valid!()
 
@@ -109,7 +109,7 @@ defmodule Weld.ArtifactPlanTest do
     packaged = ~s|@packaged File.regular?(Path.join(__DIR__, "VERSION"))|
     assert original =~ packaged
     File.write!(mixfile, String.replace(original, packaged, "@packaged false"))
-    write_color_artifact!(manifest, external_projects: ["."])
+    write_color_artifact!(manifest, external: ["."])
 
     assert_raise Weld.Error,
                  ~r/source_project external boundary requires its native versioned Hex dependency/,
@@ -121,7 +121,7 @@ defmodule Weld.ArtifactPlanTest do
   test "graph artifacts require a canonical version when cutting local edges", %{
     manifest: manifest
   } do
-    write_color_artifact!(manifest, mode: :package_projection, external_projects: ["."])
+    write_color_artifact!(manifest, layout: :components, external: ["."])
 
     assert_raise Weld.Error, ~r/canonical/, fn ->
       manifest |> Plan.build!(artifact: :sprout_color) |> Plan.ensure_valid!()
@@ -144,7 +144,7 @@ defmodule Weld.ArtifactPlanTest do
     |> String.replace(~s(path: "../.."), ~s(path: "../..", only: :test, runtime: false))
     |> then(&File.write!(mixfile, &1))
 
-    write_color_artifact!(manifest, mode: :package_projection, external_projects: ["."])
+    write_color_artifact!(manifest, layout: :components, external: ["."])
     {raw, _binding} = Code.eval_file(manifest)
     raw = Keyword.put(raw, :dependencies, sprout: [requirement: "~> 0.1.0"])
     File.write!(manifest, inspect(raw, pretty: true, limit: :infinity))
@@ -164,17 +164,17 @@ defmodule Weld.ArtifactPlanTest do
     artifact =
       Keyword.merge(
         [
-          mode: :source_project,
+          layout: :preserve,
           roots: ["extensions/color"],
           package: [name: "sprout_color", otp_app: :sprout_color, version: "0.1.0"],
-          verify: [hex_publish: false]
+          verify: [hex_publish_check: false]
         ],
         overrides
       )
 
     artifact =
-      if artifact[:mode] == :source_project do
-        Keyword.put(artifact, :source_project, files: ~w(mix.exs VERSION lib))
+      if artifact[:layout] == :preserve do
+        Keyword.put(Keyword.delete(artifact, :package), :preserve, files: ~w(mix.exs VERSION lib))
       else
         artifact
       end

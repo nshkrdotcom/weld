@@ -16,12 +16,13 @@ defmodule Weld.OutputTest do
   } do
     nested = Path.join(root, "private/component")
     File.mkdir_p!(nested)
-    tasks = for _ <- 1..6, do: Task.async(fn -> Output.with_lock(nested, fn -> :ok end) end)
+    tasks = for _ <- 1..6, do: Task.async(fn -> Weld.Output.setup!(nested) end)
     Enum.each(tasks, &Task.await/1)
     assert File.read!(ignore) == ".weld/\n"
     refute File.exists?(Path.join(nested, ".weld"))
 
-    for probe <- ~w(.weld/full/name/project/mix.exs .weld/live/name/priv .weld/cache/test) do
+    for probe <-
+          ~w(.weld/v2/full/name/project/mix.exs .weld/v2/live/name/priv .weld/v2/cache/test) do
       assert {_, 0} = System.cmd("git", ["check-ignore", "--no-index", probe], cd: root)
     end
   end
@@ -34,20 +35,20 @@ defmodule Weld.OutputTest do
     File.chmod!(ignore, 0o640)
 
     for _ <- 1..2 do
-      Output.with_lock(root, fn -> :ok end)
+      Weld.Output.setup!(root)
       assert File.read!(ignore) == "# local\r\n.weld/\r\nkeep   \r\nlast"
       assert Bitwise.band(File.stat!(ignore).mode, 0o777) == 0o640
     end
 
     File.write!(ignore, "# last")
-    Output.with_lock(root, fn -> :ok end)
+    Weld.Output.setup!(root)
     assert File.read!(ignore) == "# last\n.weld/\n"
   end
 
   test "exceptions, tracked output and unsafe paths fail closed", %{root: root, ignore: ignore} do
     for rule <- ["!/.weld/", "!.weld/keep", "!/.w?ld", "!/.w[e]ld   ", "!/.weld   "] do
       File.write!(ignore, rule)
-      assert_raise Error, ~r/conflicting/, fn -> Output.with_lock(root, fn -> :ok end) end
+      assert_raise Error, ~r/conflicting/, fn -> Weld.Output.setup!(root) end
       assert File.read!(ignore) == rule
     end
 
@@ -55,7 +56,7 @@ defmodule Weld.OutputTest do
     tracked = Path.join(root, ".weld/tracked")
     File.write!(tracked, "owned by Git")
     {_, 0} = System.cmd("git", ["add", "-f", ".weld/tracked"], cd: root)
-    assert_raise Error, ~r/tracked/, fn -> Output.with_lock(root, fn -> :ok end) end
+    assert_raise Error, ~r/tracked/, fn -> Weld.Output.setup!(root) end
     assert File.read!(tracked) == "owned by Git"
     assert_raise Error, ~r/invalid/, fn -> Output.path(root, ["full", "../elsewhere"]) end
   end
@@ -63,14 +64,14 @@ defmodule Weld.OutputTest do
   test "refuses files, symlinks and unowned trees at the output root", %{root: root} do
     output = Path.join(root, ".weld")
     File.write!(output, "mine")
-    assert_raise Error, fn -> Output.with_lock(root, fn -> :ok end) end
+    assert_raise Error, fn -> Weld.Output.setup!(root) end
     File.rm!(output)
     File.ln_s!(root, output)
-    assert_raise Error, ~r/symlink/, fn -> Output.with_lock(root, fn -> :ok end) end
+    assert_raise Error, ~r/symlink/, fn -> Weld.Output.setup!(root) end
     File.rm!(output)
     File.mkdir!(output)
     File.write!(Path.join(output, "user-data"), "preserve")
-    assert_raise Error, ~r/unmanaged/, fn -> Output.with_lock(root, fn -> :ok end) end
+    assert_raise Error, ~r/unmanaged/, fn -> Weld.Output.setup!(root) end
     assert File.read!(Path.join(output, "user-data")) == "preserve"
   end
 
@@ -89,8 +90,8 @@ defmodule Weld.OutputTest do
     linked = root <> "-linked"
     on_exit(fn -> File.rm_rf!(linked) end)
     FixtureCase.git_output!(root, ["worktree", "add", "--detach", linked])
-    Output.with_lock(linked, fn -> :ok end)
-    assert File.regular?(Path.join(linked, ".weld/.owner"))
+    Weld.Output.setup!(linked)
+    assert File.regular?(Path.join(linked, ".weld/v2/.owner"))
     refute File.exists?(Path.join(root, ".weld"))
   end
 end

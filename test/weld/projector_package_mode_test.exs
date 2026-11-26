@@ -4,7 +4,9 @@ defmodule Weld.ProjectorPackageModeTest do
   alias Weld.FixtureCase
 
   test "package mode renders the same professional HexDocs metadata contract" do
-    result = Weld.project!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
+    result =
+      Weld.Commands.project!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
+
     mixfile = File.read!(Path.join(result.build_path, "mix.exs"))
 
     assert mixfile =~ "source_url: \"https://example.test/fixture_bundle\""
@@ -29,7 +31,7 @@ defmodule Weld.ProjectorPackageModeTest do
     manifest_path =
       FixtureCase.copied_manifest_path("package_bootstrap_bundle", "package_bootstrap_bundle")
 
-    result = Weld.verify!(manifest_path)
+    result = Weld.Commands.verify!(manifest_path)
 
     assert File.regular?(Path.join(result.build_path, "config/config.exs"))
 
@@ -43,7 +45,7 @@ defmodule Weld.ProjectorPackageModeTest do
 
   test "package mode projects root ecto repo discovery and repo priv overlays" do
     manifest_path = FixtureCase.copied_manifest_path("package_repo_bundle", "package_repo_bundle")
-    result = Weld.project!(manifest_path)
+    result = Weld.Commands.project!(manifest_path)
 
     config = File.read!(Path.join(result.build_path, "config/config.exs"))
 
@@ -77,9 +79,9 @@ defmodule Weld.ProjectorPackageModeTest do
     File.mkdir_p!(Path.dirname(stale_path))
     File.write!(stale_path, "stale")
 
-    result = Weld.project!(manifest_path)
+    result = Weld.Commands.project!(manifest_path)
 
     assert File.exists?(stale_path)
-    assert result.build_path == Path.join(repo_root, ".weld/full/monolith_bundle/project")
+    assert result.build_path == Path.join(repo_root, ".weld/v2/full/monolith_bundle/project")
   end
 end

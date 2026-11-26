@@ -17,7 +17,7 @@ defmodule Weld.VerifierTest do
     result = Weld.Verifier.verify!(plan)
 
     assert File.exists?(legacy_cache)
-    assert [_ | _] = Path.wildcard(Path.join(repo, ".weld/cache/*/*/build/dev/lib/*/ebin"))
+    assert [_ | _] = Path.wildcard(Path.join(repo, ".weld/v2/cache/*/*/build/dev/lib/*/ebin"))
 
     assert File.regular?(result.lockfile_path)
     assert File.regular?(result.tarball_path)
@@ -34,7 +34,9 @@ defmodule Weld.VerifierTest do
   @tag ci_build: "runtime"
   test "starts the generated welded application before running package tests" do
     result =
-      Weld.verify!(FixtureCase.copied_manifest_path("composite_runtime", "composite_bundle"))
+      Weld.Commands.verify!(
+        FixtureCase.copied_manifest_path("composite_runtime", "composite_bundle")
+      )
 
     assert File.regular?(result.tarball_path)
     assert Enum.any?(result.verification_results, &(&1.task == "test"))
@@ -56,7 +58,7 @@ defmodule Weld.VerifierTest do
     )
 
     FixtureCase.init_git!(root)
-    prepared = Weld.release_prepare!(manifest)
+    prepared = Weld.Commands.release_prepare!(manifest)
 
     assert File.regular?(Path.join(prepared.docs_path, "index.html"))
     assert File.regular?(Path.join(prepared.build_path, "doc/index.html"))

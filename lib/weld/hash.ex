@@ -110,14 +110,9 @@ defmodule Weld.Hash do
   defp expand_package_path(path), do: if(File.dir?(path), do: list_files(path), else: [path])
 
   defp identity_for_files(root, files) do
-    entries =
-      for path <- files do
-        relative = Path.relative_to(path, root)
-        executable = Bitwise.band(File.stat!(path).mode, 0o111)
-        :erlang.term_to_binary({relative, executable, sha256_file(path)})
-      end
-
-    :crypto.hash(:sha256, entries) |> Base.encode16(case: :lower)
+    relatives = Enum.map(files, &Path.relative_to(&1, root))
+    entries = Weld.Shell.Files.observe_many!(root, relatives)
+    Weld.Core.Inventory.project_id(entries)
   end
 
   @spec list_files(Path.t()) :: [Path.t()]

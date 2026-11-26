@@ -26,7 +26,7 @@ defmodule Weld.SourceConsumptionTest do
     check!(direct)
     refute File.exists?(Path.join(root, ".weld"))
 
-    %{build_path: live} = Weld.project!(manifest, live: true)
+    %{build_path: live} = Weld.Commands.project!(manifest, live: true)
     consumer = consumer!(ctx, "live", [{:sprout, path: live}])
     check!(consumer)
     File.write!(Path.join(root, "priv/theme.txt"), "olive")
@@ -51,7 +51,7 @@ defmodule Weld.SourceConsumptionTest do
     {message, status} = mix(consumer, ["run", "check.exs"])
     assert status != 0
     assert message =~ "mix weld.project --artifact sprout --live"
-    Weld.project!(manifest, live: true)
+    Weld.Commands.project!(manifest, live: true)
     expr!(consumer, "\"olive\" = Sprout.Runtime.asset()")
     {message, status} = mix(live, ["hex.build"])
     assert status != 0
@@ -62,14 +62,14 @@ defmodule Weld.SourceConsumptionTest do
        ctx do
     %{root: root, manifest: manifest, scratch: scratch} = ctx
     FixtureCase.init_git!(root)
-    prepared = Weld.release_prepare!(manifest)
+    prepared = Weld.Commands.release_prepare!(manifest)
     full = Path.join(scratch, "detached-full")
     frozen = Path.join(scratch, "detached-prepared")
     File.cp_r!(prepared.build_path, full)
     File.cp_r!(prepared.project_path, frozen)
 
-    tracked = Weld.release_track!(manifest)
-    refute Weld.release_track!(manifest).committed?
+    tracked = Weld.Commands.release_track!(manifest)
+    refute Weld.Commands.release_track!(manifest).committed?
     clone = Path.join(scratch, "projection")
 
     FixtureCase.git_output!(root, ["clone", "--no-local", "--branch", tracked.branch, root, clone])

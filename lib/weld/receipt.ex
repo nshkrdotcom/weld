@@ -6,7 +6,7 @@ defmodule Weld.Receipt do
   def read(path, input) do
     with {:ok, <<checksum::binary-64, body::binary>>} <- File.read(path),
          ^checksum <- Hash.sha256_binary(body),
-         {1, ^input, value} <- :erlang.binary_to_term(body, [:safe]) do
+         {2, ^input, value} <- :erlang.binary_to_term(body, [:safe]) do
       {:ok, value}
     else
       _ -> :miss
@@ -16,7 +16,7 @@ defmodule Weld.Receipt do
   end
 
   def write!(path, input, value) do
-    body = :erlang.term_to_binary({1, input, value}, [:deterministic])
+    body = :erlang.term_to_binary({2, input, value}, [:deterministic])
     temporary = path <> "-" <> Output.nonce()
     File.mkdir_p!(Path.dirname(path))
 

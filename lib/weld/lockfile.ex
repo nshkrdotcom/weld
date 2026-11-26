@@ -45,7 +45,7 @@ defmodule Weld.Lockfile do
         inventory: plan.source_inventory,
         structural_inputs: plan.structural_inputs,
         target_basis:
-          if(plan.artifact.mode == :monolith and is_nil(plan.monolith_plan),
+          if(plan.artifact.mode == :monolith and is_nil(plan.layout),
             do: :unresolved,
             else: :projection
           ),

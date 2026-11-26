@@ -1,10 +1,12 @@
 [
+  schema: 2,
   workspace: [
     root: "../..",
-    project_globs: ["core/*"]
+    projects: ["core/*"]
   ],
   artifacts: [
     package_repo_bundle: [
+      layout: :components,
       roots: ["core/store"],
       package: [
         name: "package_repo_bundle",
@@ -12,10 +14,10 @@
         version: "0.1.0",
         description: "Fixture bundle for package-mode repo config verification"
       ],
-      output: [
+      files: [
         docs: ["README.md"]
       ],
-      verify: [hex_publish: false]
+      verify: [hex_publish_check: false]
     ]
   ]
 ]

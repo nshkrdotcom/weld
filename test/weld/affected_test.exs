@@ -16,7 +16,7 @@ defmodule Weld.AffectedTest do
     manifest_path = Path.join([repo_root, "packaging", "weld", "fixture_bundle.exs"])
 
     result =
-      Weld.affected!(
+      Weld.Commands.affected!(
         manifest_path,
         artifact: "fixture_bundle",
         task: "verify.all",

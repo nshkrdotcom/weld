@@ -225,10 +225,7 @@ defmodule Weld.Projector.Live do
   defp discovery_patterns(plan) do
     root = plan.manifest.repo_root
 
-    case plan.workspace.discovery.globs do
-      [] -> [Path.join(root, "**/mix.exs")]
-      globs -> [Path.join(root, "mix.exs") | Enum.map(globs, &Path.join([root, &1, "mix.exs"]))]
-    end
+    Enum.map(plan.workspace.discovery.globs, &Path.join([root, &1, "mix.exs"]))
   end
 
   defp discover(patterns, root) do

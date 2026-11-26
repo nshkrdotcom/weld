@@ -1,4 +1,5 @@
 defmodule Weld.DocsOptionsTest do
+  alias Weld.Layout.Support
   use ExUnit.Case, async: false
 
   alias Weld.{FixtureCase, Manifest, Plan, Projector}
@@ -8,10 +9,10 @@ defmodule Weld.DocsOptionsTest do
     root = Manifest.load!(manifest).repo_root
     File.write!(Path.join(root, "runtime/local/mix.exs"), "raise \"recursive project load\"")
 
-    options = Weld.docs_options!(manifest)
+    options = Weld.Commands.docs_options!(manifest)
 
     assert options[:main] == "readme"
-    assert options[:before_closing_body_tag].(:html) == Projector.mermaid_hook()
+    assert options[:before_closing_body_tag].(:html) == Support.mermaid_hook()
   end
 
   test "generated docs options preserve complete large custom hooks" do
@@ -21,7 +22,7 @@ defmodule Weld.DocsOptionsTest do
     File.write!(Path.join(root, "build_support/docs_hook.html"), hook)
     plan = Plan.build!(manifest)
 
-    {options, []} = plan |> Projector.render_docs_options() |> Code.eval_string()
+    {options, []} = plan |> Support.render_docs_options() |> Code.eval_string()
 
     assert options[:before_closing_body_tag].(:html) == hook
     assert options[:before_closing_body_tag].(:epub) == ""
@@ -39,12 +40,12 @@ defmodule Weld.DocsOptionsTest do
       assert "build_support/docs_hook.html" in plan.structural_inputs
 
       for live? <- [false, true] do
-        before = Weld.project!(manifest, live: live?)
-        assert Weld.project!(manifest, live: live?).reused?
+        before = Weld.Commands.project!(manifest, live: live?)
+        assert Weld.Commands.project!(manifest, live: live?).reused?
         hook = "<!-- #{artifact} live=#{live?} updated hook -->\n"
         File.write!(hook_path, hook)
 
-        after_change = Weld.project!(manifest, live: live?)
+        after_change = Weld.Commands.project!(manifest, live: live?)
 
         refute after_change.reused?
         assert after_change.build_path == before.build_path
@@ -67,7 +68,7 @@ defmodule Weld.DocsOptionsTest do
     for path <- ["../hook.html", outside, "build_support/linked_hook.html"] do
       unsafe = put_in(plan.artifact.package.docs.hook_file, path)
 
-      assert_raise Weld.Error, fn -> Projector.mermaid_hook(unsafe) end
+      assert_raise Weld.Error, fn -> Support.mermaid_hook(unsafe) end
     end
   end
 
@@ -79,7 +80,7 @@ defmodule Weld.DocsOptionsTest do
     {raw, _binding} = Code.eval_file(manifest)
 
     raw =
-      update_in(raw, [:artifacts, String.to_existing_atom(artifact), :package, :docs], fn docs ->
+      update_in(raw, [:artifacts, String.to_existing_atom(artifact), :docs], fn docs ->
         Keyword.merge(docs, mermaid: true, hook_file: "build_support/docs_hook.html")
       end)
 

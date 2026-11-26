@@ -4,9 +4,12 @@ defmodule Weld.ProjectorMonolithTest do
   alias Weld.FixtureCase
 
   test "projects a monolith artifact into a real root project tree" do
-    result = Weld.project!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
+    result =
+      Weld.Commands.project!(
+        FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
+      )
 
-    assert result.build_path =~ "/.weld/full/monolith_bundle/project"
+    assert result.build_path =~ "/.weld/v2/full/monolith_bundle/project"
     assert File.regular?(Path.join(result.build_path, "mix.exs"))
     assert File.regular?(Path.join(result.build_path, "projection.lock.json"))
     refute "projection.lock.json" in result.package_files
@@ -69,16 +72,16 @@ defmodule Weld.ProjectorMonolithTest do
     contents =
       manifest
       |> File.read!()
-      |> String.replace("mode: :monolith,", """
-      mode: :monolith,
-      monolith_opts: [readme: "runtime/api/README.md"],
+      |> String.replace("layout: :flat,", """
+      layout: :flat,
+      flat: [readme: "runtime/api/README.md"],
       """)
       |> String.replace(~s(docs: ["README.md", "CHANGELOG.md",), ~s(docs: ["CHANGELOG.md",))
 
     File.write!(manifest, contents)
 
     for opts <- [[], [live: true]] do
-      result = Weld.project!(manifest, opts)
+      result = Weld.Commands.project!(manifest, opts)
       assert File.read!(Path.join(result.build_path, "README.md")) == readme
       assert "README.md" in result.package_files
 
@@ -98,13 +101,16 @@ defmodule Weld.ProjectorMonolithTest do
     end
 
     assert_raise Weld.Error, ~r/priv path collision at priv\/shared.txt/, fn ->
-      Weld.project!(manifest)
+      Weld.Commands.project!(manifest)
     end
   end
 
   @tag integration: true, ci_build: "monolith_tests"
   test "the generated monolith compiles and runs real package tests" do
-    result = Weld.project!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
+    result =
+      Weld.Commands.project!(
+        FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
+      )
 
     {output, status} =
       System.cmd("mix", ["test"],
@@ -129,7 +135,7 @@ defmodule Weld.ProjectorMonolithTest do
   @tag integration: true, ci_build: "monolith_tests", timeout: 600_000
   test "the live monolith compiles and runs its selected test suites" do
     manifest = FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
-    result = Weld.project!(manifest, live: true)
+    result = Weld.Commands.project!(manifest, live: true)
 
     {output, status} =
       System.cmd("mix", ["test"],
@@ -150,7 +156,7 @@ defmodule Weld.ProjectorMonolithTest do
 
   test "allows explicit non-selected monolith test support projects" do
     manifest_path = explicit_test_support_manifest_path!(["tooling/test_support"])
-    result = Weld.project!(manifest_path)
+    result = Weld.Commands.project!(manifest_path)
 
     assert result.test_support_projects == ["tooling/test_support"]
 
@@ -166,7 +172,7 @@ defmodule Weld.ProjectorMonolithTest do
     manifest_path = explicit_test_support_manifest_path!(["apps/core"])
 
     assert_raise Weld.Error, ~r/test_support_projects/, fn ->
-      Weld.project!(manifest_path)
+      Weld.Commands.project!(manifest_path)
     end
   end
 
@@ -178,9 +184,11 @@ defmodule Weld.ProjectorMonolithTest do
       manifest_path,
       """
       [
+        schema: 2,
         workspace: [
-          root: "../.."
-        ],
+          root: "../..",
+      projects: [".", "apps/*", "proofs/*", "tooling/*"]
+      ],
         classify: [
           tooling: [".", "tooling/test_support"],
           proofs: ["proofs/demo"]
@@ -190,9 +198,9 @@ defmodule Weld.ProjectorMonolithTest do
         ],
         artifacts: [
           web_monolith: [
-            mode: :monolith,
-            monolith_opts: [
-              test_support_projects: #{inspect(test_support_projects)}
+            layout: :flat,
+            flat: [
+              test_support: #{inspect(test_support_projects)}
             ],
             roots: ["apps/web"],
             package: [
@@ -201,7 +209,7 @@ defmodule Weld.ProjectorMonolithTest do
               version: "0.1.0",
               description: "Root web monolith"
             ],
-            output: [
+            files: [
               docs: ["README.md"]
             ]
           ]

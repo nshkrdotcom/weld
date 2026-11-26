@@ -10,7 +10,7 @@ defmodule Weld.Plan do
   alias Weld.Output
   alias Weld.Plan.Boundary
   alias Weld.Plan.Inventory
-  alias Weld.Projector.Monolith
+  alias Weld.Layout.{Components, Flat}
   alias Weld.Violation
   alias Weld.Workspace
   alias Weld.Workspace.Project
@@ -38,8 +38,9 @@ defmodule Weld.Plan do
                 source_roots: [],
                 source_inventory: [],
                 structural_inputs: [],
-                monolith_plan: nil,
-                output_inventory: []
+                layout: nil,
+                output_inventory: [],
+                input_watches: []
               ]
 
   @type external_dep :: Graph.external_dep()
@@ -75,8 +76,9 @@ defmodule Weld.Plan do
           source_roots: [inventory_entry()],
           source_inventory: [inventory_entry()],
           structural_inputs: [Path.t()],
-          monolith_plan: map() | nil,
+          layout: map() | nil,
           output_inventory: [map()],
+          input_watches: [map()],
           selected_ids: [String.t()],
           excluded_ids: [String.t()],
           selected_projects: [Project.t()],
@@ -94,6 +96,7 @@ defmodule Weld.Plan do
   def build!(%Manifest{} = manifest, opts) do
     artifact = Manifest.artifact!(manifest, opts[:artifact])
     workspace = Workspace.load!(manifest)
+    artifact = Manifest.bind_native(artifact, workspace.projects)
     graph = workspace.graph
 
     seed_ids =
@@ -216,13 +219,39 @@ defmodule Weld.Plan do
       violations: violations
     }
 
+    watches = Weld.Shell.Inputs.collect!(plan)
+
+    plan = %{
+      plan
+      | input_watches: watches,
+        structural_inputs:
+          Enum.sort(Enum.uniq(plan.structural_inputs ++ Weld.Shell.Inputs.sources(watches)))
+    }
+
     finalize_layout!(plan)
   end
 
-  defp finalize_layout!(%__MODULE__{artifact: %{mode: :monolith}, violations: []} = plan) do
-    layout = Monolith.plan!(plan)
-    {sources, outputs} = Inventory.monolith_inventory(plan, layout)
-    %{plan | monolith_plan: layout, source_inventory: sources, output_inventory: outputs}
+  defp finalize_layout!(%__MODULE__{violations: [], artifact: %{mode: mode}} = plan)
+       when mode in [:monolith, :package_projection] do
+    layout = if mode == :monolith, do: Flat.plan!(plan), else: Components.plan!(plan)
+    {sources, outputs} = Inventory.layout_inventory(plan, layout)
+    outputs = Weld.Core.Inventory.validate!(outputs)
+    %{plan | layout: layout, source_inventory: sources, output_inventory: outputs}
+  end
+
+  defp finalize_layout!(%__MODULE__{violations: [], artifact: %{mode: :source_project}} = plan) do
+    outputs = Inventory.preserve_inventory(plan)
+
+    for entry <- Weld.Shell.Inputs.mapped(plan) do
+      unless Enum.any?(outputs, &(&1.target == entry.target and &1.publish == entry.publish)),
+        do:
+          raise(
+            Error,
+            "native preserve inventory does not cover declared target/publication: #{entry.target}"
+          )
+    end
+
+    %{plan | output_inventory: outputs}
   end
 
   defp finalize_layout!(plan), do: plan
@@ -247,26 +276,17 @@ defmodule Weld.Plan do
   defp source_root([project]), do: project.abs_path
   defp source_root([]), do: nil
 
-  defp structural_inputs!(manifest, artifact, source_projects, project_ids) do
-    project_inputs =
-      for project <- source_projects,
-          local <- artifact.source_project[:structural_inputs] do
-        Output.source!(project.abs_path, local)
-        Inventory.checkout_path(project, local)
-      end
-
+  defp structural_inputs!(manifest, artifact, _source_projects, project_ids) do
+    # Typed input declarations are observed after graph selection.
     hook_inputs =
-      if artifact.package.docs.mermaid,
-        do: List.wrap(artifact.package.docs.hook_file),
-        else: []
+      if artifact.package.docs.mermaid, do: List.wrap(artifact.package.docs.hook_file), else: []
 
-    declared_inputs = artifact.structural_inputs ++ project_inputs ++ hook_inputs
-
-    for path <- declared_inputs do
-      unless File.regular?(Output.source!(manifest.repo_root, path)) do
-        raise Error, "missing structural input: #{path}"
-      end
+    for path <- hook_inputs do
+      unless File.regular?(Output.source!(manifest.repo_root, path)),
+        do: raise(Error, "missing structural input: #{path}")
     end
+
+    declared_inputs = hook_inputs
 
     project_metadata =
       for id <- Enum.uniq(["." | project_ids]), path <- ["mix.exs", "mix.lock"] do

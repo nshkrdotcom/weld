@@ -21,7 +21,7 @@ defmodule Weld.Release do
     Output.with_lock(plan.manifest.repo_root, fn -> prepare_locked!(plan, opts) end)
   end
 
-  defp prepare_locked!(plan, opts) do
+  def prepare_locked!(plan, opts) do
     plan = Plan.ensure_valid!(plan)
     repo_root = plan.manifest.repo_root
     source_revision = Git.revision(repo_root)
@@ -62,7 +62,7 @@ defmodule Weld.Release do
 
   defp prepare_new_bundle!(plan, receipt, input, source_revision, context, opts) do
     repo_root = plan.manifest.repo_root
-    verification = Verifier.verify!(plan, no_cache: opts[:no_cache] == true)
+    verification = Verifier.verify_locked!(plan, no_cache: opts[:no_cache] == true)
     ensure_source!(repo_root, source_revision)
     stage = Output.temporary!(repo_root, "staging")
 
@@ -107,9 +107,11 @@ defmodule Weld.Release do
     docs_path = Path.join(stage, "docs")
     DocsPreview.copy!(Path.join(verification.build_path, "doc"), docs_path)
     verify_docs_smoke!(docs_path)
+    docs_archive = Weld.Shell.Hex.freeze_docs!(docs_path, Path.join(stage, "docs.tar.gz"))
 
     release_json =
       %{
+        schema: "weld.bundle/2",
         artifact: plan.artifact.id,
         package: %{
           name: plan.artifact.package.name,
@@ -137,6 +139,7 @@ defmodule Weld.Release do
           project_sha256: Hash.sha256_tree(project_target),
           project_identity: Hash.content_identity(project_target),
           docs_sha256: Hash.sha256_tree(docs_path),
+          docs_archive_sha256: Hash.sha256_file(docs_archive),
           docs_identity: Hash.content_identity(docs_path),
           archive_sha256: tarball_target && Hash.sha256_file(tarball_target)
         },
@@ -156,7 +159,7 @@ defmodule Weld.Release do
     bundle = release_path(plan, identity)
 
     File.write!(
-      Path.join(stage, "release.json"),
+      Path.join(stage, "bundle.json"),
       Jason.encode!(Map.put(release_json, :identity, identity), pretty: true)
     )
 
@@ -183,7 +186,7 @@ defmodule Weld.Release do
       docs_path: Path.join(bundle, "docs"),
       project_path: Path.join(bundle, "project"),
       tarball_path: archive && Path.join(bundle, archive),
-      release_metadata_path: Path.join(bundle, "release.json"),
+      release_metadata_path: Path.join(bundle, "bundle.json"),
       build_path: Weld.Projector.build_path(plan),
       warnings: ReleaseStatus.docs_source_ref_warnings(plan)
     }
@@ -195,8 +198,8 @@ defmodule Weld.Release do
   def identity(metadata) do
     metadata
     |> Map.drop([:prepared_at, :identity, "prepared_at", "identity"])
-    |> Weld.Lockfile.encode!()
-    |> Hash.sha256_binary()
+    |> Weld.CLI.json_value()
+    |> then(&Weld.Core.Identity.digest("bundle", &1))
   end
 
   defp ensure_source!(_root, nil), do: :ok
@@ -215,7 +218,7 @@ defmodule Weld.Release do
     Output.with_lock(plan.manifest.repo_root, fn -> stage_locked!(plan, opts) end)
   end
 
-  defp stage_locked!(plan, opts) do
+  def stage_locked!(plan, opts) do
     root = plan.manifest.repo_root
     bundle = bundle_path(plan, opts[:identity])
     metadata = validate_bundle!(plan, bundle)
@@ -241,7 +244,7 @@ defmodule Weld.Release do
           false
       end
 
-    integrity = metadata["integrity"] || metadata["handoff"] || %{}
+    integrity = metadata["integrity"] || %{}
 
     %{
       project_path: project,
@@ -253,63 +256,41 @@ defmodule Weld.Release do
     }
   end
 
-  @doc """
-  Stages an isolated per-invocation workspace, verifies that a local rebuild
-  matches the prepared tarball SHA-256, and hands off interactively to
-  `mix hex.publish` without holding the repository output lock.
-  """
+  @doc "Publish the already-qualified bytes; never rebuild a release."
   @spec publish!(Plan.t(), keyword()) :: map()
   def publish!(%Plan{} = plan, opts \\ []) do
-    prepared =
-      Output.with_lock(plan.manifest.repo_root, fn ->
-        prepare_publish_run!(plan, opts)
-      end)
+    Output.with_lock(plan.manifest.repo_root, fn ->
+      {bundle, metadata} = publication_bundle!(plan, opts)
+      ensure_publish_fresh!(plan, metadata, opts)
 
-    try do
-      run_publish_handoff!(prepared, opts)
-    after
-      File.rm(prepared.active_marker)
-    end
+      if tag = opts[:tag] do
+        result =
+          ReleaseStatus.verify_tag(plan.manifest.repo_root, tag,
+            artifact: plan.artifact.id,
+            identity: metadata["identity"]
+          )
+
+        unless result.status == :match, do: raise(Error, "tag does not identify this bundle")
+      end
+
+      Weld.Shell.Hex.publish!(plan, bundle, metadata, opts)
+    end)
   end
 
-  defp prepare_publish_run!(plan, opts) do
-    root = plan.manifest.repo_root
+  @doc "Resolve uncertain publication without repeating a write."
+  def reconcile!(%Plan{} = plan, opts) do
+    Output.with_lock(plan.manifest.repo_root, fn ->
+      {bundle, metadata} = publication_bundle!(plan, opts)
+      Weld.Shell.Hex.reconcile!(plan, bundle, metadata)
+    end)
+  end
+
+  defp publication_bundle!(plan, opts) do
     bundle = bundle_path(plan, opts[:identity])
-    identity = Path.basename(bundle)
-    metadata = ReleaseStatus.validate_bundle_integrity!(bundle, identity)
-    ensure_publish_fresh!(plan, metadata, opts)
+    metadata = validate_bundle!(plan, bundle)
     ensure_tarball_present!(metadata, bundle)
-
-    if tag = opts[:tag] do
-      verify = ReleaseStatus.verify_tag(root, tag, artifact: plan.artifact.id, identity: identity)
-
-      unless verify.status == :match do
-        raise Error, "tag #{tag} does not match prepared identity #{identity}: #{verify.message}"
-      end
-    end
-
-    run_dir = Output.path(root, ["publish", plan.artifact.id, identity, "run-" <> Output.nonce()])
-    project = Path.join(run_dir, "project")
-    write_publish_workspace!(root, bundle, project, metadata)
-    integrity = metadata["integrity"] || metadata["handoff"] || %{}
-
-    prepared = %{
-      plan: plan,
-      identity: identity,
-      package: plan.artifact.package.name,
-      version: plan.artifact.package.version,
-      tarball_name: metadata["tarball_path"],
-      archive_sha256: integrity["archive_sha256"],
-      project_path: project,
-      docs_path: Path.join(bundle, "docs"),
-      warnings: ReleaseStatus.docs_source_ref_warnings(plan, opts[:tag])
-    }
-
-    # GC takes the same repository lock, then skips marked runs. Keep this
-    # lease outside the package tree so it cannot change the prepared bytes.
-    active_marker = Path.join(run_dir, "ACTIVE")
-    File.write!(active_marker, "weld.publish/v1\n", [:exclusive])
-    Map.put(prepared, :active_marker, active_marker)
+    verify_docs_smoke!(Path.join(bundle, "docs"))
+    {bundle, metadata}
   end
 
   defp ensure_publish_fresh!(plan, metadata, opts) do
@@ -331,69 +312,6 @@ defmodule Weld.Release do
     end
   end
 
-  defp run_publish_handoff!(prepared, opts) do
-    if Map.get(prepared, :docs_path) && File.dir?(prepared.docs_path) do
-      verify_docs_smoke!(prepared.docs_path)
-    end
-
-    project = prepared.project_path
-
-    if File.regular?(Path.join(project, "mix.lock")) do
-      run_checked_step!(
-        opts[:deps_cmd] || default_mix_cmd(["deps.get", "--check-locked"]),
-        project,
-        "mix deps.get --check-locked"
-      )
-    end
-
-    run_checked_step!(
-      opts[:build_cmd] || default_mix_cmd(["hex.build"]),
-      project,
-      "mix hex.build"
-    )
-
-    rebuilt = Path.join(project, prepared.tarball_name)
-
-    unless File.regular?(rebuilt) and Hash.sha256_file(rebuilt) == prepared.archive_sha256 do
-      raise Error,
-            "rebuilt Hex archive in #{project} does not match prepared SHA-256 #{prepared.archive_sha256}"
-    end
-
-    exit_status =
-      run_interactive!(
-        opts[:publish_cmd] || hex_publish_cmd(opts[:dry_run] == true),
-        project
-      )
-
-    %{
-      completed?: exit_status == 0,
-      artifact: prepared.plan.artifact.id,
-      exit_status: exit_status,
-      identity: prepared.identity,
-      package: prepared.package,
-      version: prepared.version,
-      archive_sha256: prepared.archive_sha256,
-      project_path: project,
-      warnings: prepared.warnings
-    }
-  end
-
-  defp hex_publish_cmd(dry_run?) do
-    shell_path = :code.which(Weld.ReleasePublishShell) |> Path.dirname()
-
-    elixir =
-      System.find_executable("elixir") || raise Error, "elixir executable not found on PATH"
-
-    hex_args = if dry_run?, do: ["--dry-run", "--yes"], else: []
-
-    {elixir, ["-pa", shell_path, "-S", "mix", "weld.hex_publish" | hex_args]}
-  end
-
-  defp default_mix_cmd(args) do
-    executable = System.find_executable("mix") || raise Error, "mix executable not found on PATH"
-    {executable, args}
-  end
-
   defp verify_docs_smoke!(docs_path) do
     case DocsSmoke.check(docs_path) do
       {:ok, _summary} ->
@@ -401,48 +319,6 @@ defmodule Weld.Release do
 
       {:error, errors} ->
         raise Error, "docs smoke check failed: " <> Enum.join(errors, "; ")
-    end
-  end
-
-  defp publish_env do
-    [
-      {"MIX_ENV", "dev"},
-      {"MIX_EXS", nil},
-      {"MIX_LOCKFILE", nil},
-      {"MIX_TARGET", nil},
-      {"MIX_BUILD_PATH", nil},
-      {"MIX_BUILD_ROOT", nil},
-      {"MIX_DEPS_PATH", nil}
-    ]
-  end
-
-  defp run_checked_step!({executable, args}, cd, label) do
-    case System.cmd(executable, args, cd: cd, env: publish_env(), stderr_to_stdout: true) do
-      {_output, 0} ->
-        :ok
-
-      {output, status} ->
-        raise Error, "#{label} failed (exit #{status}):\n#{String.trim(output)}"
-    end
-  end
-
-  defp run_interactive!({executable, args}, cd) do
-    env =
-      Enum.map(publish_env(), fn {key, value} ->
-        {String.to_charlist(key), if(value, do: String.to_charlist(value), else: false)}
-      end)
-
-    port =
-      Port.open({:spawn_executable, executable}, [
-        :nouse_stdio,
-        :exit_status,
-        {:cd, cd},
-        {:env, env},
-        {:args, args}
-      ])
-
-    receive do
-      {^port, {:exit_status, status}} -> status
     end
   end
 
@@ -506,7 +382,7 @@ defmodule Weld.Release do
     unless ReleaseStatus.valid_project?(
              project,
              metadata,
-             metadata["integrity"] || metadata["handoff"]
+             metadata["integrity"]
            ) do
       raise Error, "publish workspace has changed: #{project}"
     end
@@ -517,7 +393,7 @@ defmodule Weld.Release do
     Weld.Output.with_lock(plan.manifest.repo_root, fn -> archive_locked!(plan, opts) end)
   end
 
-  defp archive_locked!(plan, opts) do
+  def archive_locked!(plan, opts) do
     prepared_bundle = bundle_path(plan, opts[:identity])
 
     unless File.dir?(prepared_bundle) do
@@ -552,7 +428,7 @@ defmodule Weld.Release do
     Weld.Output.with_lock(plan.manifest.repo_root, fn -> track_locked!(plan, opts) end)
   end
 
-  defp track_locked!(plan, opts) do
+  def track_locked!(plan, opts) do
     if opts[:tag] && opts[:tag_release] do
       raise Error, "pass either --tag or --tag-release, not both"
     end
@@ -601,7 +477,7 @@ defmodule Weld.Release do
     path
   end
 
-  defp parse_pointer!("weld.release/v1 " <> value) do
+  defp parse_pointer!("weld.release/v2 " <> value) do
     digest = String.trim_trailing(value, "\n")
 
     unless Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
@@ -613,10 +489,10 @@ defmodule Weld.Release do
   defp parse_pointer!(_), do: raise(Error, "unmanaged prepared release pointer")
 
   defp current_path(plan),
-    do: Output.path(plan.manifest.repo_root, ["releases", plan.artifact.id, "CURRENT"])
+    do: Output.path(plan.manifest.repo_root, ["bundles", plan.artifact.id, "CURRENT"])
 
   defp release_path(plan, identity),
-    do: Output.path(plan.manifest.repo_root, ["releases", plan.artifact.id, identity])
+    do: Output.path(plan.manifest.repo_root, ["bundles", plan.artifact.id, identity])
 
   defp set_current!(plan, identity) do
     path = current_path(plan)
@@ -624,7 +500,7 @@ defmodule Weld.Release do
     temp = path <> "-" <> Output.nonce()
 
     try do
-      File.write!(temp, "weld.release/v1 #{identity}\n", [:exclusive])
+      File.write!(temp, "weld.release/v2 #{identity}\n", [:exclusive])
       File.rename!(temp, path)
     after
       File.rm(temp)

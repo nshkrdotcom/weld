@@ -6,8 +6,8 @@ defmodule Weld.GraphLiveTest do
   test "package live links component directories and keeps generated files regular" do
     root = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
-    full = Weld.project!(manifest)
-    live = Weld.project!(manifest, live: true)
+    full = Weld.Commands.project!(manifest)
+    live = Weld.Commands.project!(manifest, live: true)
     source = Path.join(root, "core/contracts/lib")
     target = Path.join(live.build_path, "components/core/contracts/lib")
 
@@ -30,14 +30,14 @@ defmodule Weld.GraphLiveTest do
     assert status != 0
     assert message =~ "mix weld.project --artifact fixture_bundle --live"
     assert message =~ manifest
-    refreshed = Weld.project!(manifest, live: true)
+    refreshed = Weld.Commands.project!(manifest, live: true)
     assert {_, 0} = evaluate(refreshed.build_path)
   end
 
   test "live guard observes creation of a source lock and discovered project" do
     root = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
-    live = Weld.project!(manifest, live: true)
+    live = Weld.Commands.project!(manifest, live: true)
     lock = Path.join(root, "core/contracts/mix.lock")
     File.write!(lock, "%{}\n")
     assert {_message, status} = evaluate(live.build_path)
@@ -59,7 +59,7 @@ defmodule Weld.GraphLiveTest do
         ] do
       root = FixtureCase.copy_fixture(fixture)
       manifest = Path.join(root, "packaging/weld/#{artifact}.exs")
-      live = Weld.project!(manifest, live: true)
+      live = Weld.Commands.project!(manifest, live: true)
 
       for task <- ["hex.build", "hex.publish"] do
         script = """
@@ -80,7 +80,7 @@ defmodule Weld.GraphLiveTest do
   test "monolith content is live but topology and transformed config require refresh" do
     root = FixtureCase.copy_fixture("monolith_bundle")
     manifest = Path.join(root, "packaging/weld/monolith_bundle.exs")
-    live = Weld.project!(manifest, live: true)
+    live = Weld.Commands.project!(manifest, live: true)
     source = Path.join(root, "core/store/lib/fixture/store.ex")
     target = Path.join(live.build_path, "lib/fixture/store.ex")
     assert File.read_link!(target) == source
@@ -103,11 +103,11 @@ defmodule Weld.GraphLiveTest do
   test "duplicate graph modules cannot displace a valid candidate" do
     root = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
-    full = Weld.project!(manifest)
+    full = Weld.Commands.project!(manifest)
     marker = File.read!(Path.join(full.build_path, "weld.provenance.json"))
     source = Path.join(root, "core/contracts/lib/weld_fixture/contracts.ex")
     File.cp!(source, Path.join(root, "runtime/local/lib/duplicate.ex"))
-    assert_raise Error, ~r/duplicate module/, fn -> Weld.project!(manifest) end
+    assert_raise Error, ~r/duplicate module/, fn -> Weld.Commands.project!(manifest) end
     assert File.read!(Path.join(full.build_path, "weld.provenance.json")) == marker
   end
 
@@ -120,7 +120,7 @@ defmodule Weld.GraphLiveTest do
     File.write!(source, bytes)
 
     assert_raise Weld.Error, ~r/projection path collision/, fn ->
-      Weld.project!(manifest, live: true)
+      Weld.Commands.project!(manifest, live: true)
     end
 
     assert File.read!(source) == bytes
@@ -129,7 +129,7 @@ defmodule Weld.GraphLiveTest do
   test "a linked document replaced by a source symlink invalidates the view" do
     root = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
-    live = Weld.project!(manifest, live: true)
+    live = Weld.Commands.project!(manifest, live: true)
     readme = Path.join(root, "README.md")
     File.rm!(readme)
     File.ln_s!(manifest, readme)
@@ -143,16 +143,16 @@ defmodule Weld.GraphLiveTest do
     manifest = Path.join(root, "build_support/graph.exs")
 
     File.write!(manifest, """
-    [workspace: [root: "..", project_globs: ["components/*", "extensions/*"]],
-     artifacts: [sprout: [roots: ["components/runtime"],
+    [schema: 2, workspace: [root: "..", projects: ["components/*", "extensions/*"]],
+     artifacts: [sprout: [layout: :components, roots: ["components/runtime"],
        package: [name: "sprout", otp_app: :sprout, version: "0.1.0"],
-       output: [docs: ["README.md"], assets: ["priv"]],
-       verify: [hex_publish: false]]]]
+       files: [docs: ["README.md"], assets: ["priv"]],
+       verify: [hex_publish_check: false]]]]
     """)
 
     scratch = FixtureCase.unique_tmp_dir("graph_consumers")
-    live = Weld.project!(manifest, live: true)
-    full = Weld.project!(manifest)
+    live = Weld.Commands.project!(manifest, live: true)
+    full = Weld.Commands.project!(manifest)
     detached = Path.join(scratch, "full")
     File.cp_r!(full.build_path, detached)
 

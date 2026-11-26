@@ -114,9 +114,10 @@ defmodule Weld.ReleasePlanTest do
       end)
 
     base = [
+      layout: :components,
       roots: ["core/contracts"],
       package: [name: "base_package", otp_app: :base_package, version: "0.2.1"],
-      verify: [hex_publish: false]
+      verify: [hex_publish_check: false]
     ]
 
     raw = Keyword.put(raw, :artifacts, extension: extension, base: base)

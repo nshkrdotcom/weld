@@ -2,7 +2,7 @@ defmodule Weld.Plan.Inventory do
   @moduledoc false
 
   alias Weld.{Error, Output, Workspace}
-  alias Weld.Projector.Monolith.FilePlan
+  alias Weld.Layout.FilePlan
   alias Weld.Workspace.Project
 
   @tooling_files ~w(.formatter.exs .credo.exs .dialyzer_ignore.exs)
@@ -73,7 +73,7 @@ defmodule Weld.Plan.Inventory do
     {roots, workspace |> expand(roots) |> order()}
   end
 
-  def monolith_inventory(plan, layout) do
+  def layout_inventory(plan, layout) do
     root = plan.manifest.repo_root
 
     outputs =
@@ -89,8 +89,16 @@ defmodule Weld.Plan.Inventory do
           inputs: inputs,
           kind: op.kind,
           operation: op.operation,
-          publish: Enum.any?(layout.package_files, &covered?(op.target, &1)),
-          generated_digest: if(op.content, do: Weld.Hash.sha256_binary(op.content), else: nil)
+          publish: op.target in layout.package_files,
+          generated_digest: if(op.content, do: Weld.Hash.sha256_binary(op.content), else: nil),
+          sha256:
+            if(op.content,
+              do: Weld.Hash.sha256_binary(op.content),
+              else: Weld.Hash.sha256_file(hd(op.sources))
+            ),
+          size: if(op.content, do: byte_size(op.content), else: File.stat!(hd(op.sources)).size),
+          executable:
+            is_nil(op.content) and Bitwise.band(File.stat!(hd(op.sources)).mode, 0o111) != 0
         }
       end)
 
@@ -108,6 +116,38 @@ defmodule Weld.Plan.Inventory do
       end
 
     {order(sources), outputs}
+  end
+
+  # Preserve projects are initially planned against the source Mix allowlist.
+  # The detached probe still verifies that the staged native metadata agrees.
+  def preserve_inventory(plan) do
+    root = plan.manifest.repo_root
+    project = Map.fetch!(plan.workspace.projects, hd(plan.artifact.roots))
+
+    patterns =
+      project.package_files ||
+        ~w(lib priv .formatter.exs mix.exs README* readme* LICENSE* license* CHANGELOG* changelog* src c_src Makefile)
+
+    published =
+      patterns
+      |> Enum.flat_map(&Path.wildcard(Path.join(plan.source_root, &1), match_dot: true))
+      |> Enum.flat_map(fn path -> if File.dir?(path), do: regular_files!(path), else: [path] end)
+      |> Enum.map(&Path.relative_to(&1, plan.source_root))
+      |> MapSet.new()
+
+    for entry <- plan.source_inventory do
+      observed = Weld.Shell.Files.observe!(root, entry.source)
+
+      Map.merge(observed, %{
+        target: entry.target,
+        inputs: [%{source: entry.source, owner: entry.owner}],
+        kind: entry.kind,
+        operation: :link_or_copy,
+        publish: MapSet.member?(published, entry.target),
+        generated_digest: nil
+      })
+    end
+    |> Weld.Core.Inventory.validate!()
   end
 
   def covered?(path, root),
