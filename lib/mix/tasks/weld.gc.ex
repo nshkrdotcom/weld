@@ -1,7 +1,7 @@
 defmodule Mix.Tasks.Weld.Gc do
   use Mix.Task
 
-  alias Weld.{Output, TaskSupport}
+  alias Weld.TaskSupport
 
   @moduledoc """
   Prune old `.weld/publish/<artifact>/<hash>/run-*` workspaces, keeping the
@@ -41,12 +41,12 @@ defmodule Mix.Tasks.Weld.Gc do
   def prune(repo_root, opts \\ []) do
     keep = Keyword.get(opts, :keep, 2)
     dry_run? = Keyword.get(opts, :dry_run, false)
-    publish_root = Output.path(repo_root, ["publish"])
+    publish_root = Path.join([repo_root, ".weld", "publish"])
 
     runs =
       publish_root
       |> Path.join("*/*/run-*")
-      |> Path.wildcard()
+      |> Path.wildcard(match_dot: true)
       |> Enum.filter(&File.dir?/1)
       |> Enum.sort_by(fn path -> File.stat!(path, time: :posix).mtime end, :desc)
 
