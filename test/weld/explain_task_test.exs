@@ -9,7 +9,8 @@ defmodule Weld.ExplainTaskTest do
 
     assert Enum.map(kinds, & &1["kind"]) == ~w(live full release publish tracked)
 
-    for %{"task" => "mix " <> task} <- kinds do
+    for %{"task" => "mix " <> command} <- kinds do
+      task = command |> String.split() |> hd()
       assert Mix.Task.get(task), "#{task} is not a Mix task"
     end
   end
