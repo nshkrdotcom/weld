@@ -320,17 +320,22 @@ defmodule Weld.Projector do
       hook = """
       <script src="https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js"></script>
       <script>
-      document.addEventListener("DOMContentLoaded", () => {
-        const diagrams = document.querySelectorAll("pre code.mermaid");
-        if (!diagrams.length || !window.mermaid) return;
-        mermaid.initialize({startOnLoad: false, securityLevel: "strict"});
-        for (const code of diagrams) {
+      window.addEventListener("exdoc:loaded", () => {
+        const codeBlocks = document.querySelectorAll("pre code.mermaid");
+        if (!codeBlocks.length || !window.mermaid) return;
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: document.body.classList.contains("dark") ? "dark" : "default"
+        });
+        const nodes = Array.from(codeBlocks, code => {
           const diagram = document.createElement("div");
           diagram.className = "mermaid";
           diagram.textContent = code.textContent;
           code.parentElement.replaceWith(diagram);
-        }
-        mermaid.run();
+          return diagram;
+        });
+        mermaid.run({nodes});
       });
       </script>
       """
