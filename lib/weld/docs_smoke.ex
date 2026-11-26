@@ -1,6 +1,6 @@
 defmodule Weld.DocsSmoke do
   @moduledoc """
-  Static and optional headless-browser smoke checks for generated ExDoc HTML.
+  Static smoke checks for generated ExDoc HTML.
   """
 
   @doc """
@@ -8,12 +8,9 @@ defmodule Weld.DocsSmoke do
   - `index.html` exists
   - Any page containing `<code class="mermaid">` also loads the Mermaid script
     and listens on `exdoc:loaded` (not `DOMContentLoaded`-only)
-  - Optional `browser: true`: renders Mermaid pages in headless Chromium (light
-    and dark, direct load and in-site navigation) via Playwright and fails on
-    page errors or missing SVGs.
   """
-  @spec check(Path.t(), keyword()) :: {:ok, map()} | {:error, [String.t()]}
-  def check(docs_dir, opts \\ []) do
+  @spec check(Path.t()) :: {:ok, map()} | {:error, [String.t()]}
+  def check(docs_dir) do
     html_files =
       docs_dir
       |> Path.join("*.html")
@@ -54,45 +51,12 @@ defmodule Weld.DocsSmoke do
     summary = %{
       docs_dir: docs_dir,
       html_count: length(html_files),
-      mermaid_pages: Enum.sort(mermaid_pages),
-      browser_checked: false
+      mermaid_pages: Enum.sort(mermaid_pages)
     }
 
     cond do
       errors != [] -> {:error, Enum.reverse(errors)}
-      opts[:browser] -> run_browser_check(summary, opts)
       true -> {:ok, summary}
-    end
-  end
-
-  # Needs node and a Playwright install (pass `playwright: "/path/to/node_modules"`
-  # or set WELD_PLAYWRIGHT). Renders every Mermaid page in light and dark mode,
-  # follows an in-site link to it, and fails on page errors or missing SVGs.
-  defp run_browser_check(summary, opts) do
-    modules = opts[:playwright] || System.get_env("WELD_PLAYWRIGHT")
-    node = System.find_executable("node")
-
-    cond do
-      is_nil(node) ->
-        {:error, ["node executable not found for browser check"]}
-
-      is_nil(modules) ->
-        {:error, ["browser check needs playwright: pass playwright: path or set WELD_PLAYWRIGHT"]}
-
-      true ->
-        script = Path.join(:code.priv_dir(:weld), "docs_smoke.cjs")
-
-        {out, status} =
-          System.cmd(node, [script, summary.docs_dir],
-            env: [{"NODE_PATH", modules}],
-            stderr_to_stdout: true
-          )
-
-        if status == 0 do
-          {:ok, %{summary | browser_checked: true}}
-        else
-          {:error, ["browser check failed: " <> String.trim(out)]}
-        end
     end
   end
 

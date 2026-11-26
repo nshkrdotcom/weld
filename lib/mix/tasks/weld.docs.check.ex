@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Weld.Docs.Check do
   alias Weld.{DocsSmoke, TaskSupport}
 
   @moduledoc """
-  Run static (and optional `--browser`) smoke checks on a generated ExDoc
+  Run static smoke checks on a generated ExDoc
   directory, verifying `index.html` and Mermaid `exdoc:loaded` hook integrity.
   """
 
@@ -13,15 +13,12 @@ defmodule Mix.Tasks.Weld.Docs.Check do
   @impl Mix.Task
   def run(args) do
     {opts, positional, invalid} =
-      OptionParser.parse(args, strict: [browser: :boolean, playwright: :string, format: :string])
+      OptionParser.parse(args, strict: [format: :string])
 
     TaskSupport.reject_invalid!(invalid)
     docs_dir = List.first(positional) || "doc"
 
-    case DocsSmoke.check(docs_dir,
-           browser: opts[:browser] || false,
-           playwright: opts[:playwright]
-         ) do
+    case DocsSmoke.check(docs_dir) do
       {:ok, summary} ->
         case opts[:format] do
           "json" ->

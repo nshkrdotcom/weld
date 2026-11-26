@@ -33,15 +33,12 @@ mix weld.gc [repo_root] [--keep N] [--dry-run] [--format json]
 ## Docs check
 
 ```bash
-mix weld.docs.check [docs_dir] [--browser --playwright /path/to/node_modules] [--format json]
+mix weld.docs.check [docs_dir] [--format json]
 ```
 
-Static check: `index.html` exists and every page with a Mermaid block loads
-`mermaid.min.js` and listens on `exdoc:loaded`. With `--browser` (needs `node`
-and a Playwright install, via `--playwright` or `WELD_PLAYWRIGHT`) each Mermaid
-page is rendered in headless Chromium in light and dark mode and reached by an
-in-site link; any page error or missing SVG fails the check. `weld.release.publish`
-does not run this check yet.
+Checks that `index.html` exists and every page with a Mermaid block loads
+`mermaid.min.js` and listens on `exdoc:loaded`. It does not render pages, so it
+cannot prove a diagram draws. `weld.release.publish` does not run it yet.
 
 ## Release plan
 
