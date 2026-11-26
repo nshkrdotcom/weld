@@ -4,6 +4,16 @@ When the manifest path is omitted, Weld auto-discovers one by checking
 `build_support/weld.exs`, then `build_support/weld_contract.exs`, then a single
 `packaging/weld/*.exs`.
 
+## Explain
+
+```bash
+mix weld.explain [--format json]
+```
+
+Prints each projection kind (live, full, release, publish, tracked), its
+location, purpose, and the task that creates it. It needs no manifest and reads
+no project state.
+
 ## Inspect
 
 ```bash

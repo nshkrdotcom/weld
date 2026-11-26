@@ -69,6 +69,7 @@ When `[manifest_path]` is omitted, `Weld` auto-discovers `build_support/weld.exs
 
 ```bash
 mix weld.setup
+mix weld.explain
 mix weld.inspect
 mix weld.graph --format dot
 mix weld.query deps runtime/local

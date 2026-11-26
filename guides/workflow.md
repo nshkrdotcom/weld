@@ -12,6 +12,8 @@
 
 ## Live Versus Full Projections
 
+Run `mix weld.explain` for a one-screen map of every projection kind, its path, and the task that creates it.
+
 - **Live view (`.weld/live/<artifact>/`, all modes):** Generate with
   `mix weld.project --artifact <name> --live` and depend on that directory
   with `path:` in an ordinary Mix consumer. Linked package and source-project
