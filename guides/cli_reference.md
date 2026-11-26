@@ -14,6 +14,46 @@ Prints each projection kind (live, full, release, publish, tracked), its
 location, purpose, and the task that creates it. It needs no manifest and reads
 no project state.
 
+## Status, Doctor, Diff, Open, Gc
+
+```bash
+mix weld.status [manifest_path] [--artifact name | --all] [--format json]
+mix weld.doctor [--format json]
+mix weld.diff [manifest_path] [--artifact name] [--kind full|live] [--format json]
+mix weld.open [manifest_path] [--artifact name]
+mix weld.gc [repo_root] [--keep N] [--dry-run] [--format json]
+```
+
+- `weld.status` is `weld.release.status` plus a `next_command` for each artifact.
+- `weld.doctor` reports Elixir/OTP versions and whether `git`, `mix`, `node` and Hex are available.
+- `weld.diff` compares the checkout with a projection: whether `mix.exs` differs, modified files and projection-only files. It does not parse docs options.
+- `weld.open` prints the projected `doc/index.html` path; it does not launch a browser.
+- `weld.gc` deletes all but the newest `--keep` (default 2) `.weld/publish/*/*/run-*` directories by modification time.
+
+## Docs check
+
+```bash
+mix weld.docs.check [docs_dir] [--browser --playwright /path/to/node_modules] [--format json]
+```
+
+Static check: `index.html` exists and every page with a Mermaid block loads
+`mermaid.min.js` and listens on `exdoc:loaded`. With `--browser` (needs `node`
+and a Playwright install, via `--playwright` or `WELD_PLAYWRIGHT`) each Mermaid
+page is rendered in headless Chromium in light and dark mode and reached by an
+in-site link; any page error or missing SVG fails the check. `weld.release.publish`
+does not run this check yet.
+
+## Release plan
+
+```bash
+mix weld.release.plan [manifest_path] [--no-check] [--format json]
+```
+
+Lists artifacts with depended-on packages first. For each artifact whose root
+`mix.exs` declares `{:other_package, "requirement"` on another artifact's
+package, it checks the requirement against that artifact's version and fails if
+unsatisfied. It reads `mix.exs` text with a regex and does not bump or publish.
+
 ## Inspect
 
 ```bash

@@ -8,9 +8,9 @@ defmodule Weld.DocsSmoke do
   - `index.html` exists
   - Any page containing `<code class="mermaid">` also loads the Mermaid script
     and listens on `exdoc:loaded` (not `DOMContentLoaded`-only)
-  - Optional: when `browser: true` and Playwright is available via `node`,
-    renders Mermaid pages in headless Chromium and checks for SVGs and zero
-    console/page errors.
+  - Optional `browser: true`: renders Mermaid pages in headless Chromium (light
+    and dark, direct load and in-site navigation) via Playwright and fails on
+    page errors or missing SVGs.
   """
   @spec check(Path.t(), keyword()) :: {:ok, map()} | {:error, [String.t()]}
   def check(docs_dir, opts \\ []) do
@@ -60,18 +60,39 @@ defmodule Weld.DocsSmoke do
 
     cond do
       errors != [] -> {:error, Enum.reverse(errors)}
-      opts[:browser] -> run_browser_check(summary)
+      opts[:browser] -> run_browser_check(summary, opts)
       true -> {:ok, summary}
     end
   end
 
-  defp run_browser_check(summary) do
-    case System.find_executable("node") do
-      nil ->
-        {:error, ["node executable not found for --browser check"]}
+  # Needs node and a Playwright install (pass `playwright: "/path/to/node_modules"`
+  # or set WELD_PLAYWRIGHT). Renders every Mermaid page in light and dark mode,
+  # follows an in-site link to it, and fails on page errors or missing SVGs.
+  defp run_browser_check(summary, opts) do
+    modules = opts[:playwright] || System.get_env("WELD_PLAYWRIGHT")
+    node = System.find_executable("node")
 
-      _node ->
-        {:ok, %{summary | browser_checked: true}}
+    cond do
+      is_nil(node) ->
+        {:error, ["node executable not found for browser check"]}
+
+      is_nil(modules) ->
+        {:error, ["browser check needs playwright: pass playwright: path or set WELD_PLAYWRIGHT"]}
+
+      true ->
+        script = Path.join(:code.priv_dir(:weld), "docs_smoke.cjs")
+
+        {out, status} =
+          System.cmd(node, [script, summary.docs_dir],
+            env: [{"NODE_PATH", modules}],
+            stderr_to_stdout: true
+          )
+
+        if status == 0 do
+          {:ok, %{summary | browser_checked: true}}
+        else
+          {:error, ["browser check failed: " <> String.trim(out)]}
+        end
     end
   end
 

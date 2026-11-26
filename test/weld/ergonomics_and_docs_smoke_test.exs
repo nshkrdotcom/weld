@@ -87,4 +87,37 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     assert is_binary(data["elixir"])
     assert is_boolean(data["git"])
   end
+
+  test "Weld.Release.Plan checks sibling version requirements and orders dependencies first", %{
+    tmp_dir: dir
+  } do
+    File.mkdir_p!(Path.join(dir, "ext"))
+    File.write!(Path.join(dir, "ext/mix.exs"), ~s({:base, "~> 0.2.0"},\n{:other, "~> 9.0"}))
+
+    artifacts = [
+      %{package: "ext", version: "0.1.0", roots: ["ext"]},
+      %{package: "base", version: "0.2.1", roots: ["base"]}
+    ]
+
+    constraints = Mix.Tasks.Weld.Release.Plan.constraints(artifacts, dir)
+    assert [%{dependency: "base", satisfied: true}] = constraints
+
+    assert ["base", "ext"] ==
+             artifacts |> Mix.Tasks.Weld.Release.Plan.order(constraints) |> Enum.map(& &1.package)
+
+    bad =
+      Mix.Tasks.Weld.Release.Plan.constraints(
+        [%{hd(artifacts) | version: "0.1.0"}, %{package: "base", version: "0.3.0", roots: []}],
+        dir
+      )
+
+    assert [%{satisfied: false}] = bad
+  end
+
+  test "mix weld.status adds a next command to each artifact" do
+    manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+
+    json = capture_io(fn -> Mix.Tasks.Weld.Status.run([manifest, "--format", "json"]) end)
+    assert [%{"next_command" => "mix weld.release." <> _}] = Jason.decode!(json)
+  end
 end

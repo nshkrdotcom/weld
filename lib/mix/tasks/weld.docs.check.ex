@@ -13,12 +13,15 @@ defmodule Mix.Tasks.Weld.Docs.Check do
   @impl Mix.Task
   def run(args) do
     {opts, positional, invalid} =
-      OptionParser.parse(args, strict: [browser: :boolean, format: :string])
+      OptionParser.parse(args, strict: [browser: :boolean, playwright: :string, format: :string])
 
     TaskSupport.reject_invalid!(invalid)
     docs_dir = List.first(positional) || "doc"
 
-    case DocsSmoke.check(docs_dir, browser: opts[:browser] || false) do
+    case DocsSmoke.check(docs_dir,
+           browser: opts[:browser] || false,
+           playwright: opts[:playwright]
+         ) do
       {:ok, summary} ->
         case opts[:format] do
           "json" ->
