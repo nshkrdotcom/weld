@@ -59,41 +59,15 @@ defmodule Weld.Shell.Snapshot do
   def refresh!(facts, inputs) do
     checkout_root = Map.get(facts, :checkout_root) || facts.root
 
-    roots =
-      Enum.flat_map(inputs, fn input ->
-        fact = input["fact"]
-
-        case input["kind"] do
-          kind when kind in ["file", "absence"] ->
-            [fact["path"]]
-
-          "tree" ->
-            [fact["root"]]
-
-          "glob" ->
-            matches = glob_matches!(facts, checkout_root, fact)
-            Enum.map(fact["matches"], & &1["path"]) ++ matches
-
-          _ ->
-            []
-        end
-      end)
+    absolute =
+      inputs
+      |> Enum.flat_map(&input_roots(&1, facts, checkout_root))
       |> Enum.uniq()
       |> Enum.sort()
-      |> Enum.reject(fn relative -> Enum.any?(Path.split(relative), &(&1 in @ignored)) end)
-
-    roots =
-      Enum.reduce(roots, [], fn relative, selected ->
-        if Enum.any?(
-             selected,
-             &(relative == &1 or &1 == "." or String.starts_with?(relative, &1 <> "/"))
-           ), do: selected, else: selected ++ [relative]
-      end)
-
-    absolute =
-      Enum.map(roots, fn relative ->
-        source_path!(facts, checkout_root, relative)
-      end)
+      |> Enum.reject(&ignored_path?/1)
+      |> Enum.reduce([], &add_uncovered_root/2)
+      |> Enum.reverse()
+      |> Enum.map(&source_path!(facts, checkout_root, &1))
 
     retained =
       Map.reject(facts.nodes, fn {path, _} ->
@@ -104,17 +78,38 @@ defmodule Weld.Shell.Snapshot do
       Enum.reduce(retained, 0, fn {_path, node}, total -> total + Map.get(node, :size, 0) end)
 
     {nodes, _count, _bytes} =
-      Enum.reduce(absolute, {retained, map_size(retained), retained_bytes}, fn path,
-                                                                               {nodes, count,
-                                                                                bytes} ->
-        case File.lstat(path) do
-          {:error, :enoent} -> {nodes, count, bytes}
-          {:ok, _} -> walk(path, nodes, count, bytes)
-          {:error, reason} -> raise Error, "cannot recheck selected source #{path}: #{reason}"
-        end
-      end)
+      Enum.reduce(absolute, {retained, map_size(retained), retained_bytes}, &refresh_root!/2)
 
     %{facts | nodes: nodes}
+  end
+
+  defp input_roots(%{"kind" => kind, "fact" => fact}, _facts, _checkout)
+       when kind in ["file", "absence"],
+       do: [fact["path"]]
+
+  defp input_roots(%{"kind" => "tree", "fact" => fact}, _facts, _checkout),
+    do: [fact["root"]]
+
+  defp input_roots(%{"kind" => "glob", "fact" => fact}, facts, checkout) do
+    Enum.map(fact["matches"], & &1["path"]) ++ glob_matches!(facts, checkout, fact)
+  end
+
+  defp input_roots(_, _facts, _checkout), do: []
+
+  defp ignored_path?(path), do: Enum.any?(Path.split(path), &(&1 in @ignored))
+
+  defp add_uncovered_root(path, selected) do
+    if Enum.any?(selected, &(path == &1 or &1 == "." or String.starts_with?(path, &1 <> "/"))),
+      do: selected,
+      else: [path | selected]
+  end
+
+  defp refresh_root!(path, {nodes, count, bytes} = observation) do
+    case File.lstat(path) do
+      {:error, :enoent} -> observation
+      {:ok, _} -> walk(path, nodes, count, bytes)
+      {:error, reason} -> raise Error, "cannot recheck selected source #{path}: #{reason}"
+    end
   end
 
   defp source_path!(facts, checkout_root, relative) do
@@ -234,27 +229,32 @@ defmodule Weld.Shell.Snapshot do
     _ = Application.load(:weld)
     modules = (Application.spec(:weld, :modules) || []) |> Enum.sort()
 
-    entries =
-      Enum.map(modules, fn module ->
-        case :code.get_object_code(module) do
-          {^module, binary, _path} ->
-            stable =
-              case :beam_lib.strip(binary) do
-                {:ok, {^module, stripped}} -> stripped
-                _ -> binary
-              end
-
-            %{"module" => Atom.to_string(module), "sha256" => Identity.raw(stable)}
-
-          :error ->
-            raise Error, "compiler identity unavailable: #{inspect(module)}"
-        end
-      end)
+    entries = Enum.map(modules, &compiler_module!/1)
 
     Identity.digest("input", %{
       "schema" => "weld.compiler/2",
       "version" => "0.20.0",
       "modules" => entries
     })
+  end
+
+  defp compiler_module!(module) do
+    case :code.get_object_code(module) do
+      {^module, binary, _path} ->
+        %{
+          "module" => Atom.to_string(module),
+          "sha256" => Identity.raw(stable_beam(module, binary))
+        }
+
+      :error ->
+        raise Error, "compiler identity unavailable: #{inspect(module)}"
+    end
+  end
+
+  defp stable_beam(module, binary) do
+    case :beam_lib.strip(binary) do
+      {:ok, {^module, stripped}} -> stripped
+      _ -> binary
+    end
   end
 end

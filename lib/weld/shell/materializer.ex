@@ -22,29 +22,7 @@ defmodule Weld.Shell.Materializer do
       if File.exists?(target), do: raise(Error, "output collision: #{op.target}")
       File.mkdir_p!(Path.dirname(target))
 
-      case op do
-        %{content: content} when is_binary(content) ->
-          File.write!(target, content, [:exclusive])
-          File.chmod!(target, 0o644)
-
-        %{sources: [source | _]} ->
-          expected = Facts.stat!(facts, source)
-          actual = file_observation!(source)
-
-          unless actual.sha256 == expected.sha256 and actual.mode == expected.mode,
-            do: raise(Error, "inputs_changed: #{source}")
-
-          if kind == :live and op.operation == :link_or_copy do
-            File.ln_s!(source, target)
-          else
-            File.cp!(source, target)
-
-            File.chmod!(
-              target,
-              if(Bitwise.band(expected.mode, 0o111) == 0, do: 0o644, else: 0o755)
-            )
-          end
-      end
+      materialize_file!(op, facts, target, kind)
     end
 
     for directory <- Map.get(layout, :empty_dirs, []),
@@ -52,6 +30,26 @@ defmodule Weld.Shell.Materializer do
         do: File.mkdir_p!(Output.source!(stage, directory))
 
     validate!(layout, facts, stage, kind)
+  end
+
+  defp materialize_file!(%{content: content}, _facts, target, _kind) when is_binary(content) do
+    File.write!(target, content, [:exclusive])
+    File.chmod!(target, 0o644)
+  end
+
+  defp materialize_file!(%{sources: [source | _]} = op, facts, target, kind) do
+    expected = Facts.stat!(facts, source)
+    actual = file_observation!(source)
+
+    unless actual.sha256 == expected.sha256 and actual.mode == expected.mode,
+      do: raise(Error, "inputs_changed: #{source}")
+
+    if kind == :live and op.operation == :link_or_copy do
+      File.ln_s!(source, target)
+    else
+      File.cp!(source, target)
+      File.chmod!(target, if(Bitwise.band(expected.mode, 0o111) == 0, do: 0o644, else: 0o755))
+    end
   end
 
   def validate!(layout, facts, stage, kind) do

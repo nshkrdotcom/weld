@@ -79,10 +79,12 @@ defmodule Weld.Plan.Inventory do
 
   def layout_inventory(plan, layout) do
     root = plan.manifest.repo_root
+    live = operations_by_target(layout.live)
+    published = MapSet.new(layout.package_files)
 
     outputs =
       Enum.map(layout.full, fn op ->
-        live_op = Enum.find(layout.live, &(&1.target == op.target))
+        live_op = Map.fetch!(live, op.target)
         source_paths = Enum.uniq(op.sources ++ if(live_op.content, do: live_op.sources, else: []))
 
         inputs =
@@ -99,7 +101,7 @@ defmodule Weld.Plan.Inventory do
           inputs: inputs,
           kind: op.kind,
           operation: op.operation,
-          publish: op.target in layout.package_files,
+          publish: MapSet.member?(published, op.target),
           generated_digest: if(op.content, do: Identity.raw(op.content), else: nil),
           sha256:
             if(op.content,
@@ -414,9 +416,12 @@ defmodule Weld.Plan.Inventory do
       }
     }
 
+    full_operations = operations_by_target(plan.layout.full)
+    live_operations = operations_by_target(plan.layout.live)
+
     generated =
       for entry <- plan.output_inventory,
-          live = Enum.find(plan.layout.live, &(&1.target == entry.target)),
+          live = Map.fetch!(live_operations, entry.target),
           entry.generated_digest || live.content do
         origins = Enum.map(entry.inputs, &origin_ref(plan, &1.source))
 
@@ -473,7 +478,15 @@ defmodule Weld.Plan.Inventory do
         inputs
         |> Enum.filter(&(&1["kind"] in ~w(absence tree glob) or "structure" in &1["roles"]))
         |> Enum.map(& &1["id"]),
-      "entries" => Enum.map(plan.output_inventory, &portable_entry(plan, &1)),
+      "entries" =>
+        Enum.map(plan.output_inventory, fn entry ->
+          portable_entry(
+            plan,
+            entry,
+            Map.fetch!(full_operations, entry.target),
+            Map.fetch!(live_operations, entry.target)
+          )
+        end),
       "layout" => layout_details(plan),
       "qualification_policy" => %{
         "artifact_tests" => plan.artifact.verify.artifact_tests,
@@ -879,9 +892,9 @@ defmodule Weld.Plan.Inventory do
     }
   end
 
-  defp portable_entry(plan, entry) do
-    full = Enum.find(plan.layout.full, &(&1.target == entry.target))
-    live = Enum.find(plan.layout.live, &(&1.target == entry.target))
+  defp operations_by_target(operations), do: Map.new(operations, &{&1.target, &1})
+
+  defp portable_entry(plan, entry, full, live) do
     origins = Enum.map(entry.inputs, &origin_ref(plan, &1.source))
 
     origins =
@@ -900,35 +913,43 @@ defmodule Weld.Plan.Inventory do
     }
   end
 
-  defp variant(plan, op, kind) do
-    source = List.first(op.sources)
-    node = if op.content, do: nil, else: Facts.stat!(plan.facts, source)
+  defp variant(_plan, %{content: content}, _kind) when is_binary(content) do
+    %{
+      "strategy" => "write",
+      "source" => nil,
+      "content_sha256" => Identity.raw(content),
+      "size" => byte_size(content),
+      "executable" => false,
+      "group" => nil
+    }
+  end
 
-    strategy =
-      cond do
-        op.content -> "write"
-        kind == :live and op.operation == :link_or_copy -> "link"
-        length(op.sources) > 1 -> "dedup"
-        true -> "copy"
-      end
-
-    group =
-      if strategy == "link",
-        do: Enum.find(Map.get(plan.layout, :live_roots, []), &covered?(op.target, &1.target))
+  defp variant(plan, %{sources: [source | _]} = op, kind) do
+    node = Facts.stat!(plan.facts, source)
+    strategy = variant_strategy(op, kind)
 
     %{
       "strategy" => strategy,
-      "source" =>
-        if(op.content,
-          do: nil,
-          else: "file:" <> Path.relative_to(source, plan.manifest.repo_root)
-        ),
-      "content_sha256" => if(op.content, do: Identity.raw(op.content), else: node.sha256),
-      "size" => if(op.content, do: byte_size(op.content), else: node.size),
-      "executable" => if(op.content, do: false, else: Bitwise.band(node.mode, 0o111) != 0),
-      "group" => if(group, do: %{"source_root" => group.source, "target_root" => group.target})
+      "source" => "file:" <> Path.relative_to(source, plan.manifest.repo_root),
+      "content_sha256" => node.sha256,
+      "size" => node.size,
+      "executable" => Bitwise.band(node.mode, 0o111) != 0,
+      "group" => variant_group(plan.layout, op.target, strategy)
     }
   end
+
+  defp variant_strategy(%{operation: :link_or_copy}, :live), do: "link"
+  defp variant_strategy(%{sources: [_, _ | _]}, _kind), do: "dedup"
+  defp variant_strategy(_, _kind), do: "copy"
+
+  defp variant_group(layout, target, "link") do
+    case Enum.find(Map.get(layout, :live_roots, []), &covered?(target, &1.target)) do
+      nil -> nil
+      group -> %{"source_root" => group.source, "target_root" => group.target}
+    end
+  end
+
+  defp variant_group(_layout, _target, _strategy), do: nil
 
   defp roles(kind) do
     case kind do

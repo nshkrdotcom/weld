@@ -805,75 +805,80 @@ defmodule Weld.Output do
     root = checkout(root)
     base = ensure_managed!(root)
 
-    if id == "lock" do
-      lock = path(root, ["lock"])
-
-      case read_owner(Path.join(lock, "owner.json")) do
-        {:ok, owner} ->
-          unless owner_liveness(owner) == :dead,
-            do: raise(Error, "lock owner is active or unknown")
-
-          # Compare the same nonce immediately before deletion; never age-reap.
-          unless read_owner(Path.join(lock, "owner.json")) == {:ok, owner},
-            do: raise(Error, "lock owner changed")
-
-          File.rm!(Path.join(lock, "owner.json"))
-          File.rmdir!(lock)
-          %{recovered: ["lock"]}
-
-        _ ->
-          raise Error, "lock ownership cannot be established"
-      end
-    else
-      {lease_path, lease, selected} =
-        with_lock(root, fn ->
-          lease_path = path(root, ["leases", id <> ".json"])
-
-          case read_record(lease_path, @lease_keys, "weld.lease/2") do
-            {:ok, lease} ->
-              validate_lease!(lease)
-              unless lease["id"] == id, do: raise(Error, "lease path binding mismatch")
-
-              unless owner_liveness(lease["owner"]) == :dead,
-                do: raise(Error, "lease owner is active or unknown")
-
-              all = journals(base)
-
-              if Enum.any?(all, &is_nil(&1.record)),
-                do: raise(Error, "corrupt journal ownership is unknown")
-
-              selected = Enum.filter(all, &(&1.record["owner"] == lease["owner"]))
-              {lease_path, lease, selected}
-
-            _ ->
-              raise Error, "lease ownership cannot be established"
-          end
-        end)
-
-      # The dead lease continues to reserve its artifact while full trees are
-      # checked. A racing recovery must compare this exact lease and journal
-      # record again before it can apply any metadata transition.
-      observations = Enum.map(selected, &observe_recovery!(base, &1.path, &1.record))
-      failpoint(opts, :recovery_observed)
-
-      with_lock(root, fn ->
-        unless read_record(lease_path, @lease_keys, "weld.lease/2") == {:ok, lease} and
-                 owner_liveness(lease["owner"]) == :dead,
-               do: raise(Error, "recovery lease changed before completion")
-
-        for observed <- observations do
-          unless read_record(observed.path, @journal_keys, "weld.journal/2") ==
-                   {:ok, observed.record},
-                 do: raise(Error, "recovery journal changed before completion")
-
-          for {target, token} <- observed.nodes, do: same_node!(target, token)
-        end
-
-        actions = Enum.map(observations, &complete_recovery!/1)
-        File.rm!(lease_path)
-        %{recovered: [id], actions: actions}
-      end)
+    case id do
+      "lock" -> recover_metadata_lock!(path(root, ["lock"]))
+      _ -> recover_lease!(root, base, id, opts)
     end
+  end
+
+  defp recover_metadata_lock!(lock) do
+    owner_path = Path.join(lock, "owner.json")
+
+    case read_owner(owner_path) do
+      {:ok, owner} ->
+        unless owner_liveness(owner) == :dead,
+          do: raise(Error, "lock owner is active or unknown")
+
+        # Compare the same nonce immediately before deletion; never age-reap.
+        unless read_owner(owner_path) == {:ok, owner}, do: raise(Error, "lock owner changed")
+
+        File.rm!(owner_path)
+        File.rmdir!(lock)
+        %{recovered: ["lock"]}
+
+      _ ->
+        raise Error, "lock ownership cannot be established"
+    end
+  end
+
+  defp recover_lease!(root, base, id, opts) do
+    lease_path = path(root, ["leases", id <> ".json"])
+    {lease, selected} = with_lock(root, fn -> recovery_journals!(base, lease_path, id) end)
+
+    # The dead lease continues to reserve its artifact while full trees are
+    # checked. A racing recovery must compare this exact lease and journal
+    # record again before it can apply any metadata transition.
+    observations = Enum.map(selected, &observe_recovery!(base, &1.path, &1.record))
+    failpoint(opts, :recovery_observed)
+
+    with_lock(root, fn ->
+      unless read_record(lease_path, @lease_keys, "weld.lease/2") == {:ok, lease} and
+               owner_liveness(lease["owner"]) == :dead,
+             do: raise(Error, "recovery lease changed before completion")
+
+      Enum.each(observations, &recheck_recovery!/1)
+      actions = Enum.map(observations, &complete_recovery!/1)
+      File.rm!(lease_path)
+      %{recovered: [id], actions: actions}
+    end)
+  end
+
+  defp recovery_journals!(base, lease_path, id) do
+    case read_record(lease_path, @lease_keys, "weld.lease/2") do
+      {:ok, lease} ->
+        validate_lease!(lease)
+        unless lease["id"] == id, do: raise(Error, "lease path binding mismatch")
+
+        unless owner_liveness(lease["owner"]) == :dead,
+          do: raise(Error, "lease owner is active or unknown")
+
+        all = journals(base)
+
+        if Enum.any?(all, &is_nil(&1.record)),
+          do: raise(Error, "corrupt journal ownership is unknown")
+
+        {lease, Enum.filter(all, &(&1.record["owner"] == lease["owner"]))}
+
+      _ ->
+        raise Error, "lease ownership cannot be established"
+    end
+  end
+
+  defp recheck_recovery!(observed) do
+    unless read_record(observed.path, @journal_keys, "weld.journal/2") == {:ok, observed.record},
+      do: raise(Error, "recovery journal changed before completion")
+
+    for {target, token} <- observed.nodes, do: same_node!(target, token)
   end
 
   defp observe_recovery!(base, path, record) do
@@ -885,71 +890,8 @@ defmodule Weld.Output do
     backup = confine!(base, Path.join(base, record["backup"]))
     nodes = Map.new([target, stage, backup], &{&1, node_token!(&1)})
 
-    action =
-      case record["kind"] do
-        "view" ->
-          actual = if File.exists?(target), do: tree_record(target)
-          saved = if File.exists?(backup), do: tree_record(backup)
-
-          cond do
-            actual == record["new"] ->
-              if saved do
-                # Removal only discards the previously observed backup after the
-                # complete installed view matches the durable new-tree digest.
-                remove_observed!(base, backup, record["old"])
-                {:removed_backup, backup}
-              else
-                :none
-              end
-
-            is_nil(actual) and saved == record["old"] and not is_nil(saved) and
-                record["phase"] not in ["committed", "cleaned"] ->
-              {:restore, backup, target}
-
-            actual == record["old"] and is_nil(saved) and
-                record["phase"] in ["reserved", "cleaned"] ->
-              :none
-
-            is_nil(actual) and is_nil(record["old"]) and File.dir?(stage) and
-                record["phase"] == "reserved" ->
-              :none
-
-            true ->
-              raise Error, "ambiguous activation; retained all paths: #{path}"
-          end
-
-        "immutable" ->
-          unless (File.exists?(target) and tree_record(target) == record["new"]) or
-                   (not File.exists?(target) and File.exists?(stage) and
-                      tree_record(stage) == record["new"]),
-                 do: raise(Error, "ambiguous immutable insertion; retained all paths: #{path}")
-
-          :none
-
-        "bundle" ->
-          # Recovery never activates an unreferenced bundle or rewrites a newer pointer.
-          actual =
-            case File.read(backup) do
-              {:ok, bytes} -> bytes
-              {:error, :enoent} -> nil
-              _ -> :unreadable
-            end
-
-          expected = record["new"]
-
-          unless is_map(expected) and Enum.sort(Map.keys(expected)) == ~w(pointer tree),
-            do: raise(Error, "invalid pointer journal")
-
-          unless actual == record["old"] or
-                   (actual == expected["pointer"] and File.dir?(target) and
-                      tree_record(target) == expected["tree"]),
-                 do: raise(Error, "pointer or sealed tree changed; retained all paths: #{path}")
-
-          :none
-
-        _ ->
-          raise Error, "unknown journal kind"
-      end
+    paths = %{journal: path, target: target, stage: stage, backup: backup}
+    action = recovery_action!(record["kind"], record, paths, base)
 
     {nodes, action} =
       case action do
@@ -958,6 +900,77 @@ defmodule Weld.Output do
       end
 
     %{path: path, record: record, nodes: nodes, action: action}
+  end
+
+  defp recovery_action!("view", record, paths, base) do
+    %{target: target, stage: stage, backup: backup} = paths
+    actual = if File.exists?(target), do: tree_record(target)
+    saved = if File.exists?(backup), do: tree_record(backup)
+    phase = record["phase"]
+    old = record["old"]
+
+    cond do
+      actual == record["new"] ->
+        recover_installed_view!(base, backup, old, saved)
+
+      is_nil(actual) and saved != nil and saved == old and phase not in ["committed", "cleaned"] ->
+        {:restore, backup, target}
+
+      actual == old and is_nil(saved) and phase in ["reserved", "cleaned"] ->
+        :none
+
+      is_nil(actual) and is_nil(old) and File.dir?(stage) and phase == "reserved" ->
+        :none
+
+      true ->
+        raise Error, "ambiguous activation; retained all paths: #{paths.journal}"
+    end
+  end
+
+  defp recovery_action!("immutable", record, paths, _base) do
+    intact? =
+      if File.exists?(paths.target),
+        do: tree_record(paths.target) == record["new"],
+        else: File.exists?(paths.stage) and tree_record(paths.stage) == record["new"]
+
+    unless intact?,
+      do: raise(Error, "ambiguous immutable insertion; retained all paths: #{paths.journal}")
+
+    :none
+  end
+
+  defp recovery_action!("bundle", record, paths, _base) do
+    # Recovery never activates an unreferenced bundle or rewrites a newer pointer.
+    actual =
+      case File.read(paths.backup) do
+        {:ok, bytes} -> bytes
+        {:error, :enoent} -> nil
+        _ -> :unreadable
+      end
+
+    expected = record["new"]
+
+    unless is_map(expected) and Enum.sort(Map.keys(expected)) == ~w(pointer tree),
+      do: raise(Error, "invalid pointer journal")
+
+    unless actual == record["old"] or
+             (actual == expected["pointer"] and File.dir?(paths.target) and
+                tree_record(paths.target) == expected["tree"]),
+           do:
+             raise(Error, "pointer or sealed tree changed; retained all paths: #{paths.journal}")
+
+    :none
+  end
+
+  defp recovery_action!(_, _, _, _), do: raise(Error, "unknown journal kind")
+
+  defp recover_installed_view!(_base, _backup, _old, nil), do: :none
+
+  defp recover_installed_view!(base, backup, old, _saved) do
+    # Removal only discards the previously observed backup after the complete
+    # installed view matches the durable new-tree digest.
+    remove_observed!(base, backup, old)
+    {:removed_backup, backup}
   end
 
   defp complete_recovery!(observed) do
