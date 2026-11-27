@@ -31,6 +31,32 @@ defmodule Weld.HexArchiveContractTest do
     end
   end
 
+  test "Hex directory declarations may name implicit archive ancestors only" do
+    root = FixtureCase.unique_tmp_dir("hex-implicit-directories")
+    files = [{~c"lib/probe.ex", "# source"}]
+
+    for {filename, names} <- [
+          {"valid.tar", ["lib", "lib/probe.ex"]},
+          {"unrelated.tar", ["unrelated", "lib/probe.ex"]}
+        ] do
+      metadata = %{
+        "name" => "probe",
+        "version" => "1.0.0",
+        "files" => names
+      }
+
+      {:ok, %{tarball: bytes}} = :hex_tarball.create(metadata, files)
+      File.write!(Path.join(root, filename), bytes)
+    end
+
+    assert %{entries: [%{"path" => "lib/probe.ex"}], directories: []} =
+             Hex.package_observation!(Path.join(root, "valid.tar"))
+
+    assert_raise Error, ~r/membership/, fn ->
+      Hex.package_observation!(Path.join(root, "unrelated.tar"))
+    end
+  end
+
   test "docs are built once and roundtrip against exact payload" do
     root = FixtureCase.unique_tmp_dir("hex-docs")
     docs = Path.join(root, "docs")

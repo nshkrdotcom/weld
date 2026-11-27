@@ -78,12 +78,7 @@ defmodule Weld.Shell.Hex do
          {_, compressed} <- List.keyfind(outer, ~c"contents.tar.gz", 0),
          {:ok, plain} <- :hex_registry.gunzip(compressed, @expanded_limit) do
       observed = archive_observation!(plain, contents)
-      names = Enum.sort(Enum.map(observed.entries, & &1["path"]) ++ observed.directories)
-      declared = Map.get(metadata, "files", [])
-
-      unless is_list(declared) and Enum.sort(declared) == names and
-               length(Enum.uniq(declared)) == length(declared),
-             do: raise(Error, "Hex metadata file membership differs from actual archive members")
+      validate_declared_files!(metadata["files"], observed)
 
       Map.merge(observed, %{
         metadata: normalize_metadata!(metadata),
@@ -93,6 +88,35 @@ defmodule Weld.Shell.Hex do
     else
       _ -> raise Error, "invalid Hex archive envelope, checksum or metadata"
     end
+  end
+
+  defp validate_declared_files!(declared, observed) when is_list(declared) do
+    Enum.each(declared, &Inventory.validate_path!/1)
+    names = MapSet.new(declared)
+    actual = MapSet.new(Enum.map(observed.entries, & &1["path"]) ++ observed.directories)
+
+    # Hex includes directory patterns in metadata even when it writes only
+    # their descendants into the tar. Extra names must be actual ancestors.
+    implicit =
+      Enum.reduce(actual, MapSet.new(), fn name, paths ->
+        add_archive_ancestors(Path.dirname(name), paths)
+      end)
+
+    unless MapSet.size(names) == length(declared) and MapSet.subset?(actual, names) and
+             MapSet.subset?(names, MapSet.union(actual, implicit)),
+           do: raise(Error, "Hex metadata file membership differs from actual archive members")
+  rescue
+    error in ArgumentError ->
+      reraise Error, [message: Exception.message(error)], __STACKTRACE__
+  end
+
+  defp validate_declared_files!(_, _),
+    do: raise(Error, "Hex metadata file membership differs from actual archive members")
+
+  defp add_archive_ancestors(".", paths), do: paths
+
+  defp add_archive_ancestors(path, paths) do
+    add_archive_ancestors(Path.dirname(path), MapSet.put(paths, path))
   end
 
   def check_package!(tarball, root, paths, expected, opts \\ []) do
