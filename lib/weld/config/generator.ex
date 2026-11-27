@@ -2,22 +2,9 @@ defmodule Weld.Config.Generator do
   @moduledoc false
 
   alias Weld.Error
+  alias Weld.Core.Facts
   alias Weld.Layout.FilePlan
   alias Weld.SourceFormatter
-
-  @spec generate!([Weld.Workspace.Project.t()], Path.t(), [map()], map(), keyword()) :: %{
-          bootstrapped_apps: [atom()],
-          bootstrapped_sources: [map()],
-          operations: [map()],
-          copied_files: [String.t()],
-          warnings: [map()],
-          staged: [map()]
-        }
-  def generate!(projects, build_path, repo_infos, migration_layout, opts \\ []) do
-    result = plan!(projects, repo_infos, migration_layout, opts)
-    FilePlan.materialize!(result.operations, build_path, :full)
-    result
-  end
 
   def plan!(projects, repo_infos, migration_layout, opts \\ []) do
     config_root = "config"
@@ -32,7 +19,6 @@ defmodule Weld.Config.Generator do
 
     staged =
       projects
-      |> Enum.sort_by(& &1.id)
       |> Enum.map(&stage_project_config!(&1, config_root))
 
     warnings = skipped_test_config_warnings(staged, shared_test_configs)
@@ -101,19 +87,20 @@ defmodule Weld.Config.Generator do
     slug = project_slug(project.id)
     source_root = Path.join(project.abs_path, "config")
 
-    if File.dir?(source_root) do
-      files = source_root |> File.ls!() |> Enum.sort()
+    if Facts.dir?(project.facts, source_root) do
+      files = project.facts |> Facts.ls!(source_root) |> Enum.sort()
       static_root = Path.join([config_root, "sources", slug])
       runtime_root = Path.join([config_root, "runtime_sources", slug])
       bootstrap = bootstrap_source(slug, files)
       private_root = if bootstrap, do: Path.join(["priv", "weld", runtime_root])
 
       operations =
-        source_root
-        |> Weld.Hash.list_files()
+        project.facts
+        |> Facts.list_files(source_root)
         |> Enum.sort()
         |> Enum.flat_map(fn source ->
           stage_project_config_file!(
+            project.facts,
             source,
             source_root,
             static_root,
@@ -144,29 +131,18 @@ defmodule Weld.Config.Generator do
     end
   end
 
-  defp sanitize_config_source!(contents, source_path, opts) do
+  defp sanitize_config_source!(facts, contents, source_path, source_root, opts) do
     strip_imports? = Keyword.get(opts, :strip_imports?, false)
 
     case Code.string_to_quoted(contents, file: source_path) do
       {:ok, ast} ->
         ast
-        |> sanitize_config_ast(strip_imports?)
+        |> sanitize_config_ast(strip_imports?, facts, source_path, source_root)
         |> sanitized_config_source()
 
       {:error, error} ->
         raise Error, "unable to parse #{source_path}: #{format_parse_error(error)}"
     end
-  end
-
-  defp config_directives?(ast) do
-    {_ast, found?} =
-      Macro.prewalk(ast, false, fn
-        {:config, _meta, _args} = node, _found? -> {node, true}
-        {:import_config, _meta, _args} = node, _found? -> {node, true}
-        node, found? -> {node, found?}
-      end)
-
-    found?
   end
 
   defp bootstrap_source(slug, files) do
@@ -335,7 +311,7 @@ defmodule Weld.Config.Generator do
     staged |> Enum.flat_map(& &1.operations) |> Enum.flat_map(& &1.sources) |> Enum.uniq()
   end
 
-  defp stage_project_config_file!(source, source_root, static_root, runtime_root, private_root) do
+  defp stage_project_config_file!(facts, source, source_root, static_root, runtime_root, private_root) do
     relative = Path.relative_to(source, source_root)
     static_target = Path.join(static_root, relative)
     runtime_target = Path.join(runtime_root, relative)
@@ -344,7 +320,7 @@ defmodule Weld.Config.Generator do
       case Path.extname(source) do
         ".exs" ->
           content =
-            sanitize_config_source!(File.read!(source), source,
+            sanitize_config_source!(facts, Facts.read!(facts, source), source, source_root,
               strip_imports?: relative == "config.exs"
             )
 
@@ -362,25 +338,24 @@ defmodule Weld.Config.Generator do
     [static, FilePlan.copy(source, runtime_target, :metadata, :copy)] ++ private
   end
 
-  defp sanitize_config_ast(ast, strip_imports?) do
+  defp sanitize_config_ast(ast, strip_imports?, facts, source, source_root) do
     Macro.prewalk(ast, fn
-      {:import_config, _meta, _args} when strip_imports? ->
-        :ok
-
-      other ->
-        other
+      {:import_config, _, [relative]} = node when is_binary(relative) ->
+        Weld.Core.Inventory.validate_path!(relative)
+        absolute = Path.expand(relative, Path.dirname(source))
+        unless String.starts_with?(absolute, source_root <> "/") and Facts.regular?(facts, absolute),
+          do: raise(Error, "missing or escaping config import: #{relative}")
+        node
+      {:import_config, _, [expression]} = node ->
+        supported = Macro.to_string(expression) in [~S("#{config_env()}.exs"), ~S("#{Mix.env()}.exs")]
+        unless supported and strip_imports?, do: raise(Error, "unsupported dynamic config import: #{source}")
+        if strip_imports?, do: :ok, else: node
+      {:import_config, _, _} -> raise Error, "unsupported config import: #{source}"
+      node -> node
     end)
   end
 
-  defp sanitized_config_source(ast) do
-    if config_directives?(ast) do
-      ast
-      |> Macro.to_string()
-      |> SourceFormatter.format!()
-    else
-      "import Config\n"
-    end
-  end
+  defp sanitized_config_source(ast), do: ast |> Macro.to_string() |> SourceFormatter.format!()
 
   defp shared_test_import?(entry, shared_test_configs) do
     "test.exs" in entry.files and shared_test_config?(shared_test_configs, entry)

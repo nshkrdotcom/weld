@@ -1,0 +1,11 @@
+{
+  "native_env": {
+    "CC": "cc",
+    "CFLAGS": "-O2"
+  },
+  "public_facts": {
+    "native_cc": "Replace with compiler identity from cc --version and the pinned toolchain image digest",
+    "native_source_pins": "test/fixtures/native_hex/checksums.sha256",
+    "network_policy": "Native fixture ships its source; detached offline rebuild uses verified local Hex cache"
+  }
+}

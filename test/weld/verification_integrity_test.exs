@@ -3,18 +3,21 @@ defmodule Weld.VerificationIntegrityTest do
 
   alias Weld.{Error, FixtureCase, Hash}
 
-  test "verification identity detects changes to existing files and executable bits" do
+  test "frozen project identity binds lock, complete membership and executable bits" do
     root = FixtureCase.unique_tmp_dir("verification_identity")
     file = Path.join(root, "fixture.txt")
     File.write!(file, "before\n")
-    before = Hash.verification_identity(root, ["fixture.txt", "mix.lock"])
+    identity = fn -> Weld.Core.Identity.digest("project", Hash.observation(root)) end
+    before = identity.()
     File.write!(Path.join(root, "mix.lock"), "%{}\n")
-    assert before == Hash.verification_identity(root, ["fixture.txt", "mix.lock"])
+    refute before == identity.()
+    frozen = identity.()
     File.write!(file, "after\n")
-    refute before == Hash.verification_identity(root, ["fixture.txt", "mix.lock"])
+    refute frozen == identity.()
     File.write!(file, "before\n")
+    assert frozen == identity.()
     File.chmod!(file, 0o755)
-    refute before == Hash.verification_identity(root, ["fixture.txt", "mix.lock"])
+    refute frozen == identity.()
   end
 
   test "mutable graph output destinations cannot link into source" do
@@ -46,9 +49,9 @@ defmodule Weld.VerificationIntegrityTest do
     root = FixtureCase.unique_tmp_dir("package_identity")
     File.mkdir!(Path.join(root, "lib"))
     File.write!(Path.join(root, "lib/original.ex"), "# original\n")
-    before = Hash.package_identity(root, ["lib"])
+    before = Hash.observation(root)["entries"]
     File.write!(Path.join(root, "lib/generated.ex"), "# unverified generated input\n")
-    refute before == Hash.package_identity(root, ["lib"])
+    refute before == Hash.observation(root)["entries"]
   end
 
   test "migration copies cannot replace linked root assets" do
@@ -116,7 +119,7 @@ defmodule Weld.VerificationIntegrityTest do
         String.replace(
           original,
           "app: :workshop_palette,",
-          "app: :workshop_palette, #{field}: Path.join(__DIR__, \"mutable\"),"
+          "app: :workshop_palette, #{field}: #{inspect(Path.join(source, "mutable"))},"
         )
       )
 
@@ -128,20 +131,15 @@ defmodule Weld.VerificationIntegrityTest do
     end
   end
 
-  test "native publication wildcards cannot include generated provenance" do
+  test "native publication wildcards cannot broaden the compiled allowlist" do
     root = FixtureCase.copy_fixture("nested_source_project")
-    mixfile = Path.join(root, "extensions/palette/mix.exs")
+    source = Path.join(root, "extensions/palette")
+    mixfile = Path.join(source, "mix.exs")
+    File.write!(Path.join(source, "unplanned.txt"), "not declared in preserve.files\n")
+    File.write!(mixfile, String.replace(File.read!(mixfile),
+      "files: Workshop.Palette.Package.files()", "files: [\"*\"]"))
 
-    File.write!(
-      mixfile,
-      String.replace(
-        File.read!(mixfile),
-        "files: Workshop.Palette.Package.files()",
-        "files: [\"*\"]"
-      )
-    )
-
-    assert_raise Error, ~r/allowlist includes generated publication metadata/, fn ->
+    assert_raise Error, ~r/source inventory missing native package path/, fn ->
       Weld.Commands.project!(Path.join(root, "build_support/weld.exs"))
     end
   end

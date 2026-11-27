@@ -28,8 +28,7 @@ defmodule Weld.ReleaseMetadataTest do
              :ex_doc,
              :hex_core,
              :jason,
-             :nimble_options,
-             :telemetry
+             :nimble_options
            ]
 
     refute Enum.any?(project[:deps], fn dependency ->

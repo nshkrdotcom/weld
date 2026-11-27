@@ -15,7 +15,7 @@ defmodule Weld.SourceProjectTest do
   } do
     full = Weld.Commands.project!(manifest)
     assert full.build_path == Path.join(root, ".weld/v2/full/sprout/project")
-    assert %{"kind" => "full", "artifact_id" => digest} = marker(full)
+    assert %{"kind" => "full", "plan_id" => digest} = marker(full)
     assert digest =~ ~r/^[0-9a-f]{64}$/
 
     assert File.read!(Path.join(full.build_path, "mix.exs")) ==
@@ -30,11 +30,15 @@ defmodule Weld.SourceProjectTest do
     assert live.build_path == Path.join(root, ".weld/v2/live/sprout")
     assert %{"kind" => "live"} = marker(live)
     refute Map.has_key?(marker(live), "artifact_id")
-    assert File.read_link!(Path.join(live.build_path, "priv")) == Path.join(root, "priv")
+    assert File.lstat!(Path.join(live.build_path, "priv")).type == :directory
+    linked = "components/pure/lib"
+    assert File.read_link!(Path.join(live.build_path, linked)) == Path.join(root, linked)
     File.write!(Path.join(root, "priv/theme.txt"), "azure")
-    assert File.read!(Path.join(live.build_path, "priv/theme.txt")) == "azure"
+    assert File.read!(Path.join(live.build_path, "priv/theme.txt")) == "sage\n"
+    refreshed = Weld.Commands.project!(manifest, live: true)
+    assert File.read!(Path.join(refreshed.build_path, "priv/theme.txt")) == "azure"
     assert File.read!(Path.join(full.build_path, "priv/theme.txt")) == "sage\n"
-    refute marker(Weld.Commands.project!(manifest))["artifact_id"] == digest
+    refute marker(Weld.Commands.project!(manifest))["plan_id"] == digest
   end
 
   test "duplicate modules and escaping links fail before candidate activation", %{
@@ -52,8 +56,8 @@ defmodule Weld.SourceProjectTest do
     assert_raise Error, fn -> Weld.Commands.project!(manifest) end
     assert previous == marker(full)
     File.rm!(Path.join(root, "priv/external"))
-    File.rm!(Path.join(full.build_path, "weld.provenance.json"))
-    assert_raise Error, ~r/unmanaged/, fn -> Weld.Commands.project!(manifest) end
+    File.rm!(Weld.Output.path(root, ["views", "sprout", "full.owner.json"]))
+    assert_raise Error, ~r/unmanaged/, fn -> Weld.Commands.project!(manifest, no_cache: true) end
     assert File.regular?(Path.join(full.build_path, "mix.exs"))
   end
 
@@ -185,7 +189,9 @@ defmodule Weld.SourceProjectTest do
     source = Path.join(root, "extensions/palette")
 
     full = Weld.Commands.project!(manifest)
-    assert full.package_files == ~w(VERSION build_support mix.exs priv source)
+    assert full.package_files ==
+             ~w(VERSION build_support/package.exs mix.exs priv/shade.txt source/palette.ex)
+    assert Enum.sort(full.package_patterns) == ~w(VERSION build_support mix.exs priv source)
     assert "checks/palette_test.exs" in full.verification_files
     refute File.exists?(Path.join(full.build_path, "extensions"))
     refute File.exists?(Path.join(full.build_path, "lib/workshop.ex"))
@@ -293,6 +299,8 @@ defmodule Weld.SourceProjectTest do
   end
 
   defp marker(projection) do
-    projection.build_path |> Path.join("weld.provenance.json") |> File.read!() |> Jason.decode!()
+    [root, suffix] = String.split(projection.build_path, "/.weld/v2/", parts: 2)
+    [kind, artifact | _] = Path.split(suffix)
+    Weld.Output.path(root, ["views", artifact, kind <> ".json"]) |> File.read!() |> Jason.decode!()
   end
 end

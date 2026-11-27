@@ -3,12 +3,12 @@ defmodule Weld.ProjectorTest do
 
   alias Weld.FixtureCase
 
-  test "projects a welded artifact with a generated lockfile and no path deps" do
+  test "projects a standalone artifact without embedded proof reports or path deps" do
     result =
       Weld.Commands.project!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
 
     assert File.regular?(Path.join(result.build_path, "mix.exs"))
-    assert File.regular?(Path.join(result.build_path, "projection.lock.json"))
+    refute File.exists?(Path.join(result.build_path, "projection.lock.json"))
     refute "projection.lock.json" in result.package_files
 
     assert File.regular?(
@@ -38,7 +38,9 @@ defmodule Weld.ProjectorTest do
       projection = Weld.Commands.project!(manifest, options)
       refute projection.reused?
       assert Weld.Commands.project!(manifest, options).reused?
-      marker = Path.join(projection.build_path, "weld.provenance.json")
+      plan = Weld.Plan.build!(manifest)
+      kind = if options[:live], do: "live", else: "full"
+      marker = Weld.Output.path(plan.manifest.repo_root, ["views", plan.artifact.id, kind <> ".json"])
       original = File.read!(marker)
       File.write!(marker, original <> "\n")
       refute Weld.Commands.project!(manifest, options).reused?
@@ -48,7 +50,8 @@ defmodule Weld.ProjectorTest do
       time = File.stat!(source).mtime
       File.write!(source, String.replace(bytes, "Contracts", "Contractx"))
       File.touch!(source, time)
-      refute Weld.Commands.project!(manifest, options).reused?
+      refreshed = Weld.Commands.project!(manifest, options)
+      assert refreshed.reused? == !!options[:live]
       File.write!(source, bytes)
     end
   end
@@ -79,4 +82,30 @@ defmodule Weld.ProjectorTest do
     assert File.read!(application_file) =~ "Fixture.State.Application"
     assert File.read!(application_file) =~ "@moduledoc false"
   end
+  test "full cache validates empty directories and normalized output permissions" do
+    manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    root = Weld.Manifest.load!(manifest).repo_root
+    for directory <- ["empty", "a/x", "a-foo"] do
+      File.mkdir_p!(Path.join(root, "core/contracts/lib/" <> directory))
+    end
+    projection = Weld.Commands.project!(manifest)
+    empty = Path.join(projection.build_path, "components/core/contracts/lib/empty")
+    assert File.dir?(empty)
+    assert Weld.Commands.project!(manifest).reused?
+
+    File.rmdir!(empty)
+    refute Weld.Commands.project!(manifest).reused?
+    assert File.dir?(empty)
+
+    extra = Path.join(projection.build_path, "unplanned-empty")
+    File.mkdir!(extra)
+    refute Weld.Commands.project!(manifest).reused?
+    refute File.exists?(extra)
+
+    target = Path.join(projection.build_path, "mix.exs")
+    File.chmod!(target, 0o600)
+    refute Weld.Commands.project!(manifest).reused?
+    assert Bitwise.band(File.stat!(target).mode, 0o777) == 0o644
+  end
+
 end

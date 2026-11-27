@@ -1,25 +1,14 @@
 defmodule Weld.Layout.Flat.Migrations do
   @moduledoc false
 
-  alias Weld.{Error, Hash}
+  alias Weld.Error
+  alias Weld.Core.Facts
   alias Weld.Layout.FilePlan
-
-  @spec merge!([Weld.Workspace.Project.t()], Path.t()) :: %{
-          operations: [map()],
-          copied_files: [String.t()],
-          remaps: [map()],
-          layout: map()
-        }
-  def merge!(projects, build_path) do
-    result = plan!(projects)
-    FilePlan.materialize!(result.operations, build_path, :full)
-    result
-  end
 
   def plan!(projects) do
     migrating_projects =
       projects
-      |> Enum.filter(&File.dir?(Path.join(&1.abs_path, "priv/repo/migrations")))
+      |> Enum.filter(&Facts.dir?(&1.facts, Path.join(&1.abs_path, "priv/repo/migrations")))
       |> Enum.sort_by(& &1.id)
 
     layout =
@@ -43,8 +32,8 @@ defmodule Weld.Layout.Flat.Migrations do
       |> Enum.flat_map(fn project ->
         source_root = Path.join(project.abs_path, "priv/repo/migrations")
 
-        source_root
-        |> Hash.list_files()
+        project.facts
+        |> Facts.list_files(source_root)
         |> Enum.sort()
         |> Enum.map(fn source ->
           %{
@@ -126,16 +115,14 @@ defmodule Weld.Layout.Flat.Migrations do
     end)
   end
 
-  defp restamp_filename(filename, project_id, index, used) do
+  defp restamp_filename(filename, _project_id, index, used) do
     unless Regex.match?(~r/^[0-9]{14}_/, filename),
       do: raise(Error, "invalid colliding migration filename: #{filename}")
 
     <<timestamp::binary-size(14), "_", rest::binary>> = filename
     base = String.to_integer(timestamp)
 
-    offset =
-      :erlang.phash2({project_id, filename, index}, 89_999)
-      |> Kernel.+(1)
+    offset = index + 1
 
     stamp = unused_timestamp(base + offset, used)
     {"#{stamp}_#{rest}", MapSet.put(used, stamp)}

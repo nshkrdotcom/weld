@@ -4,14 +4,17 @@ defmodule Weld.Shell.Diff do
   alias Weld.Core.Inventory
   alias Weld.{Error, Hash, Output}
 
-  @operational ~w(_build deps .git .weld doc weld.provenance.json projection.lock.json)
+  @operational ~w(_build deps doc)
 
   def compare(plan, path, kind) do
     Output.reject_link!(path)
     unless File.dir?(path), do: raise(Error, "projection does not exist: #{path}")
 
     root = plan.manifest.repo_root
-    expected = plan.output_inventory
+    expected = Enum.map(plan.output_inventory, fn entry ->
+      op = if kind == :live, do: Enum.find(plan.layout.live, &(&1.target == entry.target))
+      if op && op.content, do: %{entry | sha256: Weld.Core.Identity.raw(op.content), size: byte_size(op.content), executable: false}, else: entry
+    end)
     links = if kind == :live, do: planned_links(plan), else: %{}
     expected_paths = MapSet.new(expected, & &1.target)
 
@@ -28,14 +31,6 @@ defmodule Weld.Shell.Diff do
     }
   end
 
-  defp planned_links(%{artifact: %{mode: :source_project}, output_inventory: entries}) do
-    for %{target: target, inputs: [%{source: source} | _]} <- entries,
-        Path.basename(target) not in ["mix.exs", "mix.lock"],
-        {destination, origin} <- same_suffix_parents(target, source),
-        into: %{},
-        do: {destination, origin}
-  end
-
   defp planned_links(plan) do
     roots =
       for root <- get_in(plan.layout, [:live_roots]) || [],
@@ -46,19 +41,6 @@ defmodule Weld.Shell.Diff do
           plan.output_inventory,
         into: roots,
         do: {target, source}
-  end
-
-  defp same_suffix_parents(target, source) do
-    parents =
-      with name when name != "." <- Path.dirname(target),
-           origin when origin != "." <- Path.dirname(source),
-           true <- Path.basename(target) == Path.basename(source) do
-        same_suffix_parents(name, origin)
-      else
-        _ -> []
-      end
-
-    [{target, source} | parents]
   end
 
   defp observe(path, relative, root, links, expected) do

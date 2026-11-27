@@ -19,6 +19,16 @@ defmodule Weld.Workspace.Project do
   ]
   defstruct @enforce_keys ++
               [
+                facts: nil,
+                probe_inputs: [],
+                probe_context: %{},
+                deps_by_env: %{},
+                config_by_env: %{},
+                application_by_env: %{},
+                compilers: [],
+                docs: [],
+                package_metadata: [],
+                package_exclude_patterns: [],
                 package_name: nil,
                 description: "",
                 docs_source_ref: nil,

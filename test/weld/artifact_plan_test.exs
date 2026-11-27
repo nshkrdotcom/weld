@@ -154,7 +154,7 @@ defmodule Weld.ArtifactPlanTest do
     refute Enum.any?(Plan.projects_for_view(plan, :test), &(&1.id == "."))
 
     assert [%{app: :sprout, opts: opts}] = Plan.external_deps_for_view(plan, :test)
-    assert opts[:only] == :test
+    assert opts[:only] == [:test]
     assert opts[:runtime] == false
   end
 

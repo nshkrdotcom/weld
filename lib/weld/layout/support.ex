@@ -1,7 +1,8 @@
 defmodule Weld.Layout.Support do
   @moduledoc false
 
-  alias Weld.{Error, Hash, Manifest, Output, Plan}
+  alias Weld.{Error, Manifest}
+  alias Weld.Core.{Facts, Selection}
 
   @root_tooling_files ~w(.formatter.exs .credo.exs .dialyzer_ignore.exs)
 
@@ -18,7 +19,7 @@ defmodule Weld.Layout.Support do
             artifact.output.assets ++
             artifact.verify.artifact_tests ++
             List.wrap(artifact.verify.smoke.entry_file) do
-      root |> Output.source!(path) |> Output.reject_tree_links!()
+      Facts.source!(plan.facts, root, path) |> then(&Facts.reject_tree_links!(plan.facts, &1))
     end
 
     if graph?, do: validate_graph_projects!(plan, root)
@@ -33,14 +34,14 @@ defmodule Weld.Layout.Support do
   end
 
   defp validate_graph_projects!(plan, root) do
-    for project <- Plan.projects_for_view(plan, :test) do
-      include_suite? = plan.artifact.mode == :monolith or Plan.selected?(plan, project.id)
+    for project <- Selection.projects_for_view(plan, :test) do
+      include_suite? = plan.artifact.mode == :monolith or Selection.selected?(plan, project.id)
       validate_project_inputs!(root, project, include_suite?)
     end
   end
 
   defp validate_project_inputs!(root, project, include_suite?) do
-    if project.id != ".", do: Output.source!(root, project.id)
+    if project.id != ".", do: Facts.source!(project.facts, root, project.id)
 
     suite_paths =
       if include_suite? do
@@ -58,22 +59,22 @@ defmodule Weld.Layout.Support do
               [project.erlc_include_path] ++ suite_paths
           ) do
       relative = Path.relative_to(Path.expand(dir, project.abs_path), project.abs_path)
-      project.abs_path |> Output.source!(relative) |> Output.reject_tree_links!()
+      Facts.source!(project.facts, project.abs_path, relative) |> then(&Facts.reject_tree_links!(project.facts, &1))
     end
   end
 
   @spec root_tooling_candidates() :: [String.t()]
   def root_tooling_candidates, do: @root_tooling_files
 
-  @spec root_tooling_files(Plan.t()) :: [String.t()]
-  def root_tooling_files(%Plan{} = plan) do
+  @spec root_tooling_files(map()) :: [String.t()]
+  def root_tooling_files(%{artifact: _} = plan) do
     @root_tooling_files
-    |> Enum.filter(&File.regular?(Path.join(plan.manifest.repo_root, &1)))
+    |> Enum.filter(&Facts.regular?(plan.facts, Path.join(plan.manifest.repo_root, &1)))
   end
 
   @doc false
-  @spec docs_options(Plan.t() | Manifest.Artifact.t()) :: keyword()
-  def docs_options(%Plan{} = plan), do: docs_options(plan.artifact)
+  @spec docs_options(map() | Manifest.Artifact.t()) :: keyword()
+  def docs_options(%{artifact: _} = plan), do: docs_options(plan.artifact)
 
   def docs_options(%Manifest.Artifact{} = artifact) do
     docs = artifact.package.docs
@@ -101,20 +102,11 @@ defmodule Weld.Layout.Support do
   # set, that checkout file is the single owner (the root Mix project can read
   # the same file); otherwise the built-in Mermaid hook is used.
   @doc false
-  def mermaid_hook(%Plan{} = plan) do
-    mermaid_hook(plan.manifest.repo_root, plan.artifact.package.docs.hook_file)
-  end
-
-  @doc false
-  def mermaid_hook(_root, nil), do: mermaid_hook()
-
-  def mermaid_hook(root, relative) do
-    path = Output.source!(root, relative)
-
-    unless File.regular?(path),
-      do: raise(Error, "package.docs.hook_file not found: #{relative}")
-
-    File.read!(path)
+  def mermaid_hook(%{artifact: _} = plan) do
+    case plan.artifact.package.docs.hook_file do
+      nil -> mermaid_hook()
+      relative -> Facts.read!(plan.facts, Facts.source!(plan.facts, plan.manifest.repo_root, relative))
+    end
   end
 
   @doc false
@@ -144,7 +136,7 @@ defmodule Weld.Layout.Support do
   end
 
   @doc false
-  def render_docs_options(%Plan{} = plan) do
+  def render_docs_options(%{artifact: _} = plan) do
     options =
       inspect(docs_options(plan), pretty: true, limit: :infinity, printable_limit: :infinity)
 
@@ -166,9 +158,9 @@ defmodule Weld.Layout.Support do
     |> Enum.flat_map(fn project ->
       lib_root = Path.join(project.abs_path, "lib")
 
-      if File.dir?(lib_root) do
-        lib_root
-        |> Hash.list_files()
+      if Facts.dir?(project.facts, lib_root) do
+        project.facts
+        |> Facts.list_files(lib_root)
         |> Enum.filter(&(Path.extname(&1) == ".ex"))
         |> Enum.flat_map(&repo_info_from_file(&1, project))
       else
@@ -178,7 +170,7 @@ defmodule Weld.Layout.Support do
   end
 
   defp repo_info_from_file(path, project) do
-    contents = File.read!(path)
+    contents = Facts.read!(project.facts, path)
 
     if String.contains?(contents, "use Ecto.Repo") do
       module =

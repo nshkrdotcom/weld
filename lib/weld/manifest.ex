@@ -192,44 +192,15 @@ defmodule Weld.Manifest do
           artifacts: %{optional(String.t()) => Artifact.t()}
         }
 
-  @classify_schema [
-    tooling: [type: {:list, :string}, default: []],
-    proofs: [type: {:list, :string}, default: []],
-    ignored: [type: {:list, :string}, default: []]
-  ]
-
-  @publication_schema [
-    internal_only: [type: {:list, :string}, default: []],
-    separate: [type: {:list, :string}, default: []],
-    optional: [type: :keyword_list, default: []]
-  ]
-
-  @dependency_schema [
-    requirement: [type: :any, default: nil],
-    opts: [type: :keyword_list, default: []]
-  ]
-
-  @docs_schema [
-    main: [type: :string],
-    logo: [type: :string],
-    homepage_url: [type: :string],
-    source_url: [type: :string],
-    source_ref: [type: :string],
-    assets: [type: :any, default: %{}],
-    extra_titles: [type: :any, default: %{}],
-    groups_for_extras: [type: :any, default: []],
-    mermaid: [type: :boolean, default: false],
-    hook_file: [type: :string]
-  ]
-
-  @spec load!(Path.t()) :: t()
-  def load!(manifest_path) do
+  @spec load!(Path.t(), keyword()) :: t()
+  def load!(manifest_path, opts \\ []) do
     manifest_path = Path.expand(manifest_path)
 
-    unless File.regular?(manifest_path) do
+    unless match?({:ok, %{type: :regular}}, File.lstat(manifest_path)) do
       raise Error, "manifest not found: #{manifest_path}"
     end
 
+    Weld.Output.source!(Path.dirname(manifest_path), Path.basename(manifest_path))
     {raw, _binding} = Code.eval_file(manifest_path)
 
     unless Keyword.keyword?(raw) do
@@ -239,10 +210,18 @@ defmodule Weld.Manifest do
     config = CoreManifest.normalize!(raw)
     manifest_dir = Path.dirname(manifest_path)
     workspace = normalize_workspace(config[:workspace], manifest_dir)
+    unless match?({:ok, %{type: :directory}}, File.lstat(workspace.root)),
+      do: raise(Error, "workspace.root must be an existing regular directory")
+    git_root = Weld.Git.root(manifest_dir) || Weld.Git.root(workspace.root)
+    explicit_root = if opts[:checkout_root], do: Path.expand(opts[:checkout_root])
+    if git_root && explicit_root && git_root != explicit_root,
+      do: raise(Error, "explicit checkout root does not match Git")
+    repo_root = git_root || explicit_root || workspace.root
+    validate_workspace_root!(manifest_path, workspace.root, repo_root)
 
     %__MODULE__{
       manifest_path: manifest_path,
-      repo_root: Path.expand(workspace.root, manifest_dir),
+      repo_root: repo_root,
       workspace: workspace,
       classify: normalize_classify(config[:classify]),
       publication: normalize_publication(config[:publication]),
@@ -285,8 +264,22 @@ defmodule Weld.Manifest do
     }
   end
 
+  defp validate_workspace_root!(manifest_path, root, checkout) do
+    for {path, label} <- [{root, "workspace.root"}, {manifest_path, "manifest"}] do
+      unless path == checkout or String.starts_with?(path, checkout <> "/"),
+        do: raise(Error, "#{label} escapes the source checkout")
+      relative = Path.relative_to(path, checkout)
+      if relative != ".", do: Weld.Output.source!(checkout, relative)
+    end
+    for {directory, label} <- [{root, "workspace.root"}, {checkout, "checkout root"}] do
+      case File.lstat(directory) do
+        {:ok, %{type: :directory}} -> :ok
+        _ -> raise Error, "#{label} must be an existing regular directory"
+      end
+    end
+  end
+
   defp normalize_classify(classify) do
-    classify = NimbleOptions.validate!(classify, @classify_schema)
 
     %{
       tooling: classify[:tooling] |> MapSet.new(),
@@ -296,7 +289,6 @@ defmodule Weld.Manifest do
   end
 
   defp normalize_publication(publication) do
-    publication = NimbleOptions.validate!(publication, @publication_schema)
 
     %{
       internal_only: publication[:internal_only] |> MapSet.new(),
@@ -312,7 +304,7 @@ defmodule Weld.Manifest do
         raise Error, "manifest dependency keys must be atoms"
       end
 
-      normalized = NimbleOptions.validate!(config, @dependency_schema)
+      normalized = config
       opts = normalized[:opts]
 
       if Keyword.has_key?(opts, :path) do
@@ -402,7 +394,7 @@ defmodule Weld.Manifest do
 
   defp normalize_verify(verify) do
     %Verify{
-      artifact_tests: Enum.sort(verify[:artifact_tests]),
+      artifact_tests: verify[:artifact_tests],
       component_tests: verify[:component_tests],
       hex_build: verify[:hex_build],
       hex_publish: verify[:hex_publish_check],
@@ -493,7 +485,6 @@ defmodule Weld.Manifest do
     Enum.map(dependencies, fn
       {app, requirement, opts}
       when is_atom(app) and is_binary(requirement) and is_list(opts) ->
-        validate_development_dependency!(app, opts)
         {app, requirement, opts}
 
       dependency ->
@@ -503,20 +494,7 @@ defmodule Weld.Manifest do
     end)
   end
 
-  defp validate_development_dependency!(app, opts) do
-    only = opts |> Keyword.get(:only) |> List.wrap()
-    source_keys = Keyword.keys(opts) -- [:only, :runtime, :optional, :override]
-
-    if only == [] or Enum.any?(only, &(&1 not in [:dev, :test])) or opts[:runtime] != false or
-         source_keys != [] do
-      raise Error,
-            "package development dependency #{inspect(app)} must be Hex-only, scoped to " <>
-              ":dev/:test, and runtime: false"
-    end
-  end
-
   defp normalize_docs(docs, legacy_main) do
-    docs = NimbleOptions.validate!(docs, @docs_schema)
 
     %Docs{
       main: docs[:main] || legacy_main,
@@ -524,10 +502,10 @@ defmodule Weld.Manifest do
       homepage_url: docs[:homepage_url],
       source_url: docs[:source_url],
       source_ref: docs[:source_ref],
-      assets: normalize_string_map!(docs[:assets], "package.docs.assets"),
-      extra_titles: normalize_string_map!(docs[:extra_titles], "package.docs.extra_titles"),
-      groups_for_extras: normalize_extra_groups!(docs[:groups_for_extras]),
-      mermaid: docs[:mermaid],
+      assets: normalize_string_map!(docs[:assets] || %{}, "package.docs.assets"),
+      extra_titles: normalize_string_map!(docs[:extra_titles] || %{}, "package.docs.extra_titles"),
+      groups_for_extras: normalize_extra_groups!(docs[:groups_for_extras] || []),
+      mermaid: docs[:mermaid] || false,
       hook_file: docs[:hook_file]
     }
   end

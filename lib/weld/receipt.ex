@@ -1,71 +1,44 @@
 defmodule Weld.Receipt do
-  @moduledoc false
-
+  @moduledoc "Closed canonical local projection-cache observations; never release proof."
+  alias Weld.Core.Identity
   alias Weld.{Error, Hash, Output}
+  @keys ~w(schema artifact kind plan_id local_link_locator_digest observed_tree_digest)
 
-  def read(path, input) do
-    with {:ok, <<checksum::binary-64, body::binary>>} <- File.read(path),
-         ^checksum <- Hash.sha256_binary(body),
-         {2, ^input, value} <- :erlang.binary_to_term(body, [:safe]) do
-      {:ok, value}
+  def read(path, plan_id) do
+    with {:ok, bytes} <- File.read(path),
+         record <- Identity.decode!(bytes),
+         true <- Enum.sort(Map.keys(record)) == Enum.sort(@keys),
+         "weld.projection_cache/2" <- record["schema"],
+         ^plan_id <- record["plan_id"],
+         true <- record["kind"] in ~w(full live),
+         true <- Identity.valid?(record["observed_tree_digest"]) do
+      {:ok, record}
     else
       _ -> :miss
     end
   rescue
-    ArgumentError -> :miss
+    _ -> :miss
   end
 
-  def write!(path, input, value) do
-    body = :erlang.term_to_binary({2, input, value}, [:deterministic])
-    temporary = path <> "-" <> Output.nonce()
-    File.mkdir_p!(Path.dirname(path))
-
-    try do
-      File.write!(temporary, [Hash.sha256_binary(body), body], [:exclusive])
-      File.rename!(temporary, path)
-    after
-      File.rm(temporary)
-    end
+  def write!(path, record) do
+    unless Enum.sort(Map.keys(record)) == Enum.sort(@keys),
+      do: raise(Error, "invalid projection cache record")
+    Output.write_atomic!(path, Identity.canonical(record))
   end
 
-  def digest(term), do: term |> :erlang.term_to_binary([:deterministic]) |> Hash.sha256_binary()
+  def digest(value), do: Identity.digest("projection_cache", value)
 
-  def implementation do
-    _ = Application.load(:weld)
-
-    modules =
-      for module <- Application.spec(:weld, :modules) |> Enum.sort(),
-          beam = :code.which(module),
-          is_list(beam) do
-        {module, Hash.sha256_file(List.to_string(beam))}
-      end
-
-    {modules, System.version(), System.otp_release(), System.build_info(),
-     :erlang.system_info(:version), :erlang.system_info(:system_architecture)}
-  end
-
-  def tree(path, links? \\ false), do: tree_entry!(path, links?)
-
-  defp tree_entry!(path, links?) do
+  def tree(path, links? \\ false) do
     case File.lstat(path) do
-      {:ok, %{type: :regular, mode: mode}} ->
-        {:file, Bitwise.band(mode, 0o777), Hash.sha256_file(path)}
-
+      {:ok, %{type: :regular, mode: mode, size: size}} ->
+        %{"type" => "file", "executable" => Bitwise.band(mode, 0o111) != 0,
+          "size" => size, "sha256" => Hash.sha256_file(path)}
       {:ok, %{type: :directory}} ->
-        children = File.ls!(path) |> Enum.sort()
-        {:directory, Enum.map(children, &{&1, tree_entry!(Path.join(path, &1), links?)})}
-
-      {:ok, %{type: :symlink}} when links? ->
-        {:link, File.read_link!(path)}
-
-      {:ok, %{type: :symlink}} ->
-        raise Error, "symlink is not permitted: #{path}"
-
-      {:error, :enoent} ->
-        :missing
-
-      _ ->
-        raise Error, "unsafe cache input: #{path}"
+        %{"type" => "directory", "children" => path |> File.ls!() |> Enum.sort()
+          |> Enum.map(&%{"name" => &1, "entry" => tree(Path.join(path, &1), links?)})}
+      {:ok, %{type: :symlink}} when links? -> %{"type" => "link", "target" => File.read_link!(path)}
+      {:error, :enoent} -> %{"type" => "missing"}
+      _ -> raise Error, "unsafe cache observation: #{path}"
     end
   end
 end

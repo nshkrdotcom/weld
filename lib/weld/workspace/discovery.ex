@@ -1,7 +1,9 @@
 defmodule Weld.Workspace.Discovery do
   @moduledoc "Discovers only projects explicitly declared by the v2 manifest."
 
-  alias Weld.{Error, Manifest, Output}
+  alias Weld.{Error, Manifest}
+  alias Weld.Core.Facts
+  alias Weld.Shell.Snapshot
   @ignored ~w(.git .weld _build deps dist tmp doc)
   @type result :: %{
           source: :manifest,
@@ -11,19 +13,22 @@ defmodule Weld.Workspace.Discovery do
           adapter: nil
         }
 
-  @spec discover(Manifest.t()) :: result()
-  def discover(%Manifest{} = manifest) do
+  @spec discover(Manifest.t(), map() | nil) :: result()
+  def discover(%Manifest{} = manifest, facts \\ nil) do
     root = manifest.repo_root
-    globs = manifest.workspace.project_globs
+    facts = facts || Snapshot.observe!(root)
+    globs = Enum.map(manifest.workspace.project_globs, fn pattern ->
+      pattern |> Path.expand(manifest.workspace.root) |> Path.relative_to(root)
+    end)
 
     projects =
       globs
-      |> Enum.flat_map(&Path.wildcard(Path.join(root, &1), match_dot: true))
+      |> Enum.flat_map(&Facts.wildcard(facts, Path.join(root, &1)))
       |> Enum.map(&Path.relative_to(Path.expand(&1), root))
       |> Enum.reject(fn id -> Enum.any?(Path.split(id), &(&1 in @ignored)) end)
       |> Enum.filter(fn id ->
-        project = if id == ".", do: root, else: Output.source!(root, id)
-        File.dir?(project) and File.regular?(Output.source!(project, "mix.exs"))
+        project = if id == ".", do: root, else: Facts.source!(facts, root, id)
+        Facts.dir?(facts, project) and Facts.regular?(facts, Facts.source!(facts, project, "mix.exs"))
       end)
       |> Enum.sort()
 
@@ -31,13 +36,16 @@ defmodule Weld.Workspace.Discovery do
          |> Enum.filter(fn {_id, count} -> count > 1 end)
          |> Enum.sort() do
       [{duplicate, _} | _] ->
-        raise Error, "workspace.projects globs overlap at #{duplicate}"
+        raise Error, code: :overlapping_globs, phase: :manifest,
+          message: "workspace.projects globs overlap at #{duplicate}",
+          details: %{path: "workspace.projects", project: duplicate}
 
       [] ->
         :ok
     end
 
-    if projects == [], do: raise(Error, "workspace.projects matched no Mix projects")
+    if projects == [], do: raise(Error, code: :missing_project, phase: :manifest,
+      message: "workspace.projects matched no Mix projects", details: %{path: "workspace.projects"})
 
     %{
       source: :manifest,

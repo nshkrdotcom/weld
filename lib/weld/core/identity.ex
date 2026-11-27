@@ -13,6 +13,13 @@ defmodule Weld.Core.Identity do
   @spec canonical(value()) :: binary()
   def canonical(value), do: IO.iodata_to_binary(encode(value))
 
+  @doc "Decode only the unique canonical wire representation; duplicates and floats fail."
+  def decode!(bytes) when is_binary(bytes) do
+    value = Jason.decode!(bytes)
+    unless canonical(value) == bytes, do: raise(ArgumentError, "noncanonical JSON record")
+    value
+  end
+
   @spec digest(String.t(), value()) :: digest()
   def digest(domain, value) when domain in @domains do
     raw(["weld/2/", domain, "\n", encode(value)])

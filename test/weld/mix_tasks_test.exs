@@ -71,7 +71,7 @@ defmodule Weld.MixTasksTest do
     output =
       capture_io(fn ->
         File.cd!(repo_root, fn ->
-          Mix.Task.rerun("weld", ["plan", "--format", "json"])
+          Mix.Task.rerun("weld", ["plan", "--root", repo_root, "--format", "json"])
         end)
       end)
 
@@ -85,7 +85,7 @@ defmodule Weld.MixTasksTest do
     output =
       capture_io(fn ->
         File.cd!(repo_root, fn ->
-          assert catch_exit(Mix.Task.rerun("weld", ["project", "--format", "json"])) ==
+          assert catch_exit(Mix.Task.rerun("weld", ["project", "--root", repo_root, "--format", "json"])) ==
                    {:shutdown, 3}
         end)
       end)
@@ -122,6 +122,7 @@ defmodule Weld.MixTasksTest do
   @tag integration: true, ci_build: "prepare_cli"
   test "mix weld prepare qualifies a selected manifest" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
+    FixtureCase.init_git!(repo_root)
 
     output =
       capture_io(fn ->

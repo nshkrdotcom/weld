@@ -13,7 +13,9 @@ jobs = [
   {"source_docs_output", "verifier_test"},
   {"component_prepare", "component_tests_test"},
   {"graph_consumption", "graph_live_test"},
-  {"bootstrap_relocation", "bootstrap_relocation_test"}
+  {"bootstrap_relocation", "bootstrap_relocation_test"},
+  {"qualification_faults", "qualification_contract_test"},
+  {"hex_consumption", "hex_consumption_contract_test"}
 ]
 
 build = Mix.Project.build_path()

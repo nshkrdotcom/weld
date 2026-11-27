@@ -17,6 +17,7 @@ defmodule Weld.SourceConsumptionTest do
   test "direct and live path consumers compile edits, added/deleted modules and authoritative assets",
        ctx do
     %{root: root, manifest: manifest} = ctx
+    state_before = Weld.Receipt.tree(Path.join(root, ".weld"))
 
     for component <- ["components/pure", "components/runtime"] do
       mix!(Path.join(root, component), ["deps.get"])
@@ -25,12 +26,17 @@ defmodule Weld.SourceConsumptionTest do
 
     direct = consumer!(ctx, "direct", [{:sprout, path: root}])
     check!(direct)
-    refute File.exists?(Path.join(root, ".weld"))
+    assert Weld.Receipt.tree(Path.join(root, ".weld")) == state_before
 
     %{build_path: live} = Weld.Commands.project!(manifest, live: true)
     consumer = consumer!(ctx, "live", [{:sprout, path: live}])
     check!(consumer)
     File.write!(Path.join(root, "priv/theme.txt"), "olive")
+    {message, status} = mix(consumer, ["run", "check.exs"])
+    assert status != 0
+    assert message =~ "mix weld project --artifact sprout --kind live"
+    refute File.read!(Path.join(live, "priv/theme.txt")) == "olive"
+    Weld.Commands.project!(manifest, live: true)
     extra = Path.join(root, "components/pure/lib/addition.ex")
     File.write!(extra, "defmodule Sprout.Addition do\n  def value, do: :one\nend\n")
     expr!(consumer, ":one = Sprout.Addition.value(); \"olive\" = Sprout.Runtime.asset()")
@@ -69,8 +75,8 @@ defmodule Weld.SourceConsumptionTest do
     File.cp_r!(prepared.build_path, full)
     File.cp_r!(prepared.project_path, frozen)
 
-    tracked = Weld.Commands.release_track!(manifest)
-    refute Weld.Commands.release_track!(manifest).committed?
+    tracked = Weld.Commands.release_track!(manifest, identity: prepared.identity)
+    refute Weld.Commands.release_track!(manifest, identity: prepared.identity).committed?
     clone = Path.join(scratch, "projection")
 
     FixtureCase.git_output!(root, ["clone", "--no-local", "--branch", tracked.branch, root, clone])

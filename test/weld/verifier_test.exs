@@ -17,7 +17,7 @@ defmodule Weld.VerifierTest do
     result = Weld.Verifier.verify!(plan)
 
     assert File.exists?(legacy_cache)
-    assert [_ | _] = Path.wildcard(Path.join(repo, ".weld/v2/cache/*/*/build/dev/lib/*/ebin"))
+    assert [_ | _] = Path.wildcard(Path.join(repo, ".weld/v2/runs/verify/*/*/cache/build/dev/lib/*/ebin"))
 
     assert File.regular?(result.lockfile_path)
     assert File.regular?(result.tarball_path)
@@ -62,6 +62,8 @@ defmodule Weld.VerifierTest do
 
     assert File.regular?(Path.join(prepared.docs_path, "index.html"))
     assert File.regular?(Path.join(prepared.build_path, "doc/index.html"))
+    refute File.exists?(Path.join(prepared.project_path, "doc"))
+    refute File.exists?(Path.join(prepared.project_path, "html"))
   end
 
   @tag ci_build: "monolith"
@@ -84,7 +86,7 @@ defmodule Weld.VerifierTest do
 
     assert Enum.any?(result.verification_results, &(&1.task == "selected_tests_baseline"))
     assert Enum.any?(result.verification_results, &(&1.task == "deps.get"))
-    assert Enum.any?(result.verification_results, &(&1.task == "compile --warnings-as-errors"))
+    assert Enum.any?(result.verification_results, &(&1.task == "compile --warnings-as-errors --no-compile-deps"))
 
     assert Enum.any?(
              result.verification_results,

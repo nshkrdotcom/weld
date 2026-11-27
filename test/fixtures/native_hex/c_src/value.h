@@ -1,0 +1,1 @@
+#define WELD_NATIVE_VALUE 42

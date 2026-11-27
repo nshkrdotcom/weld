@@ -1,5 +1,4 @@
 defmodule Weld.Commands do
-  alias Weld.Layout.Support
   @moduledoc false
 
   alias Weld.Affected
@@ -18,7 +17,14 @@ defmodule Weld.Commands do
 
   @doc false
   def inspect_plan(plan) do
+    inventory = Weld.Plan.Inventory.portable(plan)
     %{
+      artifact_id: plan.artifact.id,
+      layout: %{package_projection: :components, monolith: :flat, source_project: :preserve}[plan.artifact.mode],
+      plan_id: inventory["plan_id"],
+      input_id: inventory["input_id"],
+      compiler_id: inventory["compiler_id"],
+      source_revision: Weld.Git.revision(plan.manifest.repo_root),
       manifest: %{
         path: plan.manifest.manifest_path,
         repo_root: plan.manifest.repo_root,
@@ -64,78 +70,95 @@ defmodule Weld.Commands do
     }
   end
 
-  @spec graph!(Path.t(), keyword()) :: map()
-  def graph!(manifest_path, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
+  @spec graph!(Path.t() | Manifest.t(), keyword()) :: map()
+  def graph!(source, opts \\ []) do
+    {workspace, plan} = graph_subject!(source, opts)
+    graph_report(workspace, plan, opts[:view] || :all)
+  end
 
+  defp graph_report(workspace, plan, view) do
     %{
-      nodes:
-        plan.workspace
-        |> Weld.Workspace.projects()
-        |> Enum.map(fn project ->
-          %{
-            id: project.id,
-            classification: project.classification,
-            selected: project.id in plan.selected_ids,
-            membership: membership(plan, project.id)
-          }
-        end),
-      edges: Enum.map(reported_edges(plan, opts[:view] || :all), &report_edge(plan, &1))
+      view: view,
+      nodes: Enum.map(Weld.Workspace.projects(workspace), fn project ->
+        %{id: project.id, app: project.app, classification: project.classification,
+          selected: not is_nil(plan) and project.id in plan.selected_ids,
+          membership: if(plan, do: membership(plan, project.id), else: [])}
+      end),
+      edges: if(plan, do: Enum.map(reported_edges(plan, view), &report_edge(plan, &1)),
+        else: Enum.map(Graph.scoped_edges(workspace.graph, view), &plain_edge/1)),
+      external: for(project <- Weld.Workspace.projects(workspace),
+        dep <- Graph.external_deps(if(plan, do: plan.artifact_graph, else: workspace.graph), project.id),
+        Weld.Graph.View.allowed?(dep.kind, view),
+        do: %{from: project.id, app: dep.app, kind: dep.kind, requirement: dep.requirement, opts: dep.opts}),
+      violations: Enum.map(if(plan, do: plan.violations, else: Graph.violations(workspace.graph)), &serialize_violation/1)
     }
   end
 
-  @spec graph_dot!(Path.t(), keyword()) :: String.t()
-  def graph_dot!(manifest_path, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
-    nodes = for project <- Graph.projects(plan.graph), do: "  #{Jason.encode!(project.id)};\n"
-
-    edges =
-      for edge <- Graph.scoped_edges(plan.graph, opts[:view] || :all) do
-        "  #{Jason.encode!(edge.from)} -> #{Jason.encode!(edge.to)} [label=#{Jason.encode!(edge.kind)}];\n"
-      end
-
+  @spec graph_dot!(Path.t() | Manifest.t(), keyword()) :: String.t()
+  def graph_dot!(source, opts \\ []) do
+    report = graph!(source, opts)
+    nodes = for node <- report.nodes, do: "  #{Jason.encode!(node.id)};\n"
+    edges = for edge <- report.edges, do:
+      "  #{Jason.encode!(edge.from)} -> #{Jason.encode!(edge.to)} [label=#{Jason.encode!(edge.kind |> List.wrap() |> Enum.map_join(",", &to_string/1))},style=#{if(edge.externalized, do: "dashed", else: "solid")}];\n"
     IO.iodata_to_binary(["digraph weld {\n", nodes, edges, "}\n"])
   end
 
-  @spec query_deps!(Path.t(), String.t(), keyword()) :: map()
-  def query_deps!(manifest_path, project_id, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
-
+  def query_deps!(source, project_id, opts \\ []) do
+    {workspace, plan} = graph_subject!(source, opts)
+    require_project!(workspace.graph, project_id)
+    view = opts[:view] || :all
+    report = graph_report(workspace, plan, view)
+    graph = if plan, do: plan.artifact_graph, else: workspace.graph
+    reachable = Graph.reachable_from(graph, project_id, view) -- [project_id]
     %{
-      project: project_id,
-      outgoing:
-        plan
-        |> reported_edges(opts[:view] || :all)
-        |> Enum.filter(&(&1.from == project_id))
-        |> Enum.map(fn edge ->
-          report_edge(plan, edge) |> Map.delete(:from)
-        end),
-      external:
-        plan.artifact_graph
-        |> Graph.external_deps(project_id)
-        |> Enum.map(fn dep ->
-          %{app: dep.app, kind: dep.kind, requirement: dep.requirement}
-        end),
-      membership: membership(plan, project_id)
+      project: project_id, view: view,
+      outgoing: report.edges |> Enum.filter(&(&1.from == project_id)) |> Enum.map(&Map.delete(&1, :from)),
+      transitive: Enum.map(reachable, fn target -> %{project: target, path: dependency_path(graph, project_id, target, view)} end),
+      external: report.external |> Enum.filter(&(&1.from == project_id)) |> Enum.map(&Map.delete(&1, :from)),
+      membership: if(plan, do: membership(plan, project_id), else: [])
     }
   end
 
-  @spec query_why!(Path.t(), String.t(), String.t(), keyword()) :: map()
-  def query_why!(manifest_path, from, to, opts \\ []) do
-    plan = Plan.build!(manifest_path, opts)
-
+  def query_why!(source, from, to, opts \\ []) do
+    {workspace, plan} = graph_subject!(source, opts)
+    Enum.each([from, to], &require_project!(workspace.graph, &1))
+    view = opts[:view] || :all
+    actual_path = dependency_path(workspace.graph, from, to, view)
+    artifact_path = dependency_path(if(plan, do: plan.artifact_graph, else: workspace.graph), from, to, view)
+    path_pairs = actual_path |> Enum.chunk_every(2, 1, :discard) |> MapSet.new(&List.to_tuple/1)
+    boundary_edges = if plan do
+      plan.externalized_edges |> Enum.filter(&((MapSet.member?(path_pairs, {&1.from, &1.to}) or (actual_path == [] and &1.from == from and &1.to == to)) and Weld.Graph.View.allowed?(&1.kind, view)))
+      |> Enum.map(&report_edge(plan, &1))
+    else
+      []
+    end
     %{
-      from: from,
-      to: to,
-      path: dependency_path(plan.graph, from, to, opts[:view] || :all),
-      artifact_path: dependency_path(plan.artifact_graph, from, to, opts[:view] || :all),
-      source_membership: from in plan.artifact.roots and to in plan.source_member_ids,
-      externalized_edges:
-        plan.externalized_edges
-        |> Enum.filter(&(&1.from == from and &1.to == to))
-        |> Enum.map(&report_edge(plan, &1))
+      from: from, to: to, view: view, path: actual_path, artifact_path: artifact_path,
+      reason: cond do
+        artifact_path == [] and boundary_edges != [] -> :external_boundary
+        actual_path == [] -> :no_dependency_path
+        true -> :reachable
+      end,
+      source_membership: not is_nil(plan) and from in plan.artifact.roots and to in plan.source_member_ids,
+      externalized_edges: boundary_edges
     }
   end
+
+  defp graph_subject!(source, opts) do
+    manifest = load_manifest(source)
+    if opts[:artifact], do: Manifest.artifact!(manifest, opts[:artifact])
+    workspace = Weld.Workspace.load!(manifest, opts)
+    plan = if opts[:artifact], do: Plan.build_from_workspace!(manifest, workspace, opts)
+    {workspace, plan}
+  end
+
+  defp require_project!(graph, id) do
+    unless Map.has_key?(graph.projects, id), do: raise(Weld.Error, code: :unknown_project,
+      phase: :plan, message: "unknown project #{id}")
+  end
+
+  defp plain_edge(edge), do: %{from: edge.from, to: edge.to, app: edge.app, kind: edge.kind,
+    requirement: edge.requirement, opts: edge.opts, externalized: false}
 
   def affected!(manifest_path, opts) do
     Affected.compare!(manifest_path, opts)
@@ -143,17 +166,17 @@ defmodule Weld.Commands do
 
   @spec project!(Path.t(), keyword()) :: map()
   def project!(manifest_path, opts \\ []) do
-    with_plan!(manifest_path, opts, &Projector.project_locked!(&1, opts))
+    with_plan!(manifest_path, opts, &Projector.project!(&1, opts))
   end
 
   @spec verify!(Path.t(), keyword()) :: map()
   def verify!(manifest_path, opts \\ []) do
-    with_plan!(manifest_path, opts, &Verifier.verify_locked!(&1, opts))
+    with_plan!(manifest_path, opts, &Verifier.verify!(&1, opts))
   end
 
   @spec release_prepare!(Path.t(), keyword()) :: map()
   def release_prepare!(manifest_path, opts \\ []) do
-    with_plan!(manifest_path, opts, &Release.prepare_locked!(&1, opts))
+    with_plan!(manifest_path, opts, &Release.prepare!(&1, opts))
   end
 
   @spec artifact_ids!(Path.t()) :: [String.t()]
@@ -175,7 +198,7 @@ defmodule Weld.Commands do
   @doc "Stages the verified current or pinned release for publication without changing its bundle."
   @spec release_stage!(Path.t(), keyword()) :: map()
   def release_stage!(manifest_path, opts \\ []) do
-    with_plan!(manifest_path, opts, &Release.stage_locked!(&1, opts))
+    with_plan!(manifest_path, opts, &Release.stage!(&1, opts))
   end
 
   @doc "Submits the frozen package and documentation archives."
@@ -189,7 +212,7 @@ defmodule Weld.Commands do
   @doc "Returns read-only release status for one or all artifacts."
   @spec release_status!(Path.t(), keyword()) :: map() | [map()]
   def release_status!(manifest_path, opts \\ []) do
-    manifest = Manifest.load!(manifest_path)
+    manifest = load_manifest(manifest_path)
 
     if opts[:artifact] do
       if opts[:all], do: raise(Weld.Error, "pass either --artifact or --all, not both")
@@ -213,32 +236,23 @@ defmodule Weld.Commands do
   @doc "Verifies a Git tag's Weld receipt against its target commit and optional local evidence."
   @spec release_verify_tag!(Path.t(), String.t(), keyword()) :: ReleaseStatus.tag_result()
   def release_verify_tag!(manifest_path, tag, opts \\ []) do
-    manifest = Manifest.load!(manifest_path)
+    manifest = load_manifest(manifest_path)
     ReleaseStatus.verify_tag(manifest.repo_root, tag, opts)
   end
 
   @spec release_archive!(Path.t(), keyword()) :: map()
   def release_archive!(manifest_path, opts \\ []) do
-    with_plan!(manifest_path, opts, &Release.archive_locked!(&1, opts))
+    with_plan!(manifest_path, opts, &Release.archive!(&1, opts))
   end
 
   @spec release_track!(Path.t(), keyword()) :: map()
   def release_track!(manifest_path, opts \\ []) do
-    with_plan!(manifest_path, opts, &Release.track_locked!(&1, opts))
+    with_plan!(manifest_path, opts, &Release.track!(&1, opts))
   end
 
-  defp with_plan!(manifest_path, opts, fun) do
-    root = Weld.Manifest.load!(manifest_path).repo_root
-
-    Weld.Output.with_lock(root, fn ->
-      plan = Plan.build!(manifest_path, opts)
-
-      if plan.manifest.repo_root != root,
-        do: raise(Weld.Error, "manifest workspace changed while acquiring the lock")
-
-      fun.(plan)
-    end)
-  end
+  defp with_plan!(source, opts, fun), do: source |> Plan.build!(opts) |> fun.()
+  defp load_manifest(%Manifest{} = manifest), do: manifest
+  defp load_manifest(path), do: Manifest.load!(path)
 
   defp classify(plan, classification) do
     plan.workspace
@@ -267,6 +281,8 @@ defmodule Weld.Commands do
       to: edge.to,
       kind: edge.kind,
       app: edge.app,
+      requirement: edge.requirement,
+      opts: edge.opts,
       externalized: edge in plan.externalized_edges
     }
   end
@@ -287,29 +303,6 @@ defmodule Weld.Commands do
     do: :unresolved
 
   defp source_target_basis(_plan), do: :projection
-
-  @doc """
-  Return the ExDoc options for the selected artifact, including the Mermaid
-  `before_closing_body_tag` hook when enabled in the manifest. Root `mix.exs`
-  files can call this so local `mix docs` and projected builds share one owner.
-  """
-  @spec docs_options!(Path.t(), keyword()) :: keyword()
-  def docs_options!(manifest_path, opts \\ []) do
-    manifest = Manifest.load!(manifest_path)
-    artifact = Manifest.artifact!(manifest, opts[:artifact])
-    base = Support.docs_options(artifact)
-
-    if artifact.package.docs.mermaid do
-      hook = Support.mermaid_hook(manifest.repo_root, artifact.package.docs.hook_file)
-
-      Keyword.put(base, :before_closing_body_tag, fn
-        :html -> hook
-        _ -> ""
-      end)
-    else
-      base
-    end
-  end
 
   defp serialize_violation(violation) do
     %{

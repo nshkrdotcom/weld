@@ -47,19 +47,20 @@ defmodule Weld.ReleaseTest do
     refute dry_run.completed?
     assert dry_run.archive_sha256 == Weld.Hash.sha256_file(prepared.tarball_path)
 
-    publish = Weld.Commands.release_stage!(manifest_path)
+    publish = Weld.Commands.release_stage!(manifest_path, current: true)
 
     assert publish.project_path ==
              Path.join([
                repo_root,
                ".weld/v2/runs",
+               "stage",
                "fixture_bundle",
                publish.run,
                "project"
              ])
 
-    assert Weld.Hash.content_identity(publish.project_path) ==
-             Weld.Hash.content_identity(prepared.project_path)
+    assert Weld.Hash.observation(publish.project_path) ==
+             Weld.Hash.observation(prepared.project_path)
 
     File.mkdir!(Path.join(publish.project_path, "doc"))
     File.write!(Path.join(publish.project_path, "doc/index.html"), "generated documentation")
@@ -67,30 +68,59 @@ defmodule Weld.ReleaseTest do
     assert File.regular?(Path.join(publish.project_path, "doc/index.html"))
     refute File.exists?(Path.join(prepared.project_path, "doc"))
 
-    refreshed = Weld.Commands.release_stage!(manifest_path, fresh: true)
+    refreshed = Weld.Commands.release_stage!(manifest_path, current: true, fresh: true)
     assert refreshed.refreshed?
     refute refreshed.project_path == publish.project_path
     refute File.exists?(Path.join(refreshed.project_path, "doc/index.html"))
 
-    archived = Weld.Commands.release_archive!(manifest_path)
+    archived = Weld.Commands.release_archive!(manifest_path, current: true)
 
     assert File.dir?(archived.archive_path)
     assert File.regular?(Path.join(archived.archive_path, "bundle.json"))
-    tracked = Weld.Commands.release_track!(manifest_path)
+    tracked = Weld.Commands.release_track!(manifest_path, current: true)
     assert tracked.committed?
 
-    assert {tracked_lock, 0} =
-             System.cmd("git", ["show", "#{tracked.branch}:projection.lock.json"], cd: repo_root)
-
-    assert tracked_lock == File.read!(Path.join(prepared.project_path, "projection.lock.json"))
+    assert Weld.Git.project_id(repo_root, tracked.commit_sha) ==
+             Jason.decode!(File.read!(prepared.release_metadata_path))["project_id"]
+    refute File.exists?(Path.join(prepared.project_path, "projection.lock.json"))
+    refute File.exists?(Path.join(prepared.project_path, "weld.provenance.json"))
     assert_release_metadata(manifest_path, prepared)
     assert_bundle_metadata(repo_root, prepared)
     assert_reproducible(repo_root, prepared)
   end
 
+  @tag integration: true, ci_build: "release", timeout: 1_800_000
+  test "prepare failure boundaries retain the previous exact current bundle" do
+    root = FixtureCase.copy_fixture("library_bundle")
+    FixtureCase.init_git!(root)
+    manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
+    first = Weld.Commands.release_prepare!(manifest, fresh: true)
+    pointer = Weld.Output.path(root, ["current", "fixture_bundle"])
+    old = File.read!(pointer)
+    # A new committed provenance identity keeps identical project bytes possible.
+    File.write!(Path.join(root, "UNRELATED_RELEASE_NOTE"), "new committed provenance\n")
+    FixtureCase.commit_all!(root, "advance qualification provenance")
+    for boundary <- [:prepare_snapshot, :prepare_qualified, :prepare_copied, :prepare_sealed,
+                     :reserved, :bundle_inserted, :before_pointer, :pointer_replaced, :committed] do
+      assert_raise Weld.Error, ~r/injected failure/, fn ->
+        Weld.Commands.release_prepare!(manifest, fresh: true, failpoint: boundary)
+      end
+      assert File.read!(pointer) == old
+      assert Weld.ReleaseStatus.validate_bundle_integrity!(first.bundle_path, first.identity)["bundle_id"] == first.identity
+    end
+    assert_raise Weld.Error, ~r/frozen|changed/, fn ->
+      Weld.Commands.release_prepare!(manifest, fresh: true, after_gate: fn
+        "G02", project -> File.write!(Path.join(project, "mix.exs"), "mutated by a gate")
+        _, _ -> :ok
+      end)
+    end
+    assert File.read!(pointer) == old
+  end
+
   @tag integration: true, ci_build: "formatter"
   test "prepared package bundles preserve root mix tooling config" do
     manifest_path = FixtureCase.copied_manifest_path("package_repo_bundle", "package_repo_bundle")
+    FixtureCase.init_git!(Path.expand("../../..", manifest_path))
     prepared = Weld.Commands.release_prepare!(manifest_path)
     project_path = Path.join(prepared.bundle_path, "project")
 
@@ -105,66 +135,44 @@ defmodule Weld.ReleaseTest do
     assert status == 0, output
   end
 
-  defp assert_release_metadata(manifest_path, prepared) do
-    metadata =
-      prepared.release_metadata_path
-      |> File.read!()
-      |> Jason.decode!()
-
-    assert metadata["manifest_path"] == "packaging/weld/fixture_bundle.exs"
-    refute Path.type(metadata["manifest_path"]) == :absolute
-    assert metadata["weld_version"] == Weld.version()
-    assert metadata["identity"] == Weld.Release.identity(metadata)
-
-    assert metadata["lock_sha256"] ==
-             Weld.Hash.sha256_file(Path.join(prepared.project_path, "mix.lock"))
-
-    assert File.regular?(Path.join(prepared.project_path, "weld.provenance.json"))
-
-    lockfile =
-      prepared.project_path
-      |> Path.join("projection.lock.json")
-      |> File.read!()
-
-    refute lockfile =~ Path.dirname(Path.dirname(manifest_path))
-
-    assert %{
-             "manifest" => %{"path" => "packaging/weld/fixture_bundle.exs"},
-             "workspace" => %{"root" => "."},
-             "projection" => %{"build_path" => "."}
-           } = Jason.decode!(lockfile)
+  defp assert_release_metadata(_manifest_path, prepared) do
+    metadata = Jason.decode!(File.read!(prepared.release_metadata_path))
+    evidence = Weld.ReleaseStatus.evidence!(prepared.bundle_path)
+    assert metadata["source"]["manifest_path"] == "packaging/weld/fixture_bundle.exs"
+    refute Path.type(metadata["source"]["manifest_path"]) == :absolute
+    assert metadata["bundle_id"] == Weld.Release.identity(metadata)
+    assert evidence.qualification["lock_sha256"] == Weld.Hash.sha256_file(Path.join(prepared.project_path, "mix.lock"))
+    assert Enum.map(evidence.qualification["gates"], & &1["id"]) == for(number <- 1..12, do: "G" <> String.pad_leading(to_string(number), 2, "0"))
+    refute File.exists?(Path.join(prepared.project_path, "weld.provenance.json"))
+    refute File.exists?(Path.join(prepared.project_path, "projection.lock.json"))
   end
 
-  defp assert_bundle_metadata(repo_root, prepared) do
-    metadata = prepared.release_metadata_path |> File.read!() |> Jason.decode!()
+  defp assert_bundle_metadata(root, prepared) do
+    metadata = Weld.ReleaseStatus.validate_bundle_integrity!(prepared.bundle_path, prepared.identity)
     assert metadata["schema"] == "weld.bundle/2"
-    assert metadata["package"]["name"] == "fixture_bundle"
-    assert metadata["source_revision"] =~ ~r/^[0-9a-f]{40}$/
-    assert metadata["manifest_path"] == "packaging/weld/fixture_bundle.exs"
-
-    assert metadata["manifest_digest"] ==
-             Weld.Hash.sha256_file(Path.join(repo_root, metadata["manifest_path"]))
-
-    assert metadata["project_path"] == "project"
-    assert metadata["integrity"]["project_sha256"] == Weld.Hash.sha256_tree(prepared.project_path)
-    assert metadata["tarball_path"] == Path.basename(prepared.tarball_path)
-    assert metadata["integrity"]["archive_sha256"] == Weld.Hash.sha256_file(prepared.tarball_path)
+    assert metadata["package"] == "fixture_bundle"
+    assert metadata["source"]["commit"] =~ ~r/^[0-9a-f]{40}$/
+    assert metadata["source"]["manifest_sha256"] == Weld.Hash.sha256_file(Path.join(root, metadata["source"]["manifest_path"]))
+    assert metadata["project_id"] == Weld.Core.Identity.digest("project", Weld.Hash.observation(prepared.project_path))
+    assert metadata["files"]["package"]["path"] == "package.tar"
+    assert metadata["archive_sha256"] == Weld.Hash.sha256_file(prepared.tarball_path)
   end
 
   defp assert_reproducible(repo_root, prepared_a) do
     checkout = FixtureCase.unique_tmp_dir("weld_checkout")
     FixtureCase.git_output!(repo_root, ["clone", "--quiet", repo_root, checkout])
+    Weld.Output.setup!(checkout)
     FixtureCase.ignore_generated_files!(checkout)
     manifest_path = Path.join(checkout, "packaging/weld/fixture_bundle.exs")
     prepared_b = Weld.Commands.release_prepare!(manifest_path, no_cache: true)
 
     assert Path.basename(prepared_a.bundle_path) == Path.basename(prepared_b.bundle_path)
 
-    assert Weld.Hash.sha256_tree(prepared_a.project_path) ==
-             Weld.Hash.sha256_tree(prepared_b.project_path)
+    assert Weld.Hash.observation(prepared_a.project_path) ==
+             Weld.Hash.observation(prepared_b.project_path)
 
-    assert Weld.Hash.content_identity(prepared_a.docs_path) ==
-             Weld.Hash.content_identity(prepared_b.docs_path)
+    assert Weld.Hash.observation(prepared_a.docs_path) ==
+             Weld.Hash.observation(prepared_b.docs_path)
 
     assert Weld.Hash.sha256_file(prepared_a.tarball_path) ==
              Weld.Hash.sha256_file(prepared_b.tarball_path)
@@ -176,21 +184,21 @@ defmodule Weld.ReleaseTest do
     manifest_path = Path.join(repo_root, "packaging/weld/fixture_bundle.exs")
     FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
-    assert %{archive_sha256: nil} = Weld.Commands.release_stage!(manifest_path)
+    assert %{archive_sha256: nil} = Weld.Commands.release_stage!(manifest_path, current: true)
 
     bundle = Weld.Commands.release_bundle_path!(manifest_path)
     File.write!(Path.join(bundle, "project/README.md"), "changed after prepare")
 
-    assert_raise Weld.Error, ~r/failed integrity verification/, fn ->
-      Weld.Commands.release_stage!(manifest_path)
+    assert_raise Weld.Error, ~r/bundle|inventory|integrity|changed/, fn ->
+      Weld.Commands.release_stage!(manifest_path, current: true)
     end
 
-    assert_raise Weld.Error, ~r/failed integrity verification/, fn ->
-      Weld.Commands.release_track!(manifest_path)
+    assert_raise Weld.Error, ~r/bundle|inventory|integrity|changed/, fn ->
+      Weld.Commands.release_track!(manifest_path, current: true)
     end
 
-    assert_raise Weld.Error, ~r/failed integrity verification/, fn ->
-      Weld.Commands.release_archive!(manifest_path)
+    assert_raise Weld.Error, ~r/bundle|inventory|integrity|changed/, fn ->
+      Weld.Commands.release_archive!(manifest_path, current: true)
     end
 
     refute FixtureCase.branch_exists?(repo_root, "projection/fixture_bundle")
@@ -203,7 +211,7 @@ defmodule Weld.ReleaseTest do
     FixtureCase.init_git!(repo_root)
     FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
-    result = Weld.Commands.release_track!(manifest_path)
+    result = Weld.Commands.release_track!(manifest_path, current: true)
 
     assert result.branch == "projection/fixture_bundle"
     assert result.branch_created?
@@ -229,8 +237,8 @@ defmodule Weld.ReleaseTest do
     FixtureCase.init_git!(repo_root)
     FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
-    first = Weld.Commands.release_track!(manifest_path)
-    second = Weld.Commands.release_track!(manifest_path)
+    first = Weld.Commands.release_track!(manifest_path, current: true)
+    second = Weld.Commands.release_track!(manifest_path, current: true)
 
     assert first.committed?
     refute second.branch_created?
@@ -245,7 +253,7 @@ defmodule Weld.ReleaseTest do
     FixtureCase.init_git!(repo_root)
     FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
 
-    first = Weld.Commands.release_track!(manifest_path)
+    first = Weld.Commands.release_track!(manifest_path, current: true)
 
     readme_path = Path.join(repo_root, "README.md")
     File.write!(readme_path, File.read!(readme_path) <> "\nprojection drift\n")
@@ -256,7 +264,7 @@ defmodule Weld.ReleaseTest do
 
     FixtureCase.commit_all!(repo_root, "Update release source")
     FixtureCase.write_tracking_fixture!(repo_root, manifest_path)
-    second = Weld.Commands.release_track!(manifest_path)
+    second = Weld.Commands.release_track!(manifest_path, current: true)
 
     assert second.committed?
     refute second.branch_created?
@@ -276,6 +284,7 @@ defmodule Weld.ReleaseTest do
 
     result =
       Weld.Commands.release_track!(manifest_path,
+        current: true,
         tag: "fixture_bundle/rc/2026-04-13-test",
         push: true
       )
@@ -303,19 +312,19 @@ defmodule Weld.ReleaseTest do
       |> File.read!()
       |> Jason.decode!()
 
-    assert metadata["tarball_path"] == nil
+    assert metadata["files"]["package"] == nil
 
-    assert Enum.any?(metadata["verification_results"], fn result ->
-             result["task"] == "hex.build" and result["status"] == "skipped" and
-               result["reason"] == "artifact_opted_out"
-           end)
+    proof = Weld.ReleaseStatus.evidence!(prepared.bundle_path).qualification
+    assert Enum.any?(proof["gates"], fn result ->
+      result["id"] == "G08" and result["status"] == "skip" and is_binary(result["skip_reason"])
+    end)
 
-    archived = Weld.Commands.release_archive!(manifest_path)
+    archived = Weld.Commands.release_archive!(manifest_path, current: true)
 
     assert File.dir?(archived.archive_path)
     refute File.exists?(Path.join(archived.archive_path, "root_web_monolith-0.1.0.tar"))
 
-    result = Weld.Commands.release_track!(manifest_path)
+    result = Weld.Commands.release_track!(manifest_path, current: true)
 
     assert result.branch == "projection/root_web_monolith"
     assert result.branch_created?

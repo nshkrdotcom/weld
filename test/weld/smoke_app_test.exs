@@ -17,8 +17,8 @@ defmodule Weld.SmokeAppTest do
     #!/bin/sh
     [ "$MIX_ENV" = dev ] || exit 41
     [ -z "${MIX_BUILD_PATH+x}" ] || exit 42
-    [ "$MIX_BUILD_ROOT" = "$PWD/_build" ] || exit 43
-    [ "$MIX_DEPS_PATH" = "$PWD/deps" ] || exit 44
+    [ "$MIX_BUILD_ROOT" = "$PWD/cache/build" ] || exit 43
+    [ "$MIX_DEPS_PATH" = "$PWD/cache/deps" ] || exit 44
     [ -z "${WELD_CI_BUILD_ROOT+x}" ] || exit 45
     printf '%s\\n' "$1" >> checked-commands
     """)
@@ -32,7 +32,7 @@ defmodule Weld.SmokeAppTest do
       System.put_env("PATH", scratch <> ":" <> (saved["PATH"] || ""))
       for key <- tl(variables), do: System.put_env(key, "caller-state")
       assert %{task: "smoke", env: :dev, status: :ok} = SmokeApp.verify!(plan, root)
-      [record] = Path.wildcard(Path.join(root, ".weld/v2/smoke/*/checked-commands"))
+      [record] = Path.wildcard(Path.join(root, ".weld/v2/runs/verify/*/*/checked-commands"))
       assert File.read!(record) == "deps.get\ncompile\n"
     after
       for {key, value} <- saved do

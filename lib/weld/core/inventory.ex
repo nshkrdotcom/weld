@@ -19,11 +19,15 @@ defmodule Weld.Core.Inventory do
     set = MapSet.new(targets)
 
     if MapSet.size(set) != length(targets), do: raise(ArgumentError, "duplicate inventory target")
+    folded = Enum.map(targets, &String.downcase/1)
+    if length(Enum.uniq(folded)) != length(folded),
+      do: raise(ArgumentError, "case-fold inventory collision")
 
+    folded_set = MapSet.new(folded)
     for target <- targets do
       validate_path!(target)
 
-      for parent <- parents(target), MapSet.member?(set, parent) do
+      for parent <- parents(target), MapSet.member?(folded_set, String.downcase(parent)) do
         raise ArgumentError, "inventory file/directory collision: #{parent} and #{target}"
       end
     end

@@ -23,7 +23,7 @@ defmodule Weld.GraphLiveTest do
         end
       )
 
-    assert {:ok, ["a", "b", "c"]} = Weld.Graph.topology(graph, :package)
+    assert {:ok, ["c", "b", "a"]} = Weld.Graph.topology(graph, :package)
     assert {:cycle, ["a", "b", "c", "a"]} = Weld.Graph.topology(graph, :test)
     assert {:ok, ["a", "b", "c"]} = Weld.Graph.path(graph, "a", "c", :package)
     assert :no_path = Weld.Graph.path(graph, "c", "a", :package)
@@ -130,11 +130,11 @@ defmodule Weld.GraphLiveTest do
     root = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
     full = Weld.Commands.project!(manifest)
-    marker = File.read!(Path.join(full.build_path, "weld.provenance.json"))
+    marker = Weld.Hash.observation(full.build_path)
     source = Path.join(root, "core/contracts/lib/weld_fixture/contracts.ex")
     File.cp!(source, Path.join(root, "runtime/local/lib/duplicate.ex"))
     assert_raise Error, ~r/duplicate module/, fn -> Weld.Commands.project!(manifest) end
-    assert File.read!(Path.join(full.build_path, "weld.provenance.json")) == marker
+    assert Weld.Hash.observation(full.build_path) == marker
   end
 
   test "a generated application cannot write through a monolith source link" do

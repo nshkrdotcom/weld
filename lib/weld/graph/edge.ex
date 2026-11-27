@@ -6,7 +6,8 @@ defmodule Weld.Graph.Edge do
   @enforce_keys [:from, :to, :app, :kind, :opts]
   defstruct @enforce_keys ++ [requirement: nil]
 
-  @type kind :: :runtime | :compile | :test | :docs | :tooling | :dev_only
+  @type single_kind :: :runtime | :compile | :test | :docs | :tooling | :dev_only
+  @type kind :: single_kind() | [single_kind()]
 
   @type t :: %__MODULE__{
           from: String.t(),

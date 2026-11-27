@@ -1,169 +1,122 @@
 defmodule Weld.ReleaseReceipt do
   @moduledoc """
-  Formats and parses versioned Git release receipts (`weld.receipt/v2`)
-  embedded as structured trailers in `projection/*` commits and annotated tags.
+  One canonical `weld.receipt/2` value encoded as unpadded base64url in a
+  single `Weld-Receipt` trailer. Commits and annotated tags carry identical
+  values; a receipt does not claim publication or local archive availability.
   """
 
-  alias Weld.{Git, Plan}
+  alias Weld.Core.Identity
+  alias Weld.{Error, Git}
 
-  @schema "weld.receipt/v2"
+  @schema "weld.receipt/2"
+  @keys ~w(schema artifact package version bundle_id qualification_id project_id archive_sha256 docs_id docs_archive_sha256 source compiler_id)
+  @source_keys ~w(git_algorithm commit manifest_path manifest_sha256)
 
-  @trailer_keys %{
-    "Weld-Receipt-Schema" => :schema,
-    "Weld-Package" => :package,
-    "Weld-Version" => :version,
-    "Weld-Artifact" => :artifact,
-    "Weld-Identity" => :identity,
-    "Weld-Source-Revision" => :source_revision,
-    "Weld-Project-SHA256" => :project_sha256,
-    "Weld-Docs-SHA256" => :docs_sha256,
-    "Weld-Archive-SHA256" => :archive_sha256,
-    "Weld-Tool-Version" => :tool_version
-  }
-
-  @spec schema() :: String.t()
   def schema, do: @schema
 
-  @spec format_commit_message(Plan.t(), map()) :: String.t()
-  def format_commit_message(%Plan{} = plan, metadata) when is_map(metadata) do
-    subject =
-      "Track projection for #{plan.artifact.package.name} #{plan.artifact.package.version}"
-
-    subject <> "\n\n" <> format_trailers(plan, metadata) <> "\n"
+  def from_bundle(metadata) do
+    record = metadata |> Map.take(@keys -- ["schema"]) |> Map.put("schema", @schema)
+    validate!(record)
   end
 
-  @spec format_tag_message(Plan.t(), map(), String.t()) :: String.t()
-  def format_tag_message(%Plan{} = plan, metadata, tag)
-      when is_map(metadata) and is_binary(tag) do
-    subject =
-      "Weld prepared release #{plan.artifact.package.name} #{plan.artifact.package.version} (#{tag})"
-
-    subject <> "\n\n" <> format_trailers(plan, metadata) <> "\n"
+  def format_commit_message(_selection, metadata) do
+    "Track projection for #{metadata["package"]} #{metadata["version"]}\n\n" <>
+      format_trailers(nil, metadata) <> "\n"
   end
 
-  @spec format_trailers(Plan.t(), map()) :: String.t()
-  def format_trailers(%Plan{} = plan, metadata) when is_map(metadata) do
-    integrity = metadata["integrity"] || %{}
-    package = metadata["package"] || %{}
-
-    [
-      {"Weld-Receipt-Schema", @schema},
-      {"Weld-Package", package["name"] || plan.artifact.package.name},
-      {"Weld-Version", package["version"] || plan.artifact.package.version},
-      {"Weld-Artifact", metadata["artifact"] || plan.artifact.id},
-      {"Weld-Identity", metadata["identity"]},
-      {"Weld-Source-Revision", metadata["source_revision"]},
-      {"Weld-Project-SHA256", integrity["project_sha256"]},
-      {"Weld-Docs-SHA256", integrity["docs_sha256"]},
-      {"Weld-Archive-SHA256", integrity["archive_sha256"]},
-      {"Weld-Tool-Version", metadata["weld_version"] || Weld.version()}
-    ]
-    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
-    |> Enum.map_join("\n", fn {key, value} -> "#{key}: #{value}" end)
+  def format_tag_message(_selection, metadata, tag) do
+    "Weld prepared release #{metadata["package"]} #{metadata["version"]} (#{tag})\n\n" <>
+      format_trailers(nil, metadata) <> "\n"
   end
 
-  @spec parse(String.t() | nil) :: {:ok, map()} | :none | {:error, String.t()}
+  def format_trailers(_selection, metadata) do
+    "Weld-Receipt: " <> (metadata |> from_bundle() |> Identity.canonical() |> Base.url_encode64(padding: false))
+  end
+
   def parse(nil), do: :none
 
   def parse(message) when is_binary(message) do
-    message
-    |> String.split(~r/\r?\n/)
-    |> Enum.reduce_while(%{}, &parse_trailer_line/2)
-    |> validate_receipt()
-  end
-
-  defp validate_receipt({:error, _reason} = error), do: error
-  defp validate_receipt(parsed) when map_size(parsed) == 0, do: :none
-
-  defp validate_receipt(%{schema: @schema} = parsed) do
-    required = Map.values(@trailer_keys) -- [:archive_sha256]
-    missing = Enum.reject(required, &Map.has_key?(parsed, &1))
-
-    cond do
-      missing != [] ->
-        {:error, "missing required receipt fields: #{Enum.sort(missing) |> Enum.join(", ")}"}
-
-      not valid_digests?(parsed) ->
-        {:error, "invalid digest in receipt"}
-
-      not Regex.match?(~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/, parsed.source_revision) ->
-        {:error, "invalid source revision in receipt"}
-
-      true ->
-        {:ok, parsed}
+    lines = String.split(message, "\n", trim: false)
+    weld_lines = Enum.filter(lines, &String.starts_with?(&1, "Weld-"))
+    case weld_lines do
+      [] -> :none
+      ["Weld-Receipt: " <> encoded] -> decode(encoded, lines)
+      _ -> {:error, "exactly one canonical Weld-Receipt trailer is required"}
     end
   end
 
-  defp validate_receipt(parsed),
-    do: {:error, "unsupported receipt schema: #{inspect(parsed[:schema])}"}
-
-  defp valid_digests?(parsed) do
-    required = [:identity, :project_sha256, :docs_sha256]
-
-    fields =
-      if Map.has_key?(parsed, :archive_sha256), do: [:archive_sha256 | required], else: required
-
-    Enum.all?(fields, &valid_sha256?(parsed[&1]))
+  defp decode(encoded, lines) do
+    with true <- Regex.match?(~r/\A[A-Za-z0-9_-]+\z/, encoded),
+         {:ok, bytes} <- Base.url_decode64(encoded, padding: false),
+         true <- Base.url_encode64(bytes, padding: false) == encoded,
+         {:ok, record} <- Jason.decode(bytes),
+         true <- Identity.canonical(record) == bytes,
+         true <- trailer_last?(lines, "Weld-Receipt: " <> encoded) do
+      {:ok, validate!(record)}
+    else
+      _ -> {:error, "malformed or noncanonical Weld receipt"}
+    end
+  rescue
+    _ -> {:error, "invalid or unsupported Weld receipt"}
   end
 
-  @spec from_commit(Path.t(), String.t()) ::
-          {:ok, map()} | :missing | {:error, String.t()}
-  def from_commit(repo_root, ref) do
-    case Git.commit_message(repo_root, ref) do
+  defp trailer_last?(lines, trailer) do
+    stripped = Enum.reverse(lines) |> Enum.drop_while(&(&1 == "")) |> Enum.reverse()
+    List.last(stripped) == trailer and
+      (length(stripped) == 1 or Enum.at(stripped, -2) == "")
+  end
+
+  def validate!(record) do
+    unless is_map(record) and Enum.sort(Map.keys(record)) == Enum.sort(@keys) and
+             record["schema"] == @schema and valid_name?(record["artifact"]) and
+             valid_package?(record["package"]) and is_binary(record["version"]) and
+             match?({:ok, _}, Version.parse(record["version"])) and
+             Enum.all?(~w(bundle_id qualification_id project_id docs_id compiler_id), &Identity.valid?(record[&1])) and
+             Enum.all?(~w(archive_sha256 docs_archive_sha256), &(is_nil(record[&1]) or Identity.valid?(record[&1]))) and
+             is_nil(record["archive_sha256"]) == is_nil(record["docs_archive_sha256"]) do
+      raise Error, "invalid Weld receipt schema"
+    end
+    validate_source!(record["source"])
+    record
+  end
+
+  def validate_source!(source) do
+    unless is_map(source) and Enum.sort(Map.keys(source)) == Enum.sort(@source_keys) and
+             Identity.valid?(source["manifest_sha256"]) and source["git_algorithm"] in ["sha1", "sha256"] and
+             is_binary(source["commit"]) and
+             Regex.match?(if(source["git_algorithm"] == "sha1", do: ~r/\A[0-9a-f]{40}\z/, else: ~r/\A[0-9a-f]{64}\z/), source["commit"]) do
+      raise Error, "invalid source provenance"
+    end
+    Weld.Core.Inventory.validate_path!(source["manifest_path"])
+    source
+  end
+
+  defp valid_name?(value) when is_binary(value), do: Regex.match?(~r/\A[a-zA-Z0-9][a-zA-Z0-9_-]*\z/, value)
+  defp valid_name?(_), do: false
+  defp valid_package?(value) when is_binary(value), do: Regex.match?(~r/\A[a-z][a-z0-9_]*\z/, value)
+  defp valid_package?(_), do: false
+
+  def from_commit(root, ref) do
+    case Git.commit_message(root, ref) do
       {:ok, message} ->
         case parse(message) do
-          {:ok, receipt} -> {:ok, receipt}
           :none -> {:error, "commit has no Weld receipt"}
-          {:error, reason} -> {:error, reason}
+          result -> result
         end
-
-      {:error, _reason} ->
-        :missing
+      _ -> :missing
     end
   end
 
-  @spec from_tag(Path.t(), String.t()) ::
-          {:ok, %{type: :annotated | :lightweight, target_sha: String.t(), receipt: map() | nil}}
-          | :missing
-          | {:error, String.t()}
-  def from_tag(repo_root, tag) do
-    case Git.tag_info(repo_root, tag) do
-      :missing ->
-        :missing
-
-      {:ok, %{type: :lightweight, target_sha: target_sha}} ->
-        {:ok, %{type: :lightweight, target_sha: target_sha, receipt: nil}}
-
-      {:ok, %{type: :annotated, target_sha: target_sha, message: message}} ->
+  def from_tag(root, tag) do
+    case Git.tag_info(root, tag) do
+      :missing -> :missing
+      {:ok, %{type: :lightweight}} -> {:error, "only annotated weld.receipt/2 tags are supported"}
+      {:ok, %{type: :annotated, target_sha: sha, message: message}} ->
         case parse(message) do
-          {:ok, receipt} ->
-            {:ok, %{type: :annotated, target_sha: target_sha, receipt: receipt}}
-
-          :none ->
-            {:ok, %{type: :annotated, target_sha: target_sha, receipt: nil}}
-
-          {:error, reason} ->
-            {:error, reason}
+          {:ok, record} -> {:ok, %{type: :annotated, target_sha: sha, receipt: record}}
+          :none -> {:error, "annotated tag has no Weld receipt"}
+          error -> error
         end
     end
   end
-
-  defp parse_trailer_line("Weld-" <> _ = line, acc) do
-    with [key, value] <- String.split(line, ": ", parts: 2),
-         {:ok, field} <- Map.fetch(@trailer_keys, key),
-         true <- value != "" and value == String.trim(value) do
-      if Map.has_key?(acc, field),
-        do: {:halt, {:error, "duplicate receipt field: #{key}"}},
-        else: {:cont, Map.put(acc, field, value)}
-    else
-      _ -> {:halt, {:error, "malformed Weld receipt field"}}
-    end
-  end
-
-  defp parse_trailer_line(_line, acc), do: {:cont, acc}
-
-  defp valid_sha256?(value) when is_binary(value),
-    do: Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
-
-  defp valid_sha256?(_), do: false
 end

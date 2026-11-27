@@ -2,18 +2,8 @@ defmodule Weld.Layout.Flat.TestHelper do
   @moduledoc false
 
   alias Weld.Error
+  alias Weld.Core.Facts
   alias Weld.Layout.FilePlan
-
-  @spec generate!([Weld.Workspace.Project.t()], Path.t(), keyword()) :: %{
-          operations: [map()],
-          copied_files: [String.t()],
-          transformations: [map()]
-        }
-  def generate!(projects, build_path, _opts \\ []) do
-    result = plan!(projects)
-    FilePlan.materialize!(result.operations, build_path, :full)
-    result
-  end
 
   def plan!(projects) do
     result =
@@ -23,10 +13,11 @@ defmodule Weld.Layout.Flat.TestHelper do
                                                                                        acc ->
         helper_path = Path.join(project.abs_path, "test/test_helper.exs")
 
-        if File.regular?(helper_path) do
+        if Facts.regular?(project.facts, helper_path) do
           slug = project_slug(project.id)
-          contents = File.read!(helper_path)
+          contents = Facts.read!(project.facts, helper_path)
           forms = quoted_forms!(contents, helper_path)
+          validate_requires!(forms, project.facts, helper_path)
           {options, fragment_forms} = extract_forms(forms, slug, helper_path)
 
           fragment_relative =
@@ -82,6 +73,17 @@ defmodule Weld.Layout.Flat.TestHelper do
     }
   end
 
+  defp validate_requires!(forms, facts, helper_path) do
+    Macro.prewalk(forms, fn
+      {{:., _, [{:__aliases__, _, [:Code]}, :require_file]}, _,
+       [relative, {:__DIR__, _, _}]} = node when is_binary(relative) ->
+        path = Path.expand(relative, Path.dirname(helper_path))
+        unless Facts.regular?(facts, path), do: raise(Error, "missing test helper input: #{path}")
+        node
+      node -> node
+    end)
+  end
+
   defp quoted_forms!(contents, helper_path) do
     case Code.string_to_quoted(contents, file: helper_path) do
       {:ok, {:__block__, _, forms}} ->
@@ -108,9 +110,6 @@ defmodule Weld.Layout.Flat.TestHelper do
         raise Error,
               "unsupported helper side effect in #{helper_path}: " <>
                 "move repo/database setup into explicit package test support or case modules before welding"
-
-      normalized_alias?(form) ->
-        {options, kept}
 
       true ->
         {options, kept ++ [rewrite_require_file(form, slug)]}
@@ -147,19 +146,9 @@ defmodule Weld.Layout.Flat.TestHelper do
 
   defp unsupported_helper_side_effect?(_other), do: false
 
-  defp normalized_alias?({:alias, _, alias_args}) do
-    alias_args
-    |> List.wrap()
-    |> Enum.any?(fn
-      {:__aliases__, _, [:Jido, :Integration, :V2, :StorePostgres, :TestSupport]} -> true
-      {:__aliases__, _, [:Ecto, :Adapters, :SQL, :Sandbox]} -> true
-      _other -> false
-    end)
-  end
+  defp rewrite_require_file(form, slug), do: Macro.prewalk(form, &rewrite_require_node(&1, slug))
 
-  defp normalized_alias?(_other), do: false
-
-  defp rewrite_require_file(
+  defp rewrite_require_node(
          {{:., meta, [{:__aliases__, alias_meta, [:Code]}, :require_file]}, call_meta,
           [path, {:__DIR__, _, nil}]},
          slug
@@ -179,10 +168,10 @@ defmodule Weld.Layout.Flat.TestHelper do
      [rewritten_path, {:__DIR__, [], nil}]}
   end
 
-  defp rewrite_require_file({{:., _, [{:__aliases__, _, [:Code]}, :require_file]}, _, _}, _slug),
+  defp rewrite_require_node({{:., _, [{:__aliases__, _, [:Code]}, :require_file]}, _, _}, _slug),
     do: raise(Error, "monolith test helper requires must use a literal relative path and __DIR__")
 
-  defp rewrite_require_file(form, _slug), do: form
+  defp rewrite_require_node(form, _slug), do: form
 
   defp format_parse_error({metadata, message, token}) when is_list(metadata) do
     location =

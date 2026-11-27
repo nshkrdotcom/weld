@@ -6,7 +6,7 @@ defmodule Weld.WorkspaceTest do
   alias Weld.Workspace
 
   test "discovers projects from manifest globs when the repo root has no mix.exs" do
-    manifest = Manifest.load!(FixtureCase.manifest_path("library_bundle", "fixture_bundle"))
+    manifest = Manifest.load!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
     workspace = Workspace.load!(manifest)
 
     assert workspace.discovery.source == :manifest
@@ -15,7 +15,7 @@ defmodule Weld.WorkspaceTest do
   end
 
   test "loads each project's declared test paths" do
-    manifest = Manifest.load!(FixtureCase.manifest_path("monolith_bundle", "monolith_bundle"))
+    manifest = Manifest.load!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
     workspace = Workspace.load!(manifest)
 
     assert workspace.projects["core/store"].test_paths == ["test"]
@@ -23,7 +23,7 @@ defmodule Weld.WorkspaceTest do
   end
 
   test "discovers projects from explicit manifest globs when the root has a mix.exs" do
-    manifest = Manifest.load!(FixtureCase.manifest_path("root_workspace", "artifacts"))
+    manifest = Manifest.load!(FixtureCase.copied_manifest_path("root_workspace", "artifacts"))
     workspace = Workspace.load!(manifest)
 
     assert workspace.discovery.source == :manifest

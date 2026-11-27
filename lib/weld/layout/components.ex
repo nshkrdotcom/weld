@@ -2,25 +2,29 @@ defmodule Weld.Layout.Components do
   @moduledoc false
 
   alias Weld.Config.Generator
-  alias Weld.{Error, Git, Hash, Plan, SourceFormatter}
-  alias Weld.Layout.{FilePlan, Support}
+  alias Weld.{Error, SourceFormatter}
+  alias Weld.Core.{Facts, Modules, Selection}
+  alias Weld.Layout.{FilePlan, Render, Support}
   alias Weld.Plan.Inventory
-  alias Weld.Projector.{Live, SourceProject}
-  alias Weld.Shell.Inputs
+  alias Weld.Layout.Live
+  alias Weld.Core.Inputs
 
   # The component layout produces the same operations as flat layout before
   # the materializer creates the output. Generation is never rerun in the stage.
-  def plan!(%Plan{} = plan) do
+  def plan!(%{} = plan) do
     Support.validate_inputs!(plan)
     validate_component_test_paths!(plan)
-    validate_include_paths!(Plan.projects_for_view(plan, :test))
+    validate_include_paths!(Selection.projects_for_view(plan, :test), plan.facts)
 
     compiler_roots =
       Enum.flat_map(plan.selected_projects, fn project ->
         Enum.map(project.elixirc_paths, &Path.expand(&1, project.abs_path))
       end)
 
-    SourceProject.validate_modules!(compiler_roots)
+    compiler_roots |> Enum.flat_map(&Facts.list_files(plan.facts, &1))
+    |> Enum.filter(&(Path.extname(&1) == ".ex"))
+    |> Enum.map(&{&1, Facts.read!(plan.facts, &1)})
+    |> Modules.validate_module_sources!()
     root = plan.manifest.repo_root
     repos = Support.detect_repo_infos(plan.selected_projects)
 
@@ -28,7 +32,7 @@ defmodule Weld.Layout.Components do
       plan.manifest.manifest_path | Enum.map(plan.structural_inputs, &Path.join(root, &1))
     ]
 
-    inputs = Enum.filter(structural, &File.regular?/1)
+    inputs = Enum.filter(structural, &Facts.regular?(plan.facts, &1))
 
     config =
       Generator.plan!(plan.selected_projects, repos, package_repo_layout(plan.selected_projects),
@@ -52,7 +56,7 @@ defmodule Weld.Layout.Components do
       generate_config?: true
     ]
 
-    app = generated_application(plan, opts)
+    app = Render.application(plan, opts)
 
     targets =
       Enum.map(operations, & &1.target) ++
@@ -68,8 +72,17 @@ defmodule Weld.Layout.Components do
     generated_inputs = Enum.uniq(inputs ++ Enum.flat_map(config.operations, & &1.sources))
     full = FilePlan.validate!(operations ++ generated_operations(plan, opts, generated_inputs))
 
+    roots = Enum.filter(roots, fn entry ->
+      children = Enum.filter(full, &Inventory.covered?(&1.target, entry.target))
+      children != [] and Enum.all?(children, &(&1.operation == :link_or_copy and is_nil(&1.content)))
+    end)
+    links = Enum.map(roots, &{&1.target, &1.source}) ++
+      (for op <- full, op.operation == :link_or_copy,
+        not Enum.any?(roots, &Inventory.covered?(op.target, &1.target)),
+        do: {op.target, Path.relative_to(hd(op.sources), root)})
     guard =
       Live.guard_source(plan,
+        links: links,
         directories: Enum.map(roots, &Path.join(root, &1.source)),
         digests: for(op <- full, op.operation != :link_or_copy, source <- op.sources, do: source),
         topology:
@@ -98,7 +111,9 @@ defmodule Weld.Layout.Components do
     source_ops =
       for entry <- plan.source_inventory do
         operation =
-          if entry.kind == :artifact_test and not plan.artifact.verify.component_tests,
+          if (entry.kind == :artifact_test and not plan.artifact.verify.component_tests) or
+               entry.kind in [:native, :metadata] or entry.source in plan.structural_inputs or
+               Enum.any?(Path.split(entry.target), &(&1 in ["c_src", "priv", "config"])),
             do: :copy,
             else: :link_or_copy
 
@@ -124,12 +139,12 @@ defmodule Weld.Layout.Components do
   end
 
   defp generated_operations(plan, opts, inputs) do
-    app = generated_application(plan, opts)
+    app = Render.application(plan, opts)
 
     app_ops =
       if app.module do
         content =
-          application_module_contents(app, plan.artifact.package.otp_app)
+          Render.application_source(app, plan.artifact.package.otp_app)
           |> SourceFormatter.format!()
 
         [
@@ -148,8 +163,8 @@ defmodule Weld.Layout.Components do
     [FilePlan.generated("mix.exs", mix, :metadata, inputs) | app_ops]
   end
 
-  @spec package_files(Plan.t(), keyword()) :: [String.t()]
-  def package_files(%Plan{} = plan, opts \\ []) do
+  @spec package_files(map(), keyword()) :: [String.t()]
+  def package_files(%{} = plan, opts \\ []) do
     component_roots =
       plan.selected_projects
       |> Enum.flat_map(fn project ->
@@ -182,7 +197,7 @@ defmodule Weld.Layout.Components do
         project.elixirc_paths ++ project.erlc_paths ++ [project.erlc_include_path]
     )
     |> Enum.uniq()
-    |> Enum.filter(&File.dir?(Path.expand(&1, project.abs_path)))
+    |> Enum.filter(&Facts.dir?(project.facts, Path.expand(&1, project.abs_path)))
     |> then(fn roots ->
       Enum.reject(roots, fn path ->
         Enum.any?(roots, &(&1 != path and String.starts_with?(path, &1 <> "/")))
@@ -191,7 +206,7 @@ defmodule Weld.Layout.Components do
     |> Enum.sort()
   end
 
-  defp projected_test_paths(%Plan{artifact: %{verify: %{component_tests: false}}} = plan) do
+  defp projected_test_paths(%{artifact: %{verify: %{component_tests: false}}} = plan) do
     if plan.artifact.verify.artifact_tests == [], do: [], else: ["test"]
   end
 
@@ -200,7 +215,7 @@ defmodule Weld.Layout.Components do
       plan.selected_projects
       |> Enum.flat_map(fn project ->
         Inventory.normalize_paths(project, project.test_paths)
-        |> Enum.filter(&File.dir?(Path.expand(&1, project.abs_path)))
+        |> Enum.filter(&Facts.dir?(project.facts, Path.expand(&1, project.abs_path)))
         |> Enum.map(&Path.join(["components", component_dir(project), &1]))
       end)
 
@@ -212,33 +227,33 @@ defmodule Weld.Layout.Components do
     Enum.uniq(components ++ artifacts)
   end
 
-  defp component_test_compile_paths(%Plan{artifact: %{verify: %{component_tests: false}}}), do: []
+  defp component_test_compile_paths(%{artifact: %{verify: %{component_tests: false}}}), do: []
 
   defp component_test_compile_paths(plan) do
-    Plan.projects_for_view(plan, :test)
+    Selection.projects_for_view(plan, :test)
     |> Enum.flat_map(fn project ->
       paths =
-        if Plan.selected?(plan, project.id),
+        if Selection.selected?(plan, project.id),
           do: project.test_elixirc_paths,
           else: project.elixirc_paths
 
       project
       |> Inventory.normalize_paths(paths)
-      |> Enum.filter(&File.dir?(Path.expand(&1, project.abs_path)))
+      |> Enum.filter(&Facts.dir?(project.facts, Path.expand(&1, project.abs_path)))
       |> Enum.map(&Path.join(["components", component_dir(project), &1]))
     end)
     |> Enum.uniq()
     |> Enum.sort()
   end
 
-  defp component_test_erlc_paths(%Plan{artifact: %{verify: %{component_tests: false}}}, runtime),
+  defp component_test_erlc_paths(%{artifact: %{verify: %{component_tests: false}}}, runtime),
     do: runtime
 
   defp component_test_erlc_paths(plan, _runtime) do
-    Plan.projects_for_view(plan, :test)
+    Selection.projects_for_view(plan, :test)
     |> Enum.flat_map(fn project ->
       paths =
-        if Plan.selected?(plan, project.id), do: project.test_erlc_paths, else: project.erlc_paths
+        if Selection.selected?(plan, project.id), do: project.test_erlc_paths, else: project.erlc_paths
 
       project
       |> Inventory.normalize_paths(paths)
@@ -248,7 +263,7 @@ defmodule Weld.Layout.Components do
     |> Enum.sort()
   end
 
-  defp package_external_deps(%Plan{artifact: %{verify: %{component_tests: false}}} = plan),
+  defp package_external_deps(%{artifact: %{verify: %{component_tests: false}}} = plan),
     do: plan.external_deps
 
   defp package_external_deps(plan) do
@@ -256,7 +271,7 @@ defmodule Weld.Layout.Components do
 
     test_deps =
       plan
-      |> Plan.external_deps_for_view(:test)
+      |> Selection.external_deps_for_view(:test)
       |> Enum.reject(&(&1.app in runtime_apps))
       |> Enum.map(fn dep ->
         opts = Keyword.put_new(dep.opts, :only, :test)
@@ -267,7 +282,7 @@ defmodule Weld.Layout.Components do
     plan.external_deps ++ test_deps
   end
 
-  defp validate_component_test_paths!(%Plan{artifact: %{verify: %{component_tests: false}}}),
+  defp validate_component_test_paths!(%{artifact: %{verify: %{component_tests: false}}}),
     do: :ok
 
   defp validate_component_test_paths!(plan) do
@@ -291,111 +306,24 @@ defmodule Weld.Layout.Components do
     end
   end
 
-  # Mix compiler roots inside the project must remain relative.
-  defp render_paths(paths, _opts), do: inspect(paths)
-
   defp mixfile_contents(plan, opts) do
-    package = plan.artifact.package
-    module_name = "#{Macro.camelize(to_string(package.otp_app))}.MixProject"
-    application = generated_application(plan, opts)
-    elixirc_paths = component_paths(plan.selected_projects, & &1.elixirc_paths, plan, opts)
-    erlc_paths = component_paths(plan.selected_projects, & &1.erlc_paths)
-    test_paths = projected_test_paths(plan)
-    test_compile_paths = component_test_compile_paths(plan)
-
-    test_elixirc_paths =
-      if plan.artifact.verify.component_tests,
-        do: Enum.uniq(generated_root_paths(plan, opts) ++ test_compile_paths),
-        else: elixirc_paths
-
-    test_erlc_paths = component_test_erlc_paths(plan, erlc_paths)
-    include_paths = component_include_paths(plan.selected_projects)
-
-    test_include_paths =
-      if plan.artifact.verify.component_tests,
-        do: component_include_paths(Plan.projects_for_view(plan, :test)),
-        else: include_paths
-
-    deps = render_deps(package_external_deps(plan), package.development_dependencies)
-
-    files =
-      Keyword.get(opts, :package_files, package_files(plan, opts))
-      |> Enum.map_join(",\n        ", &inspect/1)
-
-    docs = Support.render_docs_options(plan)
-    links = package.links |> fallback_links(plan.manifest.repo_root) |> inspect(pretty: true)
-    application_config = application_config_literal(application)
-
-    """
-    defmodule #{module_name} do
-      use Mix.Project
-
-      def project do
-        #{opts[:live_guard] || ""}
-        [
-          app: #{inspect(package.otp_app)},
-          version: #{inspect(package.version)},
-          #{if(opts[:live?], do: "", else: "build_path: \"_build\",")}
-          elixir: #{inspect(package.elixir)},
-          start_permanent: Mix.env() == :prod,
-          elixirc_paths: elixirc_paths(Mix.env()),
-          erlc_paths: erlc_paths(Mix.env()),
-          erlc_options: erlc_options(Mix.env()),
-          test_paths: #{render_paths(test_paths, opts)},
-          #{if(opts[:live?], do: "aliases: #{Live.aliases_source()},", else: "")}
-          deps: deps(),
-          description: #{inspect(package.description)},
-          package: package(),
-          docs: docs()
-        ]
-      end
-
-      def application do
-        #{application_config}
-      end
-
-      def elixirc_paths(:test) do
-        base = #{render_paths(test_elixirc_paths, opts)}
-
-        if File.dir?(Path.expand("test/support", __DIR__)) do
-          base ++ ["test/support"]
-        else
-          base
-        end
-      end
-
-      def elixirc_paths(_env), do: #{render_paths(elixirc_paths, opts)}
-
-      defp erlc_paths(:test), do: #{render_paths(test_erlc_paths, opts)}
-      defp erlc_paths(_env), do: #{render_paths(erlc_paths, opts)}
-
-      defp erlc_options(env) do
-        paths = if env == :test, do: #{inspect(test_include_paths)}, else: #{inspect(include_paths)}
-        Enum.map(paths, fn path -> {:i, path |> Path.expand(__DIR__) |> String.to_charlist()} end)
-      end
-
-      defp deps do
-        [
-    #{deps}
-        ]
-      end
-
-      defp package do
-        [
-          licenses: #{inspect(package.licenses)},
-          maintainers: #{inspect(package.maintainers)},
-          links: #{links},
-          files: [
-            #{files}
-          ]
-        ]
-      end
-
-      defp docs do
-        #{docs}
-      end
-    end
-    """
+    app = Render.application(plan, opts)
+    elixirc = component_paths(plan.selected_projects, & &1.elixirc_paths, plan, opts)
+    erlc = component_paths(plan.selected_projects, & &1.erlc_paths)
+    include = component_include_paths(plan.selected_projects)
+    spec = %{
+      elixirc_paths: elixirc,
+      test_elixirc_paths: if(plan.artifact.verify.component_tests,
+        do: Enum.uniq(generated_root_paths(plan, opts) ++ component_test_compile_paths(plan)),
+        else: elixirc),
+      erlc_paths: erlc, test_erlc_paths: component_test_erlc_paths(plan, erlc),
+      include_paths: include,
+      test_include_paths: if(plan.artifact.verify.component_tests,
+        do: component_include_paths(Selection.projects_for_view(plan, :test)), else: include),
+      test_paths: projected_test_paths(plan),
+      deps: Render.dependencies(package_external_deps(plan), [], plan.artifact.package.development_dependencies)
+    }
+    Render.mix(plan, app, spec, opts)
   end
 
   defp component_paths(projects, path_fun, plan \\ nil, opts \\ []) do
@@ -421,38 +349,21 @@ defmodule Weld.Layout.Components do
   defp component_include_paths(projects) do
     for project <- projects,
         relative <- Inventory.normalize_paths(project, [project.erlc_include_path]),
-        File.dir?(Path.expand(relative, project.abs_path)),
+        Facts.dir?(project.facts, Path.expand(relative, project.abs_path)),
         do: Path.join(["components", component_dir(project), relative])
   end
 
-  defp validate_include_paths!(projects) do
+  defp validate_include_paths!(projects, facts) do
     headers =
       for project <- projects,
           root = Path.expand(project.erlc_include_path, project.abs_path),
-          File.dir?(root),
-          path <- Hash.list_files(root),
+          Facts.dir?(project.facts, root),
+          path <- Facts.list_files(project.facts, root),
           do: {Path.relative_to(path, root), path}
 
     for {relative, files} <- Enum.group_by(headers, &elem(&1, 0), &elem(&1, 1)) do
-      if length(Enum.uniq_by(files, &Hash.sha256_file/1)) > 1,
+      if length(Enum.uniq_by(files, &Facts.digest!(facts, &1))) > 1,
         do: raise(Error, "conflicting Erlang include #{relative} across selected projects")
-    end
-  end
-
-  defp render_deps(external_deps, development_dependencies) do
-    external = Enum.map(external_deps, fn dep -> dep.original end)
-
-    (external ++ development_dependencies ++ [{:ex_doc, "~> 0.40", only: :dev, runtime: false}])
-    |> Enum.uniq_by(&elem(&1, 0))
-    |> Enum.map_join(",\n      ", &inspect/1)
-  end
-
-  defp fallback_links(links, _repo_root) when map_size(links) > 0, do: links
-
-  defp fallback_links(_links, repo_root) do
-    case Git.remote_url(repo_root) do
-      nil -> %{"Source" => "https://github.com/nshkrdotcom/weld"}
-      remote -> %{"Source" => remote}
     end
   end
 
@@ -461,7 +372,7 @@ defmodule Weld.Layout.Components do
   defp generated_root_paths(plan, opts) do
     []
     |> maybe_add_generated_root_path(
-      case generated_application(plan, opts) do
+      case Render.application(plan, opts) do
         %{module: nil} -> nil
         _application -> "lib"
       end
@@ -471,172 +382,8 @@ defmodule Weld.Layout.Components do
     )
   end
 
-  defp generated_application(%Plan{} = plan, opts) do
-    children =
-      plan.selected_projects
-      |> Enum.map(& &1.application.mod)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
-
-    bootstrapped_apps =
-      opts
-      |> Keyword.get(:bootstrapped_apps, [])
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    bootstrapped_sources =
-      opts
-      |> Keyword.get(:bootstrapped_config_sources, [])
-      |> Enum.uniq()
-
-    %{
-      module:
-        if(children == [] and bootstrapped_sources == [],
-          do: nil,
-          else:
-            Module.concat([
-              Macro.camelize(to_string(plan.artifact.package.otp_app)),
-              "Application"
-            ])
-        ),
-      bootstrapped_apps: bootstrapped_apps,
-      bootstrapped_sources: bootstrapped_sources,
-      children: children,
-      extra_applications:
-        plan.selected_projects
-        |> Enum.flat_map(& &1.application.extra_applications)
-        |> Kernel.++([:logger])
-        |> Enum.uniq()
-        |> Enum.sort(),
-      included_applications:
-        plan.selected_projects
-        |> Enum.flat_map(& &1.application.included_applications)
-        |> Enum.uniq()
-        |> Enum.sort(),
-      registered:
-        plan.selected_projects
-        |> Enum.flat_map(& &1.application.registered)
-        |> Enum.uniq()
-        |> Enum.sort()
-    }
-  end
-
-  defp application_config_literal(application) do
-    [
-      extra_applications: application.extra_applications
-    ]
-    |> maybe_put_config(:included_applications, application.included_applications)
-    |> maybe_put_config(:registered, application.registered)
-    |> maybe_put_config(:mod, if(application.module, do: {application.module, []}))
-    |> inspect(pretty: true, limit: :infinity)
-  end
-
-  defp maybe_put_config(config, _key, nil), do: config
-  defp maybe_put_config(config, _key, []), do: config
-  defp maybe_put_config(config, key, value), do: Keyword.put(config, key, value)
-
-  defp generated_application_relative_path(plan) do
-    otp_app = to_string(plan.artifact.package.otp_app)
-    Path.join(["lib", otp_app, "application.ex"])
-  end
-
-  defp application_module_contents(
-         %{
-           module: module,
-           bootstrapped_apps: bootstrapped_apps,
-           bootstrapped_sources: bootstrapped_sources,
-           children: children
-         },
-         artifact_otp_app
-       ) do
-    rendered_children =
-      children
-      |> Enum.map_join(",\n      ", fn {child_module, args} ->
-        """
-        %{
-          id: #{inspect(child_module)},
-          start: {#{inspect(child_module)}, :start, [:normal, #{inspect(args)}]},
-          type: :supervisor
-        }\
-        """
-      end)
-
-    bootstrap_helpers =
-      if bootstrapped_sources == [] do
-        ""
-      else
-        """
-
-          @boot_env Mix.env()
-          @bootstrapped_apps #{inspect(bootstrapped_apps)}
-          @bootstrapped_sources #{inspect(bootstrapped_sources, pretty: true, limit: :infinity)}
-
-          defp bootstrap_workspace_app_env! do
-            Enum.each(@bootstrapped_sources, fn source ->
-              source
-              |> bootstrap_source_paths()
-              |> Enum.each(&apply_bootstrap_source!/1)
-            end)
-          end
-
-          defp bootstrap_source_paths(%{
-                 config_path: config_path,
-                 env_path_fallbacks: env_path_fallbacks,
-                 runtime_path: runtime_path
-               }) do
-            []
-            |> maybe_add_bootstrap_path(config_path || Map.get(env_path_fallbacks, @boot_env))
-            |> maybe_add_bootstrap_path(runtime_path)
-          end
-
-          defp maybe_add_bootstrap_path(paths, nil), do: paths
-          defp maybe_add_bootstrap_path(paths, path), do: paths ++ [path]
-
-          defp apply_bootstrap_source!(relative_path) do
-            absolute_path = artifact_path(relative_path)
-
-            unless File.regular?(absolute_path) do
-              raise "missing projected workspace config source: \#{absolute_path}"
-            end
-
-            {config, _imports} = Config.Reader.read_imports!(absolute_path, env: @boot_env)
-
-            config
-            |> Enum.filter(fn {app, _value} -> app in @bootstrapped_apps end)
-            |> case do
-              [] -> :ok
-              workspace_config -> Application.put_all_env(workspace_config, persistent: true)
-            end
-          end
-
-          defp artifact_path(relative_path) do
-            Application.app_dir(#{inspect(artifact_otp_app)}, Path.join(["priv", "weld", relative_path]))
-          end
-        """
-      end
-
-    """
-    defmodule #{inspect(module)} do
-      @moduledoc false
-
-      use Application
-
-      def start(_type, _args) do
-        #{if(bootstrapped_sources == [], do: ":ok", else: "bootstrap_workspace_app_env!()")}
-
-        children = [
-          #{rendered_children}
-        ]
-
-        Supervisor.start_link(children,
-          strategy: :one_for_one,
-          name: __MODULE__.Supervisor
-        )
-      end
-    #{bootstrap_helpers}
-    end
-    """
-  end
+  defp generated_application_relative_path(plan),
+    do: Path.join(["lib", to_string(plan.artifact.package.otp_app), "application.ex"])
 
   defp root_ecto_repos_overlay([], _artifact_otp_app), do: nil
 
@@ -650,7 +397,7 @@ defmodule Weld.Layout.Components do
   defp package_repo_layout(projects) do
     repo_paths =
       projects
-      |> Enum.filter(&File.dir?(Path.join(&1.abs_path, "priv/repo")))
+      |> Enum.filter(&Facts.dir?(&1.facts, Path.join(&1.abs_path, "priv/repo")))
       |> Map.new(fn project ->
         {project.id, Path.join(["components", component_dir(project), "priv/repo"])}
       end)

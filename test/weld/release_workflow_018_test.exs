@@ -1,495 +1,271 @@
 defmodule Weld.ReleaseWorkflow018Test do
   use ExUnit.Case, async: false
 
-  alias Weld.{Error, FixtureCase, Git, Hash, ReleaseReceipt, ReleaseStatus}
-  alias Weld.Shell.Hex
+  alias Weld.{Error, FixtureCase, Git, Hash, Output, Release, ReleaseReceipt, ReleaseStatus}
+  alias Weld.Core.Identity
 
   test "receipt parser refuses duplicated fields, malformed trailers and missing digests" do
-    schema = "Weld-Receipt-Schema: weld.receipt/v2"
-
-    assert {:error, "duplicate receipt field:" <> _} =
-             ReleaseReceipt.parse(schema <> "\n" <> schema)
-
-    assert {:error, "malformed Weld receipt field"} =
-             ReleaseReceipt.parse(schema <> "\nWeld-Identity:")
-
-    assert {:error, "missing required receipt fields:" <> _} = ReleaseReceipt.parse(schema)
+    {_, _, bundle} = publication_fixture!()
+    trailer = ReleaseReceipt.format_trailers(nil, bundle.metadata)
+    assert {:ok, receipt} = ReleaseReceipt.parse(trailer)
+    assert receipt["schema"] == "weld.receipt/2"
+    assert {:error, _} = ReleaseReceipt.parse(trailer <> "\n" <> trailer)
+    assert {:error, _} = ReleaseReceipt.parse("Weld-Receipt: invalid=")
+    assert {:error, _} = ReleaseReceipt.parse("Weld-Receipt-Schema: weld.receipt/v2")
+    missing = Map.delete(receipt, "docs_id") |> Identity.canonical() |> Base.url_encode64(padding: false)
+    assert {:error, _} = ReleaseReceipt.parse("Weld-Receipt: " <> missing)
+    noncanonical = Jason.encode!(receipt, pretty: true) |> Base.url_encode64(padding: false)
+    assert {:error, _} = ReleaseReceipt.parse("Weld-Receipt: " <> noncanonical)
   end
 
   test "status lists all artifacts by default and identifies their release paths" do
-    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    {manifest, _binding} = Code.eval_file(manifest_path)
-    [artifact] = Keyword.values(manifest[:artifacts])
-
-    File.write!(
-      manifest_path,
-      inspect(put_in(manifest[:artifacts][:other], artifact), limit: :infinity)
-    )
-
-    assert [first, second] = Weld.Commands.release_status!(manifest_path)
+    manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    {source, _} = Code.eval_file(manifest)
+    [artifact] = Keyword.values(source[:artifacts])
+    File.write!(manifest, inspect(put_in(source[:artifacts][:other], artifact), limit: :infinity))
+    root = Path.expand("../../..", manifest)
+    FixtureCase.init_git!(root)
+    assert [first, second] = Weld.Commands.release_status!(manifest)
     assert [first.artifact, second.artifact] == ["fixture_bundle", "other"]
     assert first.state == :unprepared
     assert first.default_tag == "fixture_bundle-v0.1.0"
-    assert first.projection.branch == "projection/fixture_bundle"
     assert String.ends_with?(first.paths.releases, "/.weld/v2/bundles/fixture_bundle")
     assert String.ends_with?(first.paths.full_project, "/.weld/v2/full/fixture_bundle/project")
-    assert first.paths.bundle == nil
-    assert second.paths.releases != first.paths.releases
-
-    bundle = write_bundle!(Path.expand("../../..", manifest_path), manifest_path, "archive")
+    bundle = FixtureCase.write_tracking_fixture!(root, manifest, hex: true)
     File.write!(bundle.tarball_path, "corrupt")
-    File.mkdir_p!(second.paths.releases)
-    File.write!(Path.join(second.paths.releases, "CURRENT"), "invalid pointer")
-
-    assert [corrupt, malformed] = Weld.Commands.release_status!(manifest_path)
-    assert corrupt.state == :corrupt_bundle
+    Output.write_atomic!(Output.path(root, ["current", "other"]), "invalid pointer")
+    before = state_inventory(root)
+    assert [corrupt, malformed] = Weld.Commands.release_status!(manifest)
+    assert corrupt.integrity == :corrupt
     assert corrupt.identity == bundle.identity
-    assert malformed.state == :malformed_pointer
-
-    output =
-      ExUnit.CaptureIO.capture_io(fn ->
-        Mix.Task.rerun("weld", ["status", "--manifest", manifest_path, "--format", "json"])
-      end)
-
-    assert [%{"state" => "corrupt_bundle"}, %{"state" => "malformed_pointer"}] =
-             Jason.decode!(output)["data"]
+    assert malformed.integrity == :corrupt
+    assert state_inventory(root) == before
+    output = ExUnit.CaptureIO.capture_io(fn ->
+      Mix.Task.rerun("weld", ["status", "--manifest", manifest, "--format", "json"])
+    end)
+    assert [%{"integrity" => "corrupt"}, %{"integrity" => "corrupt"}] = Jason.decode!(output)["data"]
   end
 
   test "batch archive continues after an artifact fails and names the failure" do
-    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    {manifest, _binding} = Code.eval_file(manifest_path)
-    [artifact] = Keyword.values(manifest[:artifacts])
-
-    File.write!(
-      manifest_path,
-      inspect(put_in(manifest[:artifacts][:a_missing], artifact), limit: :infinity)
-    )
-
-    repo_root = Path.expand("../../..", manifest_path)
-    FixtureCase.init_git!(repo_root)
-    bundle = write_bundle!(repo_root, manifest_path, "archive")
-
-    output =
-      ExUnit.CaptureIO.capture_io(fn ->
-        assert catch_exit(
-                 Mix.Task.rerun(
-                   "weld",
-                   [
-                     "archive",
-                     "--manifest",
-                     manifest_path,
-                     "--all",
-                     "--current",
-                     "--format",
-                     "json"
-                   ]
-                 )
-               ) == {:shutdown, 5}
-      end)
-
-    assert %{
-             "data" => %{
-               "results" => [
-                 %{"artifact" => "a_missing", "ok" => false},
-                 %{"artifact" => "fixture_bundle", "ok" => true}
-               ]
-             }
-           } = Jason.decode!(output)
-
-    assert File.regular?(
-             Path.join([
-               repo_root,
-               ".weld/v2/archive/fixture_bundle",
-               bundle.identity,
-               "bundle.json"
-             ])
-           )
+    manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    {source, _} = Code.eval_file(manifest)
+    [artifact] = Keyword.values(source[:artifacts])
+    File.write!(manifest, inspect(put_in(source[:artifacts][:a_missing], artifact), limit: :infinity))
+    root = Path.expand("../../..", manifest)
+    FixtureCase.init_git!(root)
+    bundle = FixtureCase.write_tracking_fixture!(root, manifest)
+    output = ExUnit.CaptureIO.capture_io(fn ->
+      assert catch_exit(Mix.Task.rerun("weld", ["archive", "--manifest", manifest, "--all", "--current", "--format", "json"])) == {:shutdown, 5}
+    end)
+    assert %{"data" => %{"results" => [%{"artifact" => "a_missing", "ok" => false}, %{"artifact" => "fixture_bundle", "ok" => true}]}} = Jason.decode!(output)
+    assert File.regular?(Output.path(root, ["archives", "fixture_bundle", bundle.identity, "bundle.json"]))
   end
 
-  test "track writes weld.receipt/v2 trailers, annotated tags, same-tree commits, and verifies tags" do
-    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    repo_root = Path.expand("../../..", manifest_path)
-    remote = FixtureCase.unique_tmp_dir("weld_remote_018")
-    FixtureCase.init_git!(repo_root)
+  test "track writes canonical receipts, annotated tags, same-tree commits, and verifies tags" do
+    {manifest, plan, first} = publication_fixture!()
+    root = plan.manifest.repo_root
+    remote = FixtureCase.unique_tmp_dir("weld_remote_receipt")
     FixtureCase.init_bare_git!(remote)
-    Git.run!(repo_root, ["remote", "add", "origin", remote])
-
-    bundle1 = write_bundle!(repo_root, manifest_path, "tarball-v1")
-
-    tracked1 =
-      Weld.Commands.release_track!(manifest_path,
-        artifact: "fixture_bundle",
-        tag_release: true,
-        push: true
-      )
-
-    assert tracked1.committed?
-    assert tracked1.tag == "fixture_bundle-v0.1.0"
-    assert tracked1.identity == bundle1.identity
-
-    assert {:ok, commit_receipt} =
-             ReleaseReceipt.from_commit(repo_root, "refs/heads/projection/fixture_bundle")
-
-    assert commit_receipt.schema == "weld.receipt/v2"
-    assert commit_receipt.identity == bundle1.identity
-    assert commit_receipt.archive_sha256 == bundle1.archive_sha256
-    assert commit_receipt.docs_sha256 == bundle1.docs_sha256
-
-    assert {:ok, %{type: :annotated, receipt: tag_receipt}} =
-             ReleaseReceipt.from_tag(repo_root, "fixture_bundle-v0.1.0")
-
-    assert tag_receipt == commit_receipt
-
-    status = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
-    assert status.projection.tree_matches
-    assert status.projection.matches_identity
-
-    # Read the durable receipt in a clone that has no Weld output.
-    Git.run!(repo_root, ["push", "origin", "HEAD:refs/heads/main"])
-    clone = FixtureCase.unique_tmp_dir("weld_clone_018")
-    Git.run!(repo_root, ["clone", "--branch", "main", remote, clone])
-    cloned_manifest = Path.join(clone, Path.relative_to(manifest_path, repo_root))
-
-    assert %{status: :missing_local, tag_receipt: ^tag_receipt} =
-             Weld.Commands.release_verify_tag!(cloned_manifest, "fixture_bundle-v0.1.0")
-
-    # Exact retry reuses commit and tag cleanly.
-    retry =
-      Weld.Commands.release_track!(manifest_path,
-        artifact: "fixture_bundle",
-        tag_release: true
-      )
-
+    Git.run!(root, ["remote", "add", "origin", remote])
+    source_head = Git.revision(root)
+    tracked = Release.track!(plan, identity: first.identity, tag_release: true, push: true)
+    assert tracked.committed?
+    assert tracked.tag == "fixture_bundle-v0.1.0"
+    assert Git.revision(root) == source_head
+    assert {:ok, receipt} = ReleaseReceipt.from_commit(root, tracked.commit_sha)
+    assert receipt["bundle_id"] == first.identity
+    assert receipt["archive_sha256"] == first.archive_sha256
+    assert Git.project_id(root, tracked.commit_sha) == receipt["project_id"]
+    assert {:ok, %{type: :annotated, receipt: ^receipt}} = ReleaseReceipt.from_tag(root, tracked.tag)
+    assert %{status: :match, tree: :match} = ReleaseStatus.verify_tag(root, tracked.tag, tarball: first.tarball_path)
+    retry = Release.track!(plan, identity: first.identity, tag_release: true, push: true)
     refute retry.committed?
-    assert retry.commit_sha == tracked1.commit_sha
+    assert retry.commit_sha == tracked.commit_sha
+    Git.run!(root, ["push", "origin", "HEAD:refs/heads/main"])
+    clone = FixtureCase.unique_tmp_dir("weld_receipt_clone")
+    Git.run!(root, ["clone", "--branch", "main", remote, clone])
+    assert %{status: :missing_local, tree: :match, tag_receipt: ^receipt} = ReleaseStatus.verify_tag(clone, tracked.tag)
 
-    # Verify tag matches local bundle and tarball.
-    verified =
-      Weld.Commands.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0",
-        artifact: "fixture_bundle",
-        tarball: bundle1.tarball_path
-      )
-
-    assert verified.status == :match
-
-    # Same project tree, new bundle identity (different docs/tarball) creates a receipt commit.
-    bundle2 = write_bundle!(repo_root, manifest_path, "tarball-v2")
-    assert bundle2.identity != bundle1.identity
-
-    status = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
+    second = FixtureCase.write_tracking_fixture!(root, manifest, hex: true, docs: "different exact docs")
+    assert second.identity != first.identity
+    assert second.metadata["project_id"] == first.metadata["project_id"]
+    status = ReleaseStatus.status(plan)
     assert status.projection.tree_matches
     refute status.projection.matches_identity
-
-    # Conflicting existing tag is rejected.
-    assert_raise Error, ~r/already exists with a different commit or release identity/, fn ->
-      Weld.Commands.release_track!(manifest_path,
-        artifact: "fixture_bundle",
-        tag: "fixture_bundle-v0.1.0"
-      )
-    end
-
-    tracked2 =
-      Weld.Commands.release_track!(manifest_path,
-        artifact: "fixture_bundle",
-        tag: "fixture_bundle-v0.1.0-rc2"
-      )
-
-    assert tracked2.committed?
-    assert tracked2.commit_sha != tracked1.commit_sha
-
-    assert {:ok, tip_receipt} =
-             ReleaseReceipt.from_commit(repo_root, "refs/heads/projection/fixture_bundle")
-
-    assert tip_receipt.identity == bundle2.identity
-
-    # Legacy lightweight tag is reported without rewriting.
-    Git.run!(repo_root, ["tag", "legacy-v0.1.0", tracked1.commit_sha])
-
-    legacy_verify =
-      Weld.Commands.release_verify_tag!(manifest_path, "legacy-v0.1.0",
-        artifact: "fixture_bundle"
-      )
-
-    assert legacy_verify.status == :legacy_tag
-
-    assert_raise Error, ~r/legacy lightweight tag already exists/, fn ->
-      Weld.Commands.release_track!(manifest_path,
-        artifact: "fixture_bundle",
-        tag: "legacy-v0.1.0"
-      )
-    end
-
-    # The receipt selects the artifact even when the manifest has multiple entries.
-    {manifest, _binding} = Code.eval_file(manifest_path)
-    [artifact] = Keyword.values(manifest[:artifacts])
-
-    File.write!(
-      manifest_path,
-      inspect(put_in(manifest[:artifacts][:other], artifact), limit: :infinity)
-    )
-
-    assert %{status: :match} =
-             Weld.Commands.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0")
-
-    assert %{status: :mismatch} =
-             Weld.Commands.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0",
-               artifact: "other"
-             )
-
-    assert %{status: :mismatch} =
-             Weld.Commands.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0",
-               identity: bundle2.identity
-             )
-
-    # Fresh clone / missing local bundle reports :missing_local when Git receipts agree.
-    File.rm_rf!(bundle1.bundle_path)
-
-    missing_local =
-      Weld.Commands.release_verify_tag!(manifest_path, "fixture_bundle-v0.1.0",
-        artifact: "fixture_bundle"
-      )
-
-    assert missing_local.status == :missing_local
+    before = Git.ref_oid(root, "refs/heads/" <> tracked.branch)
+    assert_raise Error, ~r/already exists/, fn -> Release.track!(plan, identity: second.identity, tag: tracked.tag) end
+    assert Git.ref_oid(root, "refs/heads/" <> tracked.branch) == before
+    changed = Release.track!(plan, identity: second.identity, tag: "fixture_bundle-v0.1.0-rc2")
+    assert changed.committed?
+    assert changed.commit_sha != tracked.commit_sha
+    Git.run!(root, ["tag", "unsupported-lightweight", changed.commit_sha])
+    assert %{status: :mismatch} = ReleaseStatus.verify_tag(root, "unsupported-lightweight")
+    assert_raise Error, fn -> Release.track!(plan, identity: second.identity, tag: "unsupported-lightweight") end
+    assert %{status: :mismatch} = ReleaseStatus.verify_tag(root, tracked.tag, artifact: "other")
+    assert %{status: :mismatch} = ReleaseStatus.verify_tag(root, tracked.tag, identity: second.identity)
+    File.rm_rf!(first.bundle_path)
+    assert %{status: :missing_local, tree: :match} = ReleaseStatus.verify_tag(root, tracked.tag)
   end
 
-  test "release_status classifies states cleanly and --identity pins archive across CURRENT swaps" do
-    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    repo_root = Path.expand("../../..", manifest_path)
-    FixtureCase.init_git!(repo_root)
+  test "release_status classifies states and explicit pins archive across current swaps" do
+    {manifest, plan, first} = publication_fixture!()
+    assert %{state: :ready, integrity: :valid, qualification: :passed} = ReleaseStatus.status(plan)
+    second = FixtureCase.write_tracking_fixture!(plan.manifest.repo_root, manifest, hex: true, docs: "second")
+    refute first.identity == second.identity
+    archived = Release.archive!(plan, identity: first.identity)
+    assert archived.identity == first.identity
+    assert Release.archive!(plan, identity: first.identity) == archived
+    assert ReleaseStatus.status(plan, identity: first.identity).archived
+    File.write!(Path.join(plan.manifest.repo_root, "UNTRACKED.txt"), "dirty\n")
+    assert :dirty_worktree in ReleaseStatus.status(plan).reasons
+    FixtureCase.commit_all!(plan.manifest.repo_root, "advance source")
+    assert :head_moved in ReleaseStatus.status(plan).reasons
+    assert [one] = Weld.Commands.release_status!(manifest, all: true)
+    assert one.artifact == "fixture_bundle"
+  end
 
-    unprepared = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
-    assert unprepared.state == :unprepared
-    assert unprepared.reasons == [:missing_current]
+  test "local tracking can later atomically push over a proved remote ancestor" do
+    {manifest, plan, first} = publication_fixture!()
+    root = plan.manifest.repo_root
+    remote = FixtureCase.unique_tmp_dir("weld_local_first_remote")
+    FixtureCase.init_bare_git!(remote)
+    Git.run!(root, ["remote", "add", "origin", remote])
+    source_head = Git.revision(root)
+    published = Release.track!(plan, identity: first.identity, push: true)
+    branch = "refs/heads/" <> published.branch
 
-    bundle1 = write_bundle!(repo_root, manifest_path, "archive-one")
-    ready = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
-    assert ready.state == :ready
-    assert ready.identity == bundle1.identity
-    assert ready.has_tarball
-    refute ready.archived
+    second = FixtureCase.write_tracking_fixture!(root, manifest, hex: true, docs: "locally reviewed docs")
+    local = Release.track!(plan, identity: second.identity)
+    assert local.committed?
+    assert local.commit_sha != published.commit_sha
+    assert Git.remote_refs(root, "origin", [branch]) == {:ok, %{branch => published.commit_sha}}
 
-    # Write a second bundle (CURRENT now points to bundle2), then archive bundle1 via --identity.
-    bundle2 = write_bundle!(repo_root, manifest_path, "archive-two")
-    assert bundle2.identity != bundle1.identity
+    pushed = Release.track!(plan, identity: second.identity, tag: "local-review-v2", push: true)
+    assert pushed.pushed?
+    refute pushed.committed?
+    assert pushed.commit_sha == local.commit_sha
+    tag_ref = "refs/tags/" <> pushed.tag
+    assert Git.remote_refs(root, "origin", [branch, tag_ref]) ==
+      {:ok, %{branch => local.commit_sha, tag_ref => Git.ref_oid(root, tag_ref)}}
+    assert Git.revision(root) == source_head
+  end
 
-    archived1 =
-      Weld.Commands.release_archive!(manifest_path,
-        artifact: "fixture_bundle",
-        identity: bundle1.identity
-      )
+  test "remote divergence or unavailable ancestry proof cannot advance local refs" do
+    {manifest, plan, first} = publication_fixture!()
+    root = plan.manifest.repo_root
+    remote = FixtureCase.unique_tmp_dir("weld_divergent_remote")
+    FixtureCase.init_bare_git!(remote)
+    Git.run!(root, ["remote", "add", "origin", remote])
+    published = Release.track!(plan, identity: first.identity, push: true)
+    branch = "refs/heads/" <> published.branch
+    second = FixtureCase.write_tracking_fixture!(root, manifest, hex: true, docs: "local branch")
+    local = Release.track!(plan, identity: second.identity)
 
-    assert archived1.identity == bundle1.identity
-    assert File.dir?(archived1.archive_path)
+    scratch = Output.temporary!(root, "staging")
+    tree = Git.run!(root, ["rev-parse", published.commit_sha <> "^{tree}"])
+    divergent = Git.write_commit!(root, tree, published.commit_sha, "Other projection history\n", scratch)
+    Git.run!(root, ["push", "origin", divergent <> ":" <> branch])
+    refute Git.fast_forward_from?(root, divergent, local.commit_sha)
+    refute Git.fast_forward_from?(root, String.duplicate("f", byte_size(local.commit_sha)), local.commit_sha)
 
-    status1 =
-      Weld.Commands.release_status!(manifest_path,
-        artifact: "fixture_bundle",
-        identity: bundle1.identity
-      )
+    third = FixtureCase.write_tracking_fixture!(root, manifest, hex: true, docs: "must remain untracked")
+    assert_raise Error, ~r/remote.*conflict/, fn ->
+      Release.track!(plan, identity: third.identity, tag: "must-not-be-created", push: true)
+    end
+    assert Git.ref_oid(root, branch) == local.commit_sha
+    refute Git.tag_exists?(root, "must-not-be-created")
+    assert Git.remote_refs(root, "origin", [branch]) == {:ok, %{branch => divergent}}
+  end
 
-    assert status1.archived
-
-    # Dirty worktree marks status stale without raising.
-    File.write!(Path.join(repo_root, "UNTRACKED.txt"), "dirty\n")
-    dirty = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
-    assert dirty.state == :stale
-    assert :dirty_worktree in dirty.reasons
-
-    # Commit advances HEAD -> :head_moved.
-    Git.run!(repo_root, ["add", "UNTRACKED.txt"])
-    Git.run!(repo_root, ["commit", "-m", "advance head"])
-    moved = Weld.Commands.release_status!(manifest_path, artifact: "fixture_bundle")
-    assert moved.state == :stale
-    assert :head_moved in moved.reasons
-
-    # --all returns a deterministic list.
-    all = Weld.Commands.release_status!(manifest_path, all: true)
-    assert length(all) == 1
-    assert hd(all).artifact == "fixture_bundle"
+  test "tracked-file observations remain checkout-relative from a nested workspace" do
+    {manifest, plan, _bundle} = publication_fixture!()
+    tracked = Git.tracked_files(Path.dirname(manifest))
+    assert MapSet.member?(tracked, Path.relative_to(manifest, plan.manifest.repo_root))
+    refute MapSet.member?(tracked, Path.basename(manifest))
   end
 
   test "stage isolates edits and run lookup identifies each review copy" do
     {manifest, plan, bundle} = publication_fixture!()
-    first = Weld.Release.stage!(plan, identity: bundle.identity)
+    first = Release.stage!(plan, identity: bundle.identity)
     File.write!(Path.join(first.project_path, "README.md"), "local edit")
-    second = Weld.Release.stage!(plan, identity: bundle.identity)
+    second = Release.stage!(plan, identity: bundle.identity)
     refute first.project_path == second.project_path
     refute File.read!(Path.join(second.project_path, "README.md")) == "local edit"
-
-    request =
-      Weld.CLI.parse!("path", ["--manifest", manifest, "--kind", "run", "--run", second.run])
-
+    assert Output.run_path(plan.manifest.repo_root, "fixture_bundle", second.run) == second.run_path
+    request = Weld.CLI.parse!("path", ["--manifest", manifest, "--kind", "run", "--run", second.run])
     assert {:ok, %{path: path, exists: true}} = Weld.run(request)
     assert path == second.project_path
   end
 
   test "publication requires confirmation and dry-run makes no transport calls" do
-    {_manifest, plan, bundle} = publication_fixture!()
-
-    transport = %{
-      read: fn _, _, _ -> flunk("unexpected remote read") end,
-      write: fn _, _, _, _ -> flunk("unexpected upload") end
-    }
-
-    assert %{dry_run: true, archive_sha256: sha} =
-             Weld.Release.publish!(plan,
-               identity: bundle.identity,
-               transport: transport,
-               dry_run: true
-             )
-
+    {_, plan, bundle} = publication_fixture!()
+    transport = transport(fn _, _, _ -> flunk("unexpected read") end, fn _, _, _, _ -> flunk("unexpected write") end)
+    assert %{dry_run: true, archive_sha256: sha} = Release.publish!(plan, identity: bundle.identity, transport: transport, dry_run: true)
     assert sha == bundle.archive_sha256
-
-    assert_raise Error, ~r/requires --yes/, fn ->
-      Weld.Release.publish!(plan, identity: bundle.identity, transport: transport)
-    end
+    assert_raise Error, ~r/requires --yes/, fn -> Release.publish!(plan, identity: bundle.identity, transport: transport) end
   end
 
   test "publication submits exactly the pinned package and docs bytes" do
-    {_manifest, plan, bundle} = publication_fixture!()
+    {_, plan, bundle} = publication_fixture!()
     parent = self()
-    {:ok, server} = Agent.start_link(fn -> %{} end)
-
-    transport = %{
-      read: fn part, _, _ ->
-        case Agent.get(server, &Map.get(&1, part)) do
-          nil -> {:ok, {404, [], ""}}
-          body -> {:ok, {200, [], body}}
-        end
-      end,
-      write: fn part, name, version, body ->
-        send(parent, {part, name, version, Hash.sha256_binary(body)})
-        Agent.update(server, &Map.put(&1, part, body))
-        {:ok, {201, [], ""}}
-      end
-    }
-
-    assert %{state: "confirmed", completed?: true} =
-             Weld.Release.publish!(plan,
-               identity: bundle.identity,
-               transport: transport,
-               yes: true
-             )
-
+    {:ok, remote} = Agent.start_link(fn -> %{} end)
+    transport = transport(fn part, _, _ -> remote_value(remote, part) end, fn part, name, version, body ->
+      send(parent, {part, name, version, Identity.raw(body)})
+      Agent.update(remote, &Map.put(&1, part, body))
+      {:ok, {201, [], %{}}}
+    end)
+    assert %{state: "confirmed", completed?: true} = Release.publish!(plan, identity: bundle.identity, transport: transport, yes: true)
     assert_receive {:package, "fixture_bundle", "0.1.0", archive_sha}
     assert_receive {:docs, "fixture_bundle", "0.1.0", docs_sha}
     assert archive_sha == bundle.archive_sha256
-    assert docs_sha == Hash.sha256_file(Path.join(bundle.bundle_path, "docs.tar.gz"))
+    assert docs_sha == bundle.metadata["docs_archive_sha256"]
+    assert %{state: "confirmed"} = Release.publish!(plan, identity: bundle.identity, transport: transport, yes: true)
+    refute_receive {:package, _, _, _}
+    refute_receive {:docs, _, _, _}
   end
 
-  test "crash after docs submission blocks a repeat; read-only reconciliation can confirm it" do
-    {_manifest, plan, bundle} = publication_fixture!()
-    {:ok, server} = Agent.start_link(fn -> %{package: File.read!(bundle.tarball_path)} end)
-
-    transport = %{
-      read: fn part, _, _ ->
-        case Agent.get(server, &Map.get(&1, part)) do
-          nil -> {:ok, {404, [], ""}}
-          body -> {:ok, {200, [], body}}
-        end
-      end,
-      write: fn :docs, _, _, body ->
-        Agent.update(server, &Map.put(&1, :docs, body))
-        raise Error, "connection failed after submission"
-      end
-    }
-
+  test "crash after docs submission blocks a repeat and reconciliation only reads" do
+    {_, plan, bundle} = publication_fixture!()
+    {:ok, remote} = Agent.start_link(fn -> %{package: File.read!(bundle.tarball_path)} end)
+    transport = transport(fn part, _, _ -> remote_value(remote, part) end, fn :docs, _, _, body ->
+      Agent.update(remote, &Map.put(&1, :docs, body))
+      raise Error, "connection failed after submission"
+    end)
     opts = [identity: bundle.identity, transport: transport, yes: true]
-    assert_raise Error, ~r/connection failed/, fn -> Weld.Release.publish!(plan, opts) end
-    assert_raise Error, ~r/unresolved/, fn -> Weld.Release.publish!(plan, opts) end
-    assert %{state: "confirmed"} = Weld.Release.reconcile!(plan, opts)
+    assert %{state: "unknown", completed?: false} = Release.publish!(plan, opts)
+    assert_raise Error, ~r/unresolved/, fn -> Release.publish!(plan, opts) end
+    read_only = %{transport | write: fn _, _, _, _ -> flunk("reconcile writes remotely") end}
+    assert %{state: "confirmed"} = Release.reconcile!(plan, Keyword.put(opts, :transport, read_only))
+  end
+
+  test "docs_source_ref_warnings flags mutable source_ref and tag mismatches" do
+    manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    plan = Weld.Plan.build!(manifest, artifact: "fixture_bundle")
+    mutable = put_in(plan.artifact.package.docs.source_url, "https://github.com/example/fixture")
+      |> then(&put_in(&1.artifact.package.docs.source_ref, "main"))
+    assert [warning] = ReleaseStatus.docs_source_ref_warnings(mutable)
+    assert warning =~ "immutable projection tag"
+    pinned = put_in(mutable.artifact.package.docs.source_ref, "fixture_bundle-v0.1.0")
+    assert ReleaseStatus.docs_source_ref_warnings(pinned, "fixture_bundle-v0.1.0") == []
+    assert [mismatch] = ReleaseStatus.docs_source_ref_warnings(pinned, "fixture_bundle-v0.2.0")
+    assert mismatch =~ "differs from the tracked projection tag"
   end
 
   defp publication_fixture! do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    plan = Weld.Plan.build!(manifest)
-    root = plan.manifest.repo_root
+    root = Path.expand("../../..", manifest)
     FixtureCase.init_git!(root)
-    {manifest, plan, write_bundle!(root, manifest, "exact package archive bytes")}
+    plan = Weld.Plan.build!(manifest)
+    {manifest, plan, FixtureCase.write_tracking_fixture!(root, manifest, hex: true)}
   end
 
-  test "docs_source_ref_warnings flags mutable source_ref and tag mismatches" do
-    manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    plan = Weld.Plan.build!(manifest_path, artifact: "fixture_bundle")
-
-    mutable_plan =
-      put_in(plan.artifact.package.docs.source_url, "https://github.com/example/fixture")
-      |> then(&put_in(&1.artifact.package.docs.source_ref, "main"))
-
-    assert [warning] = ReleaseStatus.docs_source_ref_warnings(mutable_plan)
-    assert warning =~ "immutable projection tag"
-
-    pinned_plan = put_in(mutable_plan.artifact.package.docs.source_ref, "fixture_bundle-v0.1.0")
-    assert ReleaseStatus.docs_source_ref_warnings(pinned_plan, "fixture_bundle-v0.1.0") == []
-
-    assert [mismatch] =
-             ReleaseStatus.docs_source_ref_warnings(pinned_plan, "fixture_bundle-v0.2.0")
-
-    assert mismatch =~ "differs from tracked tag"
+  defp transport(read, write), do: %{read: read, write: write, trust: %{authenticated: true, authoritative: true,
+    destination: "http://127.0.0.1:56789", adapter: "hex_core/0.21.1", conformance: :loopback}}
+  defp remote_value(remote, part) do
+    case Agent.get(remote, &Map.get(&1, part)) do
+      nil -> {:ok, %{state: "absent", authoritative: true, code: "authenticated_fixture_noncommit"}}
+      bytes -> {:ok, %{state: "confirmed", authoritative: true, sha256: Identity.raw(bytes), source: "fixture"}}
+    end
   end
-
-  defp write_bundle!(repo_root, manifest_path, tarball_bytes) do
-    stage = FixtureCase.unique_tmp_dir("weld_bundle_018")
-    project = Path.join(stage, "project")
-    docs = Path.join(stage, "docs")
-    File.mkdir_p!(project)
-    File.mkdir_p!(docs)
-    File.cp!(Path.join(repo_root, "README.md"), Path.join(project, "README.md"))
-    File.write!(Path.join(docs, "index.html"), "<html>#{tarball_bytes}</html>")
-    tarball_name = "fixture_bundle-0.1.0.tar"
-    tarball = Path.join(stage, tarball_name)
-    File.write!(tarball, tarball_bytes)
-
-    revision = Git.revision(repo_root)
-    archive_sha = Hash.sha256_file(tarball)
-    docs_sha = Hash.sha256_tree(docs)
-
-    docs_archive = Hex.freeze_docs!(docs, Path.join(stage, "docs.tar.gz"))
-
-    metadata = %{
-      schema: "weld.bundle/2",
-      lock_sha256: nil,
-      artifact: "fixture_bundle",
-      package: %{name: "fixture_bundle", version: "0.1.0", otp_app: :fixture_bundle},
-      source_revision: revision,
-      manifest_path: Path.relative_to(manifest_path, repo_root),
-      manifest_digest: Hash.sha256_file(manifest_path),
-      weld_version: Weld.version(),
-      project_path: "project",
-      docs_path: "docs",
-      tarball_path: tarball_name,
-      integrity: %{
-        project_sha256: Hash.sha256_tree(project),
-        project_identity: Hash.content_identity(project),
-        docs_sha256: docs_sha,
-        docs_archive_sha256: Hash.sha256_file(docs_archive),
-        docs_identity: Hash.content_identity(docs),
-        archive_sha256: archive_sha
-      }
-    }
-
-    identity = Weld.Release.identity(metadata)
-    release_root = Path.join(repo_root, ".weld/v2/bundles/fixture_bundle")
-    bundle = Path.join(release_root, identity)
-    File.mkdir_p!(release_root)
-    File.rename!(stage, bundle)
-
-    File.write!(
-      Path.join(bundle, "bundle.json"),
-      Jason.encode!(Map.put(metadata, :identity, identity), pretty: true)
-    )
-
-    File.write!(
-      Path.join(release_root, "CURRENT"),
-      Jason.encode!(%{schema: "weld.current/2", artifact: "fixture_bundle", bundle_id: identity})
-    )
-
-    %{
-      identity: identity,
-      bundle_path: bundle,
-      tarball_path: Path.join(bundle, tarball_name),
-      archive_sha256: archive_sha,
-      docs_sha256: docs_sha
-    }
-  end
+  defp state_inventory(root), do: Hash.observation(Output.path(root, []))
 end

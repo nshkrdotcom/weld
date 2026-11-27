@@ -1,133 +1,73 @@
 defmodule Weld.Hash do
+  @moduledoc "Bounded exact regular-file observations; Core.Identity owns every digest domain."
   alias Weld.Core.Inventory
-  alias Weld.Shell.Files
-
-  @moduledoc """
-  Deterministic SHA-256 helpers for files, directories, and in-memory values.
-  """
-
+  alias Weld.Error
   @type digest :: String.t()
+  @max_entries 250_000
+  @max_bytes 512 * 1024 * 1024
 
-  @spec sha256_binary(binary()) :: digest()
-  def sha256_binary(binary) when is_binary(binary) do
-    :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)
-  end
-
-  @spec sha256_file(Path.t()) :: digest()
   def sha256_file(path) do
-    path
-    |> File.stream!(64_000, [])
+    path |> File.stream!(64_000, [])
     |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
-    |> :crypto.hash_final()
-    |> Base.encode16(case: :lower)
+    |> :crypto.hash_final() |> Base.encode16(case: :lower)
   end
 
-  @spec sha256_tree(Path.t()) :: digest()
-  def sha256_tree(root) do
-    entries =
-      root
-      |> list_files()
-      |> Enum.map_join("\n", fn path ->
-        relative = Path.relative_to(path, root)
-        "#{relative}:#{sha256_file(path)}"
-      end)
-
-    sha256_binary(entries)
+  def observation(root) do
+    {entries, dirs, _count, _bytes} = walk(root, "", 0, 0)
+    %{"entries" => Enum.sort_by(entries, & &1["path"]), "empty_dirs" => Enum.sort(dirs)}
   end
 
-  @doc "Hashes relative paths, executable flags and bytes using length-delimited entries."
-  @spec content_identity(Path.t()) :: digest()
-  def content_identity(root) do
-    identity_for_files(root, list_files(root))
+  defp walk(root, relative, count, bytes) do
+    if count >= @max_entries, do: raise(Error, "observed tree exceeds entry limit")
+    path = if relative == "", do: root, else: safe_path!(root, relative)
+    case File.lstat!(path) do
+      %{type: :regular, size: size, mode: mode} ->
+        if relative == "", do: raise(Error, "observed tree root must be a directory")
+        if bytes + size > @max_bytes, do: raise(Error, "observed tree exceeds byte limit")
+        {[%{"path" => relative, "sha256" => sha256_file(path), "size" => size,
+            "executable" => Bitwise.band(mode, 0o111) != 0}], [], count + 1, bytes + size}
+      %{type: :directory} ->
+        names = File.ls!(path) |> Enum.sort()
+        Enum.reduce(names, {[], if(names == [] and relative != "", do: [relative], else: []), count + 1, bytes},
+          fn name, {entries, dirs, count, bytes} ->
+            child = if relative == "", do: name, else: Path.join(relative, name)
+            {next, empty, count, bytes} = walk(root, child, count, bytes)
+            {next ++ entries, empty ++ dirs, count, bytes}
+          end)
+      _ -> raise Error, "unsafe file tree: #{relative}"
+    end
   end
 
-  @doc "Hashes portable project content independently of its provenance reports."
-  @spec project_identity(Path.t()) :: digest()
-  def project_identity(root) do
-    files =
-      list_files(root)
-      |> Enum.reject(
-        &(Path.relative_to(&1, root) in ["weld.provenance.json", "projection.lock.json"])
-      )
-
-    identity_for_files(root, files)
+  def safe_path!(root, relative) do
+    Inventory.validate_path!(relative)
+    Path.split(relative) |> Enum.reduce(root, fn part, parent ->
+      child = Path.join(parent, part)
+      case File.lstat(child) do
+        {:ok, %{type: type}} when type in [:regular, :directory] -> :ok
+        {:error, :enoent} -> :ok
+        _ -> raise Error, "unsafe file path: #{relative}"
+      end
+      child
+    end)
   end
 
-  @doc "Hashes the exact portable inventory and its resolved standalone Mix lock."
-  def portable_project_identity(root, relative_files) do
-    lock = if File.regular?(Path.join(root, "mix.lock")), do: ["mix.lock"], else: []
-
-    files =
-      (relative_files ++ lock)
-      |> Enum.reject(&(&1 in ["weld.provenance.json", "projection.lock.json"]))
-      |> Enum.uniq()
-      |> Enum.sort()
-      |> Enum.map(fn relative ->
-        path = Weld.Output.source!(root, relative)
-
-        unless match?({:ok, %{type: :regular}}, File.lstat(path)),
-          do: raise(Weld.Error, "portable project input missing or unsafe: #{relative}")
-
-        path
-      end)
-
-    identity_for_files(root, files)
-  end
-
-  @doc "Hashes verification inputs, allowing only the standalone resolved Mix lock to change."
-  def verification_identity(root, relative_files) do
-    files =
-      relative_files
-      |> Enum.reject(&(&1 == "mix.lock"))
-      |> Enum.uniq()
-      |> Enum.sort()
-      |> Enum.map(fn relative ->
-        path = Weld.Output.source!(root, relative)
-
-        unless match?({:ok, %{type: :regular}}, File.lstat(path)),
-          do: raise(Weld.Error, "verification input missing or unsafe: #{relative}")
-
-        path
-      end)
-
-    identity_for_files(root, files)
-  end
-
-  @doc "Hashes the current expansion of a publication allowlist, including new files."
-  def package_identity(root, patterns) do
-    verification_identity(root, package_members(root, patterns))
-  end
-
-  @doc false
-  def package_members(root, patterns) do
-    patterns
-    |> Enum.flat_map(&expand_package_pattern(root, &1))
-    |> Enum.map(&Path.relative_to(&1, root))
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
-
-  defp expand_package_pattern(root, pattern) do
-    root
-    |> Path.join(pattern)
-    |> Path.wildcard(match_dot: true)
-    |> Enum.flat_map(&expand_package_path/1)
-  end
-
-  defp expand_package_path(path), do: if(File.dir?(path), do: list_files(path), else: [path])
-
-  defp identity_for_files(root, files) do
-    relatives = Enum.map(files, &Path.relative_to(&1, root))
-    entries = Files.observe_many!(root, relatives)
-    Inventory.project_id(entries)
-  end
-
-  @spec list_files(Path.t()) :: [Path.t()]
   def list_files(root) do
-    root
-    |> Path.join("**/*")
-    |> Path.wildcard(match_dot: true)
-    |> Enum.filter(&File.regular?/1)
-    |> Enum.sort()
+    case File.lstat(root) do
+      {:error, :enoent} -> []
+      _ -> for entry <- observation(root)["entries"], do: Path.join(root, entry["path"])
+    end
   end
+
+  def entries(root, relative_files) do
+    relative_files |> Enum.uniq() |> Enum.sort() |> Enum.map(fn relative ->
+      path = safe_path!(root, relative)
+      case File.lstat!(path) do
+        %{type: :regular, size: size, mode: mode} ->
+          %{"path" => relative, "sha256" => sha256_file(path), "size" => size,
+            "executable" => Bitwise.band(mode, 0o111) != 0}
+        _ -> raise Error, "expected regular file: #{relative}"
+      end
+    end)
+  end
+
 end

@@ -4,7 +4,11 @@ defmodule Weld.Core.ReleaseOrder do
   @doc false
   def constraints(artifacts) do
     ensure_unique_packages!(artifacts)
-    versions = Map.new(artifacts, &{&1.package, &1.version})
+    versions = Map.new(artifacts, fn artifact ->
+      unless match?({:ok, _}, Version.parse(artifact.version)),
+        do: raise(Weld.Error, code: :invalid_plan, phase: :plan, message: "Invalid release version for #{artifact.package}")
+      {artifact.package, artifact.version}
+    end)
 
     for a <- artifacts,
         dep <- a.dependencies,
@@ -56,13 +60,26 @@ defmodule Weld.Core.ReleaseOrder do
       end)
 
     if ready == [] do
-      raise(
-        Weld.Error,
-        "Release dependency cycle involving: " <> Enum.map_join(blocked, ", ", & &1.package)
-      )
+      witness = cycle_witness(Enum.map(blocked, & &1.package), deps)
+      raise(Weld.Error, code: :dependency_cycle, phase: :plan,
+        message: "Release dependency cycle: " <> Enum.join(witness, " -> "),
+        details: %{cycle: witness})
     end
 
     order_layers(blocked, deps, ordered ++ ready)
+  end
+
+  defp cycle_witness(vertices, deps) do
+    graph = %{Weld.Graph.new() | projects: Map.new(vertices, &{&1, nil})}
+    graph = Enum.reduce(vertices, graph, fn from, graph ->
+      Enum.reduce(Map.get(deps, from, []), graph, fn to, graph ->
+        Weld.Graph.add_edge(graph, %Weld.Graph.Edge{from: from, to: to, app: :release, kind: :runtime, opts: []})
+      end)
+    end)
+    case Weld.Graph.topology(graph, :package) do
+      {:cycle, witness} -> witness
+      _ -> vertices
+    end
   end
 
   defp ensure_unique_packages!(artifacts) do
@@ -74,7 +91,7 @@ defmodule Weld.Core.ReleaseOrder do
       |> Enum.sort()
 
     if duplicates != [] do
-      raise(Weld.Error, "Duplicate release package identities: " <> Enum.join(duplicates, ", "))
+      raise(Weld.Error, code: :duplicate_package, phase: :plan, message: "Duplicate release package identities: " <> Enum.join(duplicates, ", "))
     end
   end
 end

@@ -74,7 +74,7 @@ defmodule Weld.ProjectorConfigCacheTest do
     end
   end
 
-  test "full and live package caches refresh config companion permission changes" do
+  test "full and live package caches refresh executable changes and normalize non-executable permissions" do
     for live? <- [false, true] do
       {manifest, config_root} = config_fixture!()
       write_config_tree!(config_root)
@@ -84,13 +84,15 @@ defmodule Weld.ProjectorConfigCacheTest do
       assert Weld.Commands.project!(manifest, live: live?).reused?
 
       File.chmod!(source, 0o600)
+      assert Weld.Commands.project!(manifest, live: live?).reused?
+      File.chmod!(source, 0o755)
       refreshed = Weld.Commands.project!(manifest, live: live?)
 
       refute refreshed.reused?
       assert_runtime_copies!(refreshed, "nested/value.txt", "first")
 
       for path <- runtime_copies(refreshed, "nested/value.txt") do
-        assert Bitwise.band(File.stat!(path).mode, 0o777) == 0o600
+        assert Bitwise.band(File.stat!(path).mode, 0o777) == 0o755
       end
 
       assert Weld.Commands.project!(manifest, live: live?).reused?

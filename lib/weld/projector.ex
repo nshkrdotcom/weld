@@ -1,301 +1,138 @@
 defmodule Weld.Projector do
-  @moduledoc """
-  Generates the welded Mix project and its initial lockfile.
-  """
-
-  alias Weld.Core.Inventory, as: CoreInventory
-  alias Weld.Error
-  alias Weld.Git
-  alias Weld.Hash
-  alias Weld.Layout.{FilePlan, Flat, Support}
-  alias Weld.Lockfile
-  alias Weld.Output
-  alias Weld.Plan
+  @moduledoc "Materialize all three layouts from the compiler's single closed inventory."
+  alias Weld.Core.Identity
+  alias Weld.{Error, Git, Hash, Output, Plan, Receipt}
   alias Weld.Plan.Inventory
-  alias Weld.Projector.SourceProject
-  alias Weld.Receipt
-  alias Weld.Shell.Files
-  alias Weld.Shell.Inputs
+  alias Weld.Shell.{Materializer, Native, Snapshot}
 
-  @spec project!(Plan.t(), keyword()) :: map()
   def project!(%Plan{} = plan, opts \\ []) do
-    Weld.Output.with_lock(plan.manifest.repo_root, fn -> project_locked!(plan, opts) end)
-  end
-
-  def project_locked!(plan, opts) do
     Plan.ensure_valid!(plan)
-    kind = if opts[:live], do: :live, else: :full
+    kind = if(opts[:live] or opts[:kind] in [:live, "live"], do: :live, else: :full)
+    Output.with_lease(plan.manifest.repo_root, "project", plan.artifact.id,
+      "projection:" <> Atom.to_string(kind), [], fn lease ->
+        project_with_lease!(plan, kind, lease, opts)
+      end, opts)
+  end
 
+  defp project_with_lease!(plan, kind, lease, opts) do
     root = plan.manifest.repo_root
-    Support.validate_inputs!(plan)
     target = build_path(plan, kind)
-    receipt = Output.path(root, ["cache", "projection", plan.artifact.id, "#{kind}.receipt"])
-    revision = Git.revision(root)
-    input = input_digest(plan, revision, kind)
-
-    case reused_projection(receipt, input, target, kind, opts) do
-      {:ok, result} ->
-        Map.put(result, :reused?, true)
-
-      :miss ->
-        stage_projection!(plan, kind, target, receipt, input, revision)
-    end
-  end
-
-  defp reused_projection(receipt, input, target, kind, opts) do
-    with false <- Keyword.get(opts, :no_cache, false),
-         {:ok, {expected, %{build_path: ^target} = projection}} <- Receipt.read(receipt, input),
-         ^expected <- output_digest(target, kind) do
-      {:ok, projection}
+    receipt = Output.path(root, ["views", plan.artifact.id, "#{kind}.json"])
+    owner = Output.path(root, ["views", plan.artifact.id, "#{kind}.owner.json"])
+    inventory = Inventory.portable(plan)
+    record = read_receipt(receipt)
+    recheck_inputs!(plan, inventory["input_id"])
+    reusable = not (opts[:no_cache] or opts[:fresh]) and
+      reusable?(plan, kind, target, record, inventory)
+    if reusable do
+      write_receipt!(receipt, plan, kind, target, inventory)
+      projection(plan, target, kind, true)
     else
-      _ -> :miss
-    end
-  end
-
-  defp output_digest(target, kind) do
-    Receipt.digest(Receipt.tree(target, kind == :live))
-  rescue
-    Error -> :unsafe
-  end
-
-  @doc false
-  def input_digest(plan, revision, kind) do
-    root = plan.manifest.repo_root
-
-    roots = Enum.map(plan.source_roots, & &1.source)
-
-    # Generated config is read separately from component source roots. Include
-    # missing directories so adding the first config file also invalidates reuse.
-    config_roots =
-      for project <- plan.selected_projects,
-          plan.artifact.mode != :source_project,
-          do: Inventory.checkout_path(project, "config")
-
-    paths =
-      Enum.reduce(plan.source_inventory, roots, fn %{source: source}, covered ->
-        if Enum.any?(roots, &Inventory.covered?(source, &1)),
-          do: covered,
-          else: [source | covered]
-      end) ++ plan.structural_inputs ++ config_roots
-
-    files =
-      for path <- paths |> Enum.uniq() |> Enum.sort(),
-          do: {path, root |> Output.source!(path) |> Receipt.tree()}
-
-    Receipt.digest(
-      {Receipt.implementation(), kind, revision, Git.remote_url(root), plan, files,
-       Inputs.collect!(plan), Hash.sha256_file(plan.manifest.manifest_path)}
-    )
-  end
-
-  defp stage_projection!(plan, kind, target, receipt, input, revision) do
-    root = plan.manifest.repo_root
-    stage = Output.temporary!(root, "staging")
-
-    try do
-      projection = materialize!(plan, stage, target, kind, revision)
-
-      unless input_digest(plan, Git.revision(root), kind) == input do
-        raise Error, "source inputs changed during projection"
-      end
-
-      digest = output_digest(stage, kind)
-      Output.activate!(stage, target, &managed?(&1, plan.artifact.id, kind))
-      Receipt.write!(receipt, input, {digest, projection})
-      Map.put(projection, :reused?, false)
-    after
-      File.rm_rf!(stage)
+      stage = Path.join(lease.stage, "project")
+      File.mkdir_p!(stage)
+      Materializer.execute!(plan.layout, plan.facts, stage, kind)
+      if plan.source_root, do: Native.validate!(plan, stage, kind)
+      recheck_inputs!(plan, inventory["input_id"])
+      if kind == :full and File.exists?(target), do: Output.reject_tree_links!(target)
+      Output.with_lock(root, fn ->
+        # Reserve ownership before the first replace, but never label an
+        # existing unmanaged target. A crash can leave an owned empty slot.
+        if File.exists?(target) and not owned?(owner, plan.artifact.id, kind),
+          do: raise(Error, "unmanaged output: #{target}")
+        Output.write_atomic!(owner, Identity.canonical(owner_record(plan.artifact.id, kind)))
+      end)
+      Output.activate!(stage, target, fn _ -> owned?(owner, plan.artifact.id, kind) end,
+        lease: lease, failpoint: opts[:failpoint])
+      write_receipt!(receipt, plan, kind, target, inventory)
+      projection(plan, target, kind, false)
     end
   end
 
   def materialize_verification!(plan, stage) do
     Plan.ensure_valid!(plan)
-    Support.validate_inputs!(plan)
-    root = plan.manifest.repo_root
-    revision = Git.revision(root)
-    input = input_digest(plan, revision, :full)
-    projection = materialize!(plan, stage, stage, :full, revision)
-
-    unless input_digest(plan, Git.revision(root), :full) == input,
-      do: raise(Error, "source inputs changed during qualification materialization")
-
-    projection
+    inventory = Inventory.portable(plan)
+    recheck_inputs!(plan, inventory["input_id"])
+    File.mkdir_p!(stage)
+    Materializer.execute!(plan.layout, plan.facts, stage, :full)
+    if plan.source_root, do: Native.validate!(plan, stage)
+    recheck_inputs!(plan, inventory["input_id"])
+    projection(plan, stage, :full, false)
   end
 
-  defp materialize!(plan, stage, target, kind, revision) do
-    projection =
-      case plan.artifact.mode do
-        :source_project -> SourceProject.project!(plan, stage, kind)
-        _ -> project_by_mode!(plan, stage, kind)
-      end
-
-    linked = Map.get(projection, :linked_files, [])
-
-    inventory =
-      Hash.list_files(stage)
-      |> Enum.map(&Path.relative_to(&1, stage))
-      |> Kernel.++(linked)
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    check_materialization!(plan, stage, kind, inventory)
-
-    files = inventory -- linked
-    tree_digest = write_marker!(stage, plan.artifact.id, kind)
-
-    projection =
-      Map.merge(projection, %{
-        copied_files: files,
-        linked_files: linked,
-        verification_files: inventory,
-        build_path: target,
-        git_revision: revision,
-        tree_digest: tree_digest
-      })
-
-    lockname = "projection.lock.json"
-    lockfile = Lockfile.build(plan, projection, [])
-    File.write!(Path.join(stage, lockname), Lockfile.encode!(lockfile), [:exclusive])
-    reject_published_reports!(stage, projection)
-
-    Map.put(projection, :lockfile_path, Path.join(target, lockname))
+  def recheck_inputs!(plan, expected) do
+    inputs = Inventory.portable(plan)["inputs"]
+    facts = Snapshot.refresh!(plan.facts, inputs)
+    projects = Map.new(plan.workspace.projects, fn {id, project} -> {id, %{project | facts: facts}} end)
+    workspace = %{plan.workspace | facts: facts, projects: projects}
+    refreshed = %{plan | facts: facts, workspace: workspace,
+      selected_projects: Enum.map(plan.selected_projects, &Map.fetch!(projects, &1.id))}
+    unless Inventory.portable(refreshed)["input_id"] == expected,
+      do: raise(Error, code: :inputs_changed, phase: :materialize,
+        message: "source inputs changed after planning; build a new plan")
+    :ok
   end
 
-  defp check_materialization!(%{layout: nil}, _stage, _kind, _inventory), do: :ok
-
-  defp check_materialization!(plan, stage, kind, inventory) do
-    expected = Enum.map(plan.output_inventory, & &1.target) |> Enum.sort()
-    unless inventory == expected, do: raise(Error, "materialized inventory differs from plan")
-
-    if kind == :full do
-      observed = Files.observe_many!(stage, expected) |> Map.new(&{&1.target, &1})
-
-      unless Enum.all?(
-               CoreInventory.diff(plan.output_inventory, observed),
-               &(&1.state == :identical)
-             ),
-             do: raise(Error, "materialized bytes or executable modes differ from plan")
-    end
+  defp reusable?(_plan, _kind, _target, nil, _inventory), do: false
+  defp reusable?(plan, kind, target, record, inventory) do
+    identity_matches = kind == :live or record["plan_id"] == inventory["plan_id"]
+    unless record["artifact"] == plan.artifact.id and record["kind"] == Atom.to_string(kind),
+      do: raise(Error, "projection cache ownership mismatch")
+    identity_matches and record["local_link_locator_digest"] == locator_digest(plan, kind) and
+      record["observed_tree_digest"] == output_digest(target, kind) and
+      is_map(Materializer.validate!(plan.layout, plan.facts, target, kind))
+  rescue
+    _ -> false
   end
 
-  defp reject_published_reports!(stage, %{package_patterns: patterns}) do
-    paths = Enum.flat_map(patterns, &expand_report_pattern(stage, &1))
-
-    for report <- ~w(weld.provenance.json projection.lock.json),
-        Path.join(stage, report) in paths do
-      raise Error, "native package allowlist includes generated publication metadata: #{report}"
-    end
-  end
-
-  defp reject_published_reports!(_stage, _projection), do: :ok
-
-  defp expand_report_pattern(stage, pattern) do
-    Path.wildcard(Path.join(stage, pattern), match_dot: true)
-    |> Enum.flat_map(&expand_report_path/1)
-  end
-
-  defp expand_report_path(path), do: if(File.dir?(path), do: Hash.list_files(path), else: [path])
-
-  defp write_marker!(stage, artifact, kind) do
-    marker = %{schema: "weld.projection/v1", artifact: artifact, kind: kind}
-    {marker, digest} = projection_digests!(stage, kind, marker)
-
-    File.write!(Path.join(stage, "weld.provenance.json"), Jason.encode!(marker, pretty: true), [
-      :exclusive
-    ])
-
-    digest
-  end
-
-  defp projection_digests!(stage, :full, marker) do
-    Output.reject_tree_links!(stage)
-    {Map.put(marker, :artifact_id, Hash.content_identity(stage)), Hash.sha256_tree(stage)}
-  end
-
-  defp projection_digests!(_stage, :live, marker), do: {marker, nil}
-
-  defp managed?(target, artifact, kind) do
-    path = Path.join(target, "weld.provenance.json")
-    Output.reject_link!(path)
-
+  defp read_receipt(path) do
     with {:ok, bytes} <- File.read(path),
-         {:ok, %{"schema" => "weld.projection/v1", "artifact" => ^artifact, "kind" => value}} <-
-           Jason.decode(bytes) do
-      value == Atom.to_string(kind)
+         record <- Identity.decode!(bytes),
+         {:ok, valid} <- Receipt.read(path, record["plan_id"]) do
+      valid
     else
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp write_receipt!(path, plan, kind, target, inventory) do
+    record = %{"schema" => "weld.projection_cache/2", "artifact" => plan.artifact.id,
+      "kind" => Atom.to_string(kind), "plan_id" => inventory["plan_id"],
+      "local_link_locator_digest" => locator_digest(plan, kind),
+      "observed_tree_digest" => output_digest(target, kind)}
+    Output.with_lock(plan.manifest.repo_root, fn -> Receipt.write!(path, record) end)
+  end
+
+  defp locator_digest(_plan, :full), do: nil
+  defp locator_digest(plan, :live), do: Identity.raw(plan.manifest.repo_root)
+  defp output_digest(target, kind), do: Receipt.digest(Receipt.tree(target, kind == :live))
+  defp owner_record(artifact, kind), do: %{"schema" => "weld.view/2", "artifact" => artifact, "kind" => Atom.to_string(kind)}
+  defp owned?(path, artifact, kind) do
+    case File.read(path) do
+      {:ok, bytes} -> Identity.decode!(bytes) == owner_record(artifact, kind)
       _ -> false
     end
+  rescue
+    _ -> false
   end
 
-  @doc false
-  def with_output_lock(%Plan{} = plan, fun), do: Output.with_lock(plan.manifest.repo_root, fun)
+  defp projection(plan, target, kind, reused?) do
+    observation = Materializer.validate!(plan.layout, plan.facts, target, kind)
+    Map.merge(observation, %{
+      build_path: target, package_files: plan.layout.package_files,
+      package_patterns: Map.get(plan.layout, :package_patterns),
+      verification_files: Enum.map(plan.output_inventory, & &1.target),
+      empty_dirs: Map.get(plan.layout, :empty_dirs, []),
+      git_revision: Git.revision(plan.manifest.repo_root),
+      tree_digest: if(kind == :full, do: Identity.digest("project", Hash.observation(target))),
+      config_warnings: plan.layout.config_warnings,
+      mode: plan.artifact.mode, reused?: reused?
+    }) |> Map.merge(Map.take(plan.layout, [:file_remaps, :migration_layout, :migration_remaps,
+      :helper_transformations, :source_mappings, :repo_infos, :test_support_projects]))
+  end
 
-  @spec build_path(Plan.t(), :live | :full) :: Path.t()
   def build_path(plan, kind \\ :full)
-
-  def build_path(%Plan{} = plan, :full),
-    do: Output.path(plan.manifest.repo_root, ["full", plan.artifact.id, "project"])
-
-  def build_path(%Plan{} = plan, :live),
-    do: Output.path(plan.manifest.repo_root, ["live", plan.artifact.id])
-
-  defp project_by_mode!(%Plan{artifact: %{mode: :monolith}} = plan, build_path, kind) do
-    Flat.materialize!(plan, build_path, kind: kind)
-  end
-
-  defp project_by_mode!(%Plan{layout: layout} = plan, build_path, kind) do
-    operations = Map.fetch!(layout, kind)
-
-    {linked, remaining} =
-      if kind == :live do
-        linked = Enum.flat_map(layout.live_roots, &materialize_root!(plan, build_path, &1, kind))
-        {linked, Enum.reject(operations, &(&1.target in linked))}
-      else
-        {[], operations}
-      end
-
-    files = FilePlan.materialize!(remaining, build_path, kind)
-
-    %{
-      copied_files: files,
-      linked_files: linked,
-      package_files: layout.package_files,
-      config_warnings: layout.config_warnings
-    }
-  end
-
-  defp materialize_root!(plan, build_path, entry, kind) do
-    source = Output.source!(plan.manifest.repo_root, entry.source)
-    target = Output.source!(build_path, entry.target)
-    Output.reject_tree_links!(source)
-
-    unless File.exists?(source), do: raise(Error, "missing planned source: #{entry.source}")
-    if File.exists?(target), do: raise(Error, "projection path collision: #{entry.target}")
-    File.mkdir_p!(Path.dirname(target))
-
-    files = if File.dir?(source), do: Hash.list_files(source), else: [source]
-
-    projected =
-      Enum.map(files, fn path ->
-        if path == source,
-          do: entry.target,
-          else: Path.join(entry.target, Path.relative_to(path, source))
-      end)
-
-    case kind do
-      :full ->
-        File.cp_r!(source, target)
-
-      :live ->
-        case File.ln_s(source, target) do
-          :ok ->
-            :ok
-
-          {:error, reason} ->
-            raise Error, "live projection needs symlink support for #{entry.target}: #{reason}"
-        end
-    end
-
-    projected
-  end
+  def build_path(plan, :full), do: Output.path(plan.manifest.repo_root, ["full", plan.artifact.id, "project"])
+  def build_path(plan, :live), do: Output.path(plan.manifest.repo_root, ["live", plan.artifact.id])
 end

@@ -76,23 +76,18 @@ defmodule Weld.OutputTest do
     assert File.read!(Path.join(output, "v2/user-data")) == "preserve"
   end
 
-  test "activation restores a managed interrupted backup before another rename", %{root: root} do
+  test "activation refuses an unjournaled backup and preserves its bytes", %{root: root} do
     Output.setup!(root)
     target = Output.path(root, ["full", "demo", "project"])
     previous = target <> ".weld-previous"
     File.mkdir_p!(previous)
-    File.write!(Path.join(previous, "owner"), "weld fixture")
     File.write!(Path.join(previous, "value"), "prior projection")
-    managed? = &(File.read(Path.join(&1, "owner")) == {:ok, "weld fixture"})
-
-    missing_stage = Output.path(root, ["staging", "missing"])
-
-    assert_raise File.RenameError, fn ->
-      Output.with_lock(root, fn -> Output.activate!(missing_stage, target, managed?) end)
+    missing = Output.path(root, ["staging", "missing"])
+    assert_raise Error, ~r/stage missing/, fn ->
+      Output.activate!(missing, target, fn _ -> true end)
     end
-
-    assert File.read!(Path.join(target, "value")) == "prior projection"
-    refute File.exists?(previous)
+    assert File.read!(Path.join(previous, "value")) == "prior projection"
+    refute File.exists?(target)
   end
 
   test "linked worktrees get independent output roots", %{root: root} do
@@ -111,7 +106,7 @@ defmodule Weld.OutputTest do
     on_exit(fn -> File.rm_rf!(linked) end)
     FixtureCase.git_output!(root, ["worktree", "add", "--detach", linked])
     Weld.Output.setup!(linked)
-    assert File.regular?(Path.join(linked, ".weld/v2/.owner"))
+    assert File.regular?(Path.join(linked, ".weld/v2/OWNER"))
     refute File.exists?(Path.join(root, ".weld"))
   end
 end

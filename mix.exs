@@ -45,8 +45,7 @@ defmodule Weld.MixProject do
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:hex_core, "~> 0.21.1"},
       {:jason, "~> 1.4"},
-      {:nimble_options, "~> 1.1"},
-      {:telemetry, "~> 1.4"}
+      {:nimble_options, "~> 1.1"}
     ]
   end
 
@@ -77,6 +76,7 @@ defmodule Weld.MixProject do
         "guides/source_projects.md": [title: "Source-Project Artifacts"],
         "guides/manifest_reference.md": [title: "Manifest Reference"],
         "guides/testing_strategy.md": [title: "Testing Strategy"],
+        "guides/qc/acceptance.md": [title: "0.20 Acceptance and Evidence"],
         "guides/release_process.md": [title: "Release Process"],
         "guides/consumer_repo_integration.md": [title: "Consumer Repo Integration"],
         "CHANGELOG.md": [title: "Changelog"],
@@ -90,15 +90,21 @@ defmodule Weld.MixProject do
           Weld.Workspace,
           Weld.Graph
         ],
-        "Projection And Release": [
+        "Compiler, Projection And Release": [
           Weld.Output,
-          Weld.Projector.SourceProject,
+          Weld.Core.Compiler,
+          Weld.Core.Facts,
+          Weld.Core.Identity,
+          Weld.Core.Inventory,
+          Weld.Plan.Inventory,
+          Weld.Layout.Components,
+          Weld.Layout.Flat,
+          Weld.Layout.Preserve,
           Weld.Projector,
           Weld.Verifier,
           Weld.Release,
           Weld.ReleaseReceipt,
           Weld.ReleaseStatus,
-          Weld.Lockfile,
           Weld.SmokeApp,
           Weld.Affected,
           Weld.AgentsVerifier
@@ -106,6 +112,7 @@ defmodule Weld.MixProject do
         "Workspace And Graph": [
           Weld.Workspace.Project,
           Weld.Workspace.Discovery,
+          Weld.Workspace.Probe,
           Weld.Graph.Edge,
           Weld.Graph.View,
           Weld.Violation,
@@ -120,7 +127,7 @@ defmodule Weld.MixProject do
         Reference:
           ~r/guides\/cli_reference.md|guides\/manifest_reference.md|guides\/source_projects.md/,
         "Deep Dive":
-          ~r/guides\/architecture.md|guides\/testing_strategy.md|guides\/consumer_repo_integration.md/,
+          ~r/guides\/architecture.md|guides\/testing_strategy.md|guides\/consumer_repo_integration.md|guides\/qc\/acceptance.md/,
         Release: ~r/guides\/release_process.md|CHANGELOG.md|LICENSE/
       ]
     ]

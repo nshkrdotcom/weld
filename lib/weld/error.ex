@@ -1,3 +1,3 @@
 defmodule Weld.Error do
-  defexception [:message]
+  defexception [:message, :code, :phase, :diagnostics, details: %{}]
 end

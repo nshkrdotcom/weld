@@ -1,7 +1,7 @@
 defmodule Weld.Plan.Boundary do
   @moduledoc false
 
-  alias Weld.{Graph, Violation, Workspace}
+  alias Weld.{Graph, Violation}
   alias Weld.Graph.Edge
 
   @transport_opts [:path, :git, :github, :branch, :tag, :ref, :subdir, :submodules, :sparse]
@@ -33,11 +33,11 @@ defmodule Weld.Plan.Boundary do
       |> Map.take(targets)
       |> Map.new(fn {id, project} -> {project.app, id} end)
 
-    for project <- Workspace.projects(workspace),
+    for project <- (workspace.projects |> Map.values() |> Enum.sort_by(& &1.id)),
         dep <- project.deps,
         dep.opts[:git] || dep.opts[:github],
         target = targets_by_app[dep.app] do
-      dependency = Workspace.external_dependency(dep)
+      dependency = Graph.external_dependency(dep)
 
       %Edge{
         from: project.id,
@@ -93,7 +93,7 @@ defmodule Weld.Plan.Boundary do
     with {:ok, requirement, opts} <- boundary_dependency(edge, policy, artifact),
          :ok <- validate_package(edge, project, requirement, opts, policy) do
       dep = dependency(edge, requirement, opts)
-      {Graph.add_external_dep(graph, edge.from, Workspace.external_dependency(dep)), violations}
+      {Graph.add_external_dep(graph, edge.from, Graph.external_dependency(dep)), violations}
     else
       {:error, message} ->
         error =
@@ -126,7 +126,7 @@ defmodule Weld.Plan.Boundary do
   defp boundary_dependency(edge, policy, artifact) do
     source_opts = Keyword.drop(edge.opts, @transport_opts ++ [:override])
     opts = Keyword.merge(source_opts, policy.opts)
-    scope = [:runtime, :only, :optional]
+    scope = [:runtime, :only, :optional, :targets]
 
     cond do
       Enum.any?(scope, &scope_changed?(&1, source_opts, opts)) ->
@@ -149,8 +149,8 @@ defmodule Weld.Plan.Boundary do
   defp scope_changed?(:optional, source, canonical),
     do: Keyword.get(source, :optional, false) != Keyword.get(canonical, :optional, false)
 
-  defp scope_changed?(:only, source, canonical),
-    do: Enum.sort(List.wrap(source[:only])) != Enum.sort(List.wrap(canonical[:only]))
+  defp scope_changed?(key, source, canonical) when key in [:only, :targets],
+    do: Enum.sort(List.wrap(source[key])) != Enum.sort(List.wrap(canonical[key]))
 
   defp validate_package(edge, project, requirement, opts, policy) do
     cond do

@@ -4,77 +4,52 @@ defmodule Mix.Tasks.Weld do
   @moduledoc "The single Weld command entrypoint. Run `mix weld help` for commands."
 
   @impl Mix.Task
-  def run([]), do: IO.puts(Weld.CLI.help())
-  def run(["help"]), do: IO.puts(Weld.CLI.help())
-  def run(["help", command]), do: IO.puts(Weld.CLI.help(command))
-
-  def run([command | args]) do
-    format = if "json" in args, do: "json", else: "text"
-
+  def run(args) do
     try do
-      request = Weld.CLI.parse!(command, args)
-
-      if request.options[:help] do
-        IO.puts(Weld.CLI.help(command))
-      else
-        emit(command, request.options[:format] || "text", Weld.run(request))
-      end
-    rescue
-      error in [Weld.Error, ArgumentError] ->
-        emit(
-          command,
-          format,
-          {:error, [Weld.CLI.diagnostic(:invalid_arguments, Exception.message(error))]}
-        )
+      invoke(args)
     after
       Mix.Task.reenable("weld")
     end
   end
 
+  defp invoke([]), do: IO.puts(Weld.CLI.help())
+  defp invoke(["--help"]), do: IO.puts(Weld.CLI.help())
+  defp invoke(["help"]), do: IO.puts(Weld.CLI.help())
+  defp invoke(["help", command]) do
+    try do
+      IO.puts(Weld.CLI.help(command))
+    rescue
+      error in [Weld.Error, ArgumentError] -> emit("help", "text", {:error, [Weld.CLI.diagnostic(:invalid_arguments, Exception.message(error))]})
+    end
+  end
+  defp invoke([command | args]) do
+    format = requested_format(args)
+    result = try do
+      request = Weld.CLI.parse!(command, args)
+      Weld.run(request)
+    rescue
+      error in [Weld.Error, ArgumentError] -> {:error, [Weld.CLI.diagnostic(:invalid_arguments, Exception.message(error))]}
+    end
+    emit(command, format, result)
+  end
+
   defp emit(command, "json", result) do
-    {ok, data, diagnostics} =
-      case result do
-        {:ok, data} -> {not failed?(data), data, []}
-        {:error, diagnostics} -> {false, nil, diagnostics}
-      end
-
-    envelope = %{
-      schema: "weld.result/2",
-      command: command,
-      ok: ok,
-      data: data,
-      diagnostics: diagnostics
-    }
-
-    IO.puts(Jason.encode!(Weld.CLI.json_value(envelope)))
-
-    unless ok,
-      do: exit({:shutdown, failure_status(data, diagnostics)})
+    IO.puts(Weld.CLI.encode_json(Weld.CLI.envelope(command, result)))
+    finish(Weld.CLI.exit_status(command, result))
   end
-
-  defp emit("path", _, {:ok, %{path: path}}), do: IO.puts(path)
-  defp emit(_, _, {:ok, data}) when is_binary(data), do: IO.puts(data)
-
-  defp emit(_, _, {:ok, data}) do
-    IO.puts(inspect(data, pretty: true, limit: :infinity))
-    if failed?(data), do: exit({:shutdown, if(data[:partial_failure], do: 5, else: 4)})
+  defp emit(command, _, {:ok, data} = result) do
+    IO.puts(Weld.CLI.render_text(command, data))
+    finish(Weld.CLI.exit_status(command, result))
   end
-
-  defp emit(_, _, {:error, diagnostics}) do
-    Enum.each(diagnostics, &IO.puts(:stderr, "#{&1.code}: #{&1.message}"))
-    exit({:shutdown, failure_status(nil, diagnostics)})
+  defp emit(command, _, {:error, diagnostics} = result) do
+    Enum.each(diagnostics, &IO.puts(:stderr, "#{Weld.CLI.diagnostic_field(&1, :code)}: #{Weld.CLI.diagnostic_field(&1, :message)}"))
+    finish(Weld.CLI.exit_status(command, result))
   end
+  defp finish(0), do: :ok
+  defp finish(code), do: exit({:shutdown, code})
 
-  defp failure_status(%{partial_failure: true}, _), do: 5
-  defp failure_status(%{}, _), do: 4
-
-  defp failure_status(nil, [%{code: code} | _])
-       when code in [:invalid_arguments, :invalid_request], do: 2
-
-  defp failure_status(nil, _), do: 3
-
-  defp failed?(data) when is_map(data),
-    do: data[:partial_failure] == true or data[:state] in ["unknown", "conflict"]
-
-  defp failed?(_), do: false
+  defp requested_format(["--format", value | _]), do: value
+  defp requested_format(["--format=" <> value | _]), do: value
+  defp requested_format([_ | args]), do: requested_format(args)
+  defp requested_format([]), do: "text"
 end

@@ -82,19 +82,23 @@ defmodule Weld.ErgonomicsContractTest do
   test "gc preserves active runs independently of completed-run retention", %{tmp_dir: dir} do
     Weld.Git.run!(dir, ["init", "--quiet"])
     Weld.Output.setup!(dir)
-    active = Path.join(dir, ".weld/v2/runs/demo/verify-active")
-    completed = Path.join(dir, ".weld/v2/runs/demo/stage-completed")
-    File.mkdir_p!(active)
-    File.mkdir_p!(completed)
-    File.write!(Path.join(active, "ACTIVE"), "publisher active")
-
-    report = GC.prune(dir, keep: 0, dry_run: false)
-
-    assert report.active == [active]
-    assert active in report.kept
-    assert report.removed == [completed]
-    assert File.dir?(active)
-    refute File.exists?(completed)
+    completed = Weld.Output.with_lease(dir, "stage", "demo", "review", [], fn lease ->
+      run = Weld.Output.run!(dir, "stage", "demo", lease)
+      Weld.Output.finish_run!(run, "completed")
+      run.path
+    end)
+    lease = Weld.Output.reserve!(dir, "verify", "demo", "verify", [])
+    try do
+      active = Weld.Output.run!(dir, "verify", "demo", lease).path
+      report = GC.prune(dir, keep: 0, dry_run: false)
+      assert report.active == [active]
+      assert active in report.kept
+      assert report.removed == [completed]
+      assert File.dir?(active)
+      refute File.exists?(completed)
+    after
+      Weld.Output.release!(lease)
+    end
   end
 
   test "gc rejects symlinked run parents without deleting their targets", %{tmp_dir: dir} do
@@ -153,6 +157,8 @@ defmodule Weld.ErgonomicsContractTest do
     %{
       artifact: %{id: "demo", mode: :source_project},
       manifest: %{repo_root: root},
+      layout: %{live: Enum.map(entries, &%{target: &1.target, content: nil}),
+        live_roots: [%{target: "lib", source: "lib"}]},
       output_inventory: entries
     }
   end

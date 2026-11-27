@@ -1,0 +1,72 @@
+baseline_path	baseline_physical_lines	work_package	current_destinations	source_disposition	responsibility	removed_since_checkpoint
+lib/mix/tasks/release.archive.ex	16	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/release.prepare.ex	16	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/release.publish.ex	17	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/release.stage.ex	16	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/release.status.ex	16	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/release.track.ex	16	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/release.verify_tag.ex	16	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.affected.ex	40	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.agents.verify.ex	39	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.diff.ex	134	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.docs.check.ex	40	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.doctor.ex	43	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.explain.ex	68	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.gc.ex	107	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.graph.ex	42	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.inspect.ex	42	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.open.ex	30	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.project.ex	30	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.query.ex	55	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.release.archive.ex	42	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.release.plan.ex	154	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.release.prepare.ex	56	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.release.publish.ex	62	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.release.stage.ex	56	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.release.status.ex	79	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.release.track.ex	78	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.release.verify_tag.ex	46	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.setup.ex	26	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.status.ex	55	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/mix/tasks/weld.verify.ex	25	WP08	lib/mix/tasks/weld.ex,lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	Unified typed registry/dispatcher; old task rejected, no compatibility alias.	false
+lib/weld.ex	333	WP08	lib/weld.ex	retained/refactored in current authority	Weld.run facade, version; one CLI adapter	false
+lib/weld/affected.ex	118	WP03	lib/weld/affected.ex	retained/refactored in current authority	Core.Change, two-ref inventory and reverse role index	false
+lib/weld/agents_verifier.ex	83	WP08	lib/weld/agents_verifier.ex	retained/refactored in current authority	optional lint command, preserve policy	false
+lib/weld/config/generator.ex	419	WP02	lib/weld/config/generator.ex	retained/refactored in current authority	One pure config/bootstrap planner; old side-effect generate entrypoint removed.	false
+lib/weld/credo/check/no_runtime_os_env.ex	66	WP08	lib/weld/credo/check/no_runtime_os_env.ex	retained/refactored in current authority	optional Credo policy; no consumer runtime dep	false
+lib/weld/docs_preview.ex	46	WP05	lib/weld/docs_preview.ex	retained/refactored in current authority	Qualify docs observation, optional normalized preview	false
+lib/weld/docs_smoke.ex	203	WP05	lib/weld/docs_smoke.ex	retained/refactored in current authority	Core static HTML/Mermaid rules, shell reads facts	false
+lib/weld/error.ex	3	WP08	lib/weld/error.ex	retained/refactored in current authority	structured diagnostics	false
+lib/weld/git.ex	290	WP06	lib/weld/git.ex	retained/refactored in current authority	Git adapter; source read shared with snapshot	false
+lib/weld/graph.ex	191	WP01	lib/weld/graph.ex	retained/refactored in current authority	One immutable graph, pure views/selection, scoped dependencies and deterministic topology; Multigraph removed.	false
+lib/weld/graph/edge.ex	19	WP01	lib/weld/graph/edge.ex	retained/refactored in current authority	Core.Graph edge record	false
+lib/weld/graph/view.ex	18	WP01	lib/weld/graph/view.ex	retained/refactored in current authority	Core.Graph view policy	false
+lib/weld/hash.ex	131	WP03	lib/weld/hash.ex	retained/refactored in current authority	Bounded exact byte/tree observations; canonical encoding and domain selection have one Core.Identity implementation.	false
+lib/weld/lockfile.ex	165	WP05	lib/weld/verifier.ex,lib/weld/core/identity.ex	removed; responsibility consolidated at destinations	Deleted old recursive identity/graph and operational report wrapper; Verifier resolves/freezes native lock; Jason encodes operational reports directly.	true
+lib/weld/manifest.ex	735	WP01	lib/weld/manifest.ex	retained/refactored in current authority	Trusted evaluation, normalized Manifest records and native binding; Core.Manifest owns strict schema.	false
+lib/weld/output.ex	322	WP04	lib/weld/output.ex	retained/refactored in current authority	One owner/lease/run/journal/pointer store; short metadata transitions and verified recovery.	false
+lib/weld/plan.ex	521	WP02	lib/weld/plan.ex	retained/refactored in current authority	Observation facade only; semantic ownership is Core.Compiler/Core.Selection and Plan.Inventory.	false
+lib/weld/plan/boundary.ex	225	WP01	lib/weld/plan/boundary.ex	retained/refactored in current authority	Core.Graph selection and external cut	false
+lib/weld/plan/inventory.ex	302	WP02	lib/weld/plan/inventory.ex	retained/refactored in current authority	Core.Inventory all layouts, roles/watches	false
+lib/weld/projector.ex	1138	WP02/WP04	lib/weld/projector.ex	retained/refactored in current authority	Lease and common materializer orchestration only; layout policy/generation moved to pure Layout modules.	false
+lib/weld/projector/live.ex	289	WP04	lib/weld/layout/live.ex	removed; responsibility consolidated at destinations	inventory-derived guard and executor, no new selection	true
+lib/weld/projector/monolith.ex	544	WP02	lib/weld/layout/flat.ex	removed; responsibility consolidated at destinations	Layout flat policy; no projection back edge	false
+lib/weld/projector/monolith/file_plan.ex	209	WP02	lib/weld/layout/file_plan.ex	removed; responsibility consolidated at destinations	Core.Inventory collision and mapping rules	false
+lib/weld/projector/monolith/migrations.ex	167	WP02	lib/weld/layout/flat/migrations.ex	removed; responsibility consolidated at destinations	pure migration mapping	false
+lib/weld/projector/monolith/mix_file.ex	439	WP02	lib/weld/layout/render.ex,lib/weld/layout/flat/mix_file.ex	removed; responsibility consolidated at destinations	one generated MixSpec renderer	false
+lib/weld/projector/monolith/test_helper.ex	262	WP02	lib/weld/layout/flat/test_helper.ex	removed; responsibility consolidated at destinations	pure helper transformation	false
+lib/weld/projector/source_project.ex	555	WP02	lib/weld/layout/preserve.ex,lib/weld/shell/native.ex	removed; responsibility consolidated at destinations	preserve policy and shell detached probe	true
+lib/weld/receipt.ex	71	WP03/WP06	lib/weld/receipt.ex	retained/refactored in current authority	canonical JSON and strict typed records	false
+lib/weld/release.ex	937	WP06/WP07	lib/weld/release.ex	retained/refactored in current authority	Concrete pinned orchestration; ReleaseStatus is the strict evidence reader, Shell.Hex the byte/outcome boundary.	false
+lib/weld/release_inputs.ex	74	WP03	lib/weld/release_inputs.ex	retained/refactored in current authority	inventory identity and reuse policy	false
+lib/weld/release_publish_shell.ex	37	WP07	lib/weld/shell/hex.ex,lib/weld/shell/runner.ex	removed; responsibility consolidated at destinations	qualified exact archive upload, unified runner	false
+lib/weld/release_receipt.ex	144	WP06	lib/weld/release_receipt.ex	retained/refactored in current authority	strict bundle and Git receipt	false
+lib/weld/release_status.ex	518	WP06	lib/weld/release_status.ex	retained/refactored in current authority	Single strict immutable evidence reader and orthogonal status classification; no optional candidate-specific validation.	false
+lib/weld/smoke_app.ex	76	WP05	lib/weld/smoke_app.ex	retained/refactored in current authority	one isolated qualification gate runner	false
+lib/weld/source_formatter.ex	15	WP02	lib/weld/source_formatter.ex	retained/refactored in current authority	Small pure generated-source formatter retained; no alternate renderer.	false
+lib/weld/task_support.ex	88	WP08	lib/weld/cli.ex,lib/weld/commands.ex	removed; responsibility consolidated at destinations	one command registry/formatter	false
+lib/weld/verifier.ex	333	WP05	lib/weld/verifier.ex	retained/refactored in current authority	frozen gate runner, explicit observations	false
+lib/weld/violation.ex	27	WP01/WP08	lib/weld/violation.ex	retained/refactored in current authority	typed diagnostics and validation	false
+lib/weld/workspace.ex	563	WP01	lib/weld/workspace.ex	retained/refactored in current authority	Shared observations assembled once; bounded VM execution in Workspace.Probe and filesystem bytes in Shell.Snapshot.	false
+lib/weld/workspace/discovery.ex	150	WP01	lib/weld/workspace/discovery.ex	retained/refactored in current authority	explicit globs, no implicit fallback	false
+lib/weld/workspace/project.ex	67	WP01	lib/weld/workspace/project.ex	retained/refactored in current authority	portable ProjectFacts	false

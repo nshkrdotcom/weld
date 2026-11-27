@@ -9,9 +9,9 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
 
   @moduletag :tmp_dir
 
-  test "Weld.Commands.docs_options!/2 returns manifest-driven options with the exdoc:loaded mermaid hook" do
+  test "generated docs options include the manifest-driven exdoc:loaded mermaid hook" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    opts = Weld.Commands.docs_options!(manifest)
+    {opts, []} = manifest |> Weld.Plan.build!() |> Support.render_docs_options() |> Code.eval_string()
 
     assert opts[:main] == "readme"
     hook_fn = Keyword.fetch!(opts, :before_closing_body_tag)
@@ -76,7 +76,8 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     report = Diff.compare(plan, proj, :full)
 
     assert Map.new(report.entries, &{&1.target, &1.state}) ==
-             %{"mix.exs" => :modified, "only.txt" => :unexpected, "same.txt" => :identical}
+             %{"mix.exs" => :modified, "only.txt" => :unexpected, "same.txt" => :identical,
+               "weld.provenance.json" => :unexpected}
   end
 
   test "GC.prune/2 keeps newest qualification runs and supports dry_run", %{tmp_dir: dir} do
@@ -84,9 +85,11 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     Weld.Output.setup!(dir)
 
     for idx <- 1..3 do
-      run_dir = Path.join([dir, ".weld", "v2", "runs", "demo", "verify-#{idx}"])
-      File.mkdir_p!(run_dir)
-      File.touch!(run_dir, {{2026, 11, 25}, {10, 0, idx}})
+      Weld.Output.with_lease(dir, "verify", "demo", "verify", [], fn lease ->
+        run = Weld.Output.run!(dir, "verify", "demo", lease)
+        Weld.Output.update_run!(run, %{"phase" => "completed", "started_at" => "2026-11-25T10:00:00Z",
+          "finished_at" => "2026-11-25T10:00:0#{idx}Z"})
+      end)
     end
 
     dry = GC.prune(dir, keep: 1, dry_run: true)
@@ -103,8 +106,10 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
   test "mix weld doctor outputs valid JSON" do
     json = capture_io(fn -> Mix.Task.rerun("weld", ["doctor", "--format", "json"]) end)
     assert %{"ok" => true, "data" => data} = Jason.decode!(json)
-    assert is_binary(data["elixir"])
-    assert is_boolean(data["git"])
+    checks = Map.new(data["checks"], &{&1["name"], &1})
+    assert is_binary(checks["elixir"]["value"])
+    assert checks["git"]["state"] in ["ok", "error"]
+    assert is_integer(data["errors"])
   end
 
   test "mix weld.status adds a next command to each artifact" do
@@ -127,6 +132,7 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
 
     File.mkdir_p!(Path.join(repo_root, "build_support"))
     File.write!(Path.join(repo_root, "build_support/hook.html"), "<!-- custom -->\n")
+    plan = Weld.Plan.build!(manifest)
 
     with_file = fn file ->
       %{
@@ -144,7 +150,7 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     assert Support.mermaid_hook(with_file.("build_support/hook.html")) ==
              "<!-- custom -->\n"
 
-    assert_raise Weld.Error, ~r/hook_file not found/, fn ->
+    assert_raise Weld.Error, ~r/missing_fact/, fn ->
       Support.mermaid_hook(with_file.("build_support/missing.html"))
     end
   end

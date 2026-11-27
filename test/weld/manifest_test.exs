@@ -5,7 +5,7 @@ defmodule Weld.ManifestTest do
   alias Weld.Manifest
 
   test "loads a single-artifact manifest" do
-    manifest = Manifest.load!(FixtureCase.manifest_path("library_bundle", "fixture_bundle"))
+    manifest = Manifest.load!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
     artifact = Manifest.artifact!(manifest, nil)
 
     assert manifest.workspace.project_globs == ["core/*", "runtime/*"]
@@ -21,7 +21,7 @@ defmodule Weld.ManifestTest do
   end
 
   test "requires an explicit artifact when the manifest defines more than one" do
-    manifest = Manifest.load!(FixtureCase.manifest_path("root_workspace", "artifacts"))
+    manifest = Manifest.load!(FixtureCase.copied_manifest_path("root_workspace", "artifacts"))
 
     assert_raise Weld.Error, ~r/multiple artifacts/, fn ->
       Manifest.artifact!(manifest, nil)
@@ -31,7 +31,7 @@ defmodule Weld.ManifestTest do
   end
 
   test "loads monolith mode artifacts and canonical git dependency opts" do
-    manifest = Manifest.load!(FixtureCase.manifest_path("monolith_bundle", "monolith_bundle"))
+    manifest = Manifest.load!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
     artifact = Manifest.artifact!(manifest, nil)
 
     assert artifact.mode == :monolith
@@ -42,7 +42,7 @@ defmodule Weld.ManifestTest do
   end
 
   test "normalizes professional HexDocs metadata for generated packages" do
-    manifest = Manifest.load!(FixtureCase.manifest_path("monolith_bundle", "monolith_bundle"))
+    manifest = Manifest.load!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
     artifact = Manifest.artifact!(manifest, nil)
 
     assert artifact.package.docs.main == "readme"

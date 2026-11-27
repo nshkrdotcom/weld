@@ -3,27 +3,27 @@ defmodule Weld.Layout.Flat do
 
   alias Weld.Config.Generator
   alias Weld.Error
-  alias Weld.Hash
+  alias Weld.Core.{Facts, Modules, Selection}
   alias Weld.Layout.FilePlan
   alias Weld.Layout.Flat.Migrations
   alias Weld.Layout.Flat.MixFile
   alias Weld.Layout.Flat.TestHelper
   alias Weld.Layout.Support
   alias Weld.Manifest
-  alias Weld.Output
-  alias Weld.Plan
-  alias Weld.Projector.Live
-  alias Weld.Projector.SourceProject
-  alias Weld.Shell.Inputs
+  alias Weld.Layout.Live
+  alias Weld.Core.Inputs
 
   @source_dirs ~w(lib src c_src include)
 
   # All layout decisions are made before the output directory exists. The
   # materializer consumes this value, including the already-rendered Mix files.
-  def plan!(%Plan{} = plan) do
+  def plan!(%{} = plan) do
     validate_planning_inputs!(plan)
     support = resolve_test_support_projects!(plan)
     projects = plan.selected_projects ++ support
+    shared_configs = plan.artifact.monolith_opts[:shared_test_configs] || []
+    unknown_configs = shared_configs -- Enum.map(projects, & &1.id)
+    if unknown_configs != [], do: raise(Error, "flat.shared_test_configs has unused projects: #{inspect(unknown_configs)}")
     ensure_unique_slugs!(projects)
     root = plan.manifest.repo_root
     roots = live_roots(plan, projects)
@@ -34,10 +34,10 @@ defmodule Weld.Layout.Flat do
 
     # Include missing roots and metadata: additions must invalidate the plan too.
     for path <- roots ++ metadata do
-      Output.source!(root, Path.relative_to(path, root))
+      Facts.source!(plan.facts, root, Path.relative_to(path, root))
     end
 
-    snapshot = snapshot(roots, metadata)
+    snapshot = snapshot(plan.facts, roots, metadata)
 
     {operations, remaps, collisions, mappings} = merge_source_operations(plan, root)
 
@@ -68,11 +68,11 @@ defmodule Weld.Layout.Flat do
     operations =
       operations
       |> then(&Inputs.add_operations!(plan, &1))
-      |> ensure_readme(plan.artifact, root)
+      |> ensure_readme(plan.artifact, root, plan.facts)
 
     # A migration or configuration input affects generated configuration and the
     # Mix application even when it is not itself copied to those destinations.
-    structural = Enum.filter(metadata, &File.regular?/1)
+    structural = Enum.filter(metadata, &Facts.regular?(plan.facts, &1))
 
     generated_inputs =
       Enum.uniq(
@@ -83,7 +83,7 @@ defmodule Weld.Layout.Flat do
       bootstrapped_apps: config.bootstrapped_apps,
       bootstrapped_config_sources: config.bootstrapped_sources,
       runtime_external_deps: plan.external_deps,
-      test_external_deps: Plan.external_deps_for_view(plan, :test),
+      test_external_deps: Selection.external_deps_for_view(plan, :test),
       forced_test_external_deps:
         forced_external_deps(plan.manifest, plan.artifact.monolith_opts[:extra_test_deps] || []),
       test_support_projects: support,
@@ -97,9 +97,12 @@ defmodule Weld.Layout.Flat do
     transformed =
       full |> Enum.reject(&(&1.operation == :link_or_copy)) |> Enum.flat_map(& &1.sources)
 
+    links = for op <- full, op.operation == :link_or_copy,
+      do: {op.target, Path.relative_to(hd(op.sources), root)}
     guard =
       Live.guard_source(plan,
-        directories: Enum.filter(roots, &File.dir?/1),
+        links: links,
+        directories: Enum.filter(roots, &Facts.dir?(plan.facts, &1)),
         topology: roots,
         digests: Enum.uniq(transformed ++ collisions)
       )
@@ -109,8 +112,7 @@ defmodule Weld.Layout.Flat do
 
     ensure_equal_layouts!(full, live)
 
-    validate_modules!(full)
-    assert_snapshot!(snapshot, roots, metadata)
+    validate_modules!(full, plan.facts)
 
     %{
       full: full,
@@ -149,7 +151,7 @@ defmodule Weld.Layout.Flat do
       (Enum.map(plan.artifact.output.docs, &{&1, :docs}) ++
          Enum.map(plan.artifact.output.assets, &{&1, :runtime}) ++
          Enum.map(Support.root_tooling_files(plan), &{&1, :metadata}))
-      |> Enum.flat_map(fn {path, kind} -> tree_operations(Path.join(root, path), path, kind) end)
+      |> Enum.flat_map(fn {path, kind} -> tree_operations(plan.facts, Path.join(root, path), path, kind) end)
 
     Enum.reduce(plan.selected_projects, {initial, [], [], []}, &merge_project_sources/2)
   end
@@ -162,13 +164,13 @@ defmodule Weld.Layout.Flat do
   defp merge_source_directory(project, slug, dir, state) do
     source_root = Path.join(project.abs_path, dir)
 
-    tree_operations(source_root, dir, source_kind(dir))
-    |> Enum.reduce(state, &merge_source_operation(&1, &2, slug))
+    tree_operations(project.facts, source_root, dir, source_kind(dir))
+    |> Enum.reduce(state, &merge_source_operation(&1, &2, slug, project.facts))
   end
 
-  defp merge_source_operation(op, {acc, remaps, collisions, mappings}, slug) do
+  defp merge_source_operation(op, {acc, remaps, collisions, mappings}, slug, facts) do
     source = hd(op.sources)
-    {acc, target, participants} = FilePlan.merge!(acc, source, op.target, slug, op.kind)
+    {acc, target, participants} = FilePlan.merge!(facts, acc, source, op.target, slug, op.kind)
 
     remaps =
       if target == op.target,
@@ -182,7 +184,7 @@ defmodule Weld.Layout.Flat do
     {acc, remaps, collisions ++ participants, mappings ++ [%{source: source, target: target}]}
   end
 
-  defp ensure_readme(operations, artifact, root) do
+  defp ensure_readme(operations, artifact, root, facts) do
     case artifact.monolith_opts[:readme] do
       nil ->
         if Enum.any?(operations, &(&1.target == "README.md")),
@@ -191,12 +193,16 @@ defmodule Weld.Layout.Flat do
             operations ++ [FilePlan.generated("README.md", "# #{artifact.package.name}\n", :docs)]
 
       path ->
-        source = Output.source!(root, path)
+        source = Facts.source!(facts, root, path)
 
-        unless File.regular?(source),
+        unless Facts.regular?(facts, source),
           do: raise(Error, "monolith README must be a regular file: #{path}")
 
-        operations ++ [FilePlan.copy(source, "README.md", :docs)]
+        case Enum.find(operations, &(&1.target == "README.md")) do
+          nil -> operations ++ [FilePlan.copy(source, "README.md", :docs)]
+          %{sources: [^source]} -> operations
+          _ -> raise Error, "flat.readme conflicts with the root README"
+        end
     end
   end
 
@@ -205,75 +211,40 @@ defmodule Weld.Layout.Flat do
       do: raise(Error, "live and full monolith layouts diverge")
   end
 
-  @spec materialize!(Plan.t(), Path.t(), keyword()) :: map()
-  def materialize!(%Plan{layout: layout}, build_path, opts \\ []) do
-    kind = Keyword.get(opts, :kind, :full)
-    assert_snapshot!(layout.snapshot, layout.roots, layout.metadata)
-    operations = Map.fetch!(layout, kind)
-    files = FilePlan.materialize!(operations, build_path, kind)
-    assert_snapshot!(layout.snapshot, layout.roots, layout.metadata)
-    {_entries, fingerprints} = layout.snapshot
-    FilePlan.validate_materialized!(operations, build_path, kind, Map.new(fingerprints))
-
-    layout
-    |> Map.take([
-      :package_files,
-      :file_remaps,
-      :source_mappings,
-      :migration_layout,
-      :migration_remaps,
-      :helper_transformations,
-      :config_warnings,
-      :repo_infos,
-      :test_support_projects
-    ])
-    |> Map.merge(%{
-      mode: :monolith,
-      copied_files: files,
-      linked_files:
-        if(kind == :live,
-          do: for(op <- operations, op.operation == :link_or_copy, do: op.target),
-          else: []
-        )
-    })
-  end
-
-  defp snapshot(roots, metadata) do
-    entries = roots |> Enum.flat_map(&FilePlan.topology/1) |> Enum.uniq() |> Enum.sort()
+  defp snapshot(facts, roots, metadata) do
+    entries = roots |> Enum.flat_map(&Facts.topology(facts, &1)) |> Enum.uniq() |> Enum.sort()
     files = for {path, :regular} <- entries, do: path
 
     fingerprints =
       (files ++ metadata)
       |> Enum.uniq()
       |> Enum.sort()
-      |> Enum.map(&{&1, FilePlan.fingerprint(&1)})
+      |> Enum.map(&{&1, Facts.fingerprint(facts, &1)})
 
     {entries, fingerprints}
   end
 
-  defp assert_snapshot!(expected, roots, metadata) do
-    unless snapshot(roots, metadata) == expected,
-      do: raise(Error, "monolith inputs changed after planning; rebuild the artifact plan")
-  end
-
-  defp validate_modules!(operations) do
+  defp validate_modules!(operations, facts) do
     operations
     |> Enum.filter(&(String.starts_with?(&1.target, "lib/") and Path.extname(&1.target) == ".ex"))
-    |> Enum.map(fn op -> {op.target, op.content || File.read!(hd(op.sources))} end)
-    |> SourceProject.validate_module_sources!()
+    |> Enum.map(fn op -> {op.target, op.content || Facts.read!(facts, hd(op.sources))} end)
+    |> Modules.validate_module_sources!()
   end
 
   defp source_kind(dir) when dir in ["lib", "src"], do: :compiled
+  defp source_kind(dir) when dir in ["c_src", "include"], do: :native
   defp source_kind(_dir), do: :runtime
 
-  defp tree_operations(source, target, kind) do
-    case File.lstat(source) do
+  defp tree_operations(facts, source, target, kind) do
+    Facts.reject_tree_links!(facts, source)
+    operation = if kind in [:native, :runtime, :metadata], do: :copy, else: :link_or_copy
+    case Facts.stat(facts, source) do
       {:ok, %{type: :directory}} ->
-        for {path, :regular} <- FilePlan.topology(source),
-            do: FilePlan.copy(path, Path.join(target, Path.relative_to(path, source)), kind)
+        for {path, :regular} <- Facts.topology(facts, source),
+            do: FilePlan.copy(path, Path.join(target, Path.relative_to(path, source)), kind, operation)
 
       {:ok, %{type: :regular}} ->
-        [FilePlan.copy(source, target, kind)]
+        [FilePlan.copy(source, target, kind, operation)]
 
       {:error, :enoent} ->
         []
@@ -286,8 +257,8 @@ defmodule Weld.Layout.Flat do
   defp resolve_test_support_projects!(plan) do
     discovered =
       plan
-      |> Plan.projects_for_view(:test)
-      |> Enum.reject(&Plan.selected?(plan, &1.id))
+      |> Selection.projects_for_view(:test)
+      |> Enum.reject(&Selection.selected?(plan, &1.id))
       |> Enum.sort_by(& &1.id)
 
     declared =
@@ -295,26 +266,20 @@ defmodule Weld.Layout.Flat do
       |> Keyword.get(:test_support_projects, [])
       |> Enum.sort()
 
-    case declared do
-      [] ->
-        discovered
+    discovered_ids = Enum.map(discovered, & &1.id)
+    missing = discovered_ids -- declared
+    unused = declared -- discovered_ids
 
-      _declared ->
-        discovered_ids = Enum.map(discovered, & &1.id)
-        missing = discovered_ids -- declared
-        unused = declared -- discovered_ids
-
-        if missing != [] or unused != [] do
-          raise Error,
-                "monolith_opts[:test_support_projects] does not match discovered non-selected test support projects:\n" <>
-                  "discovered: #{Enum.join(discovered_ids, ", ")}\n" <>
-                  "declared: #{Enum.join(declared, ", ")}\n" <>
-                  "missing declarations: #{Enum.join(missing, ", ")}\n" <>
-                  "unused declarations: #{Enum.join(unused, ", ")}"
-        end
-
-        discovered
+    if missing != [] or unused != [] do
+      raise Error,
+            "flat.test_support does not match discovered non-selected test support projects:\n" <>
+              "discovered: #{Enum.join(discovered_ids, ", ")}\n" <>
+              "declared: #{Enum.join(declared, ", ")}\n" <>
+              "missing declarations: #{Enum.join(missing, ", ")}\n" <>
+              "unused declarations: #{Enum.join(unused, ", ")}"
     end
+
+    discovered
   end
 
   defp test_operations(project) do
@@ -323,8 +288,8 @@ defmodule Weld.Layout.Flat do
     (project.test_paths ++ Enum.filter(project.test_elixirc_paths, &(&1 == "test/support")))
     |> Enum.uniq()
     |> Enum.map(&project_test_path!(project, &1))
-    |> Enum.filter(&File.dir?/1)
-    |> Enum.flat_map(&Hash.list_files/1)
+    |> Enum.filter(&Facts.dir?(project.facts, &1))
+    |> Enum.flat_map(&Facts.list_files(project.facts, &1))
     |> Enum.uniq()
     |> Enum.sort()
     |> Enum.reject(&(Path.basename(&1) == "test_helper.exs"))
@@ -376,17 +341,17 @@ defmodule Weld.Layout.Flat do
     root = Path.join(["test", "support", "weld_projects", project_slug(project.id)])
 
     Enum.flat_map(@source_dirs ++ ["priv"], fn dir ->
-      tree_operations(Path.join(project.abs_path, dir), Path.join(root, dir), :test)
+      tree_operations(project.facts, Path.join(project.abs_path, dir), Path.join(root, dir), :test)
     end)
   end
 
   defp private_operations(project) do
-    tree_operations(Path.join(project.abs_path, "priv"), "priv", :runtime)
+    tree_operations(project.facts, Path.join(project.abs_path, "priv"), "priv", :runtime)
     |> Enum.reject(&String.starts_with?(&1.target, "priv/repo/migrations/"))
   end
 
   defp validate_source_assumptions!(plan) do
-    Enum.each(Plan.projects_for_view(plan, :test), &validate_project_roots!/1)
+    Enum.each(Selection.projects_for_view(plan, :test), &validate_project_roots!/1)
     selected_apps = MapSet.new(Enum.map(plan.selected_projects, &Atom.to_string(&1.app)))
 
     issues =
@@ -432,13 +397,13 @@ defmodule Weld.Layout.Flat do
   defp validate_helper_delegate!(project, path) do
     helper = Path.join([project.abs_path, path, "test_helper.exs"])
 
-    if File.regular?(helper) and not canonical_helper_delegate?(project, helper) do
+    if Facts.regular?(project.facts, helper) and not canonical_helper_delegate?(project, helper) do
       raise Error, "monolith only transforms test/test_helper.exs (project #{project.id})"
     end
   end
 
   defp canonical_helper_delegate?(project, helper) do
-    case helper |> File.read!() |> Code.string_to_quoted!(file: helper) do
+    case project.facts |> Facts.read!(helper) |> Code.string_to_quoted!(file: helper) do
       {{:., _, [{:__aliases__, _, [:Code]}, :require_file]}, _, [relative, {:__DIR__, _, _}]}
       when is_binary(relative) ->
         Path.expand(relative, Path.dirname(helper)) ==
@@ -454,9 +419,9 @@ defmodule Weld.Layout.Flat do
     |> Enum.flat_map(fn dir ->
       path = Path.join(project.abs_path, dir)
 
-      if File.dir?(path) do
-        path
-        |> Hash.list_files()
+      if Facts.dir?(project.facts, path) do
+        project.facts
+        |> Facts.list_files(path)
         |> Enum.filter(&(Path.extname(&1) in [".ex", ".exs"]))
       else
         []
@@ -465,7 +430,7 @@ defmodule Weld.Layout.Flat do
   end
 
   defp scan_file_for_selected_app_assumptions(path, project, plan, selected_apps) do
-    contents = File.read!(path)
+    contents = Facts.read!(project.facts, path)
     relative = Path.relative_to(path, plan.manifest.repo_root)
 
     [

@@ -24,11 +24,21 @@ defmodule Weld.Core.IdentityTest do
     end
   end
 
+  test "identical bytes in different semantic domains never share an identity" do
+    value = %{"entries" => [], "empty_dirs" => []}
+    domains = ~w(input plan project package docs qualification bundle work_cache projection_cache)
+    identities = Enum.map(domains, &Identity.digest(&1, value))
+    assert Enum.uniq(identities) == identities
+  end
+
   test "inventory rejects collisions and exposes reverse provenance" do
     entry = %{target: "lib/a.ex", inputs: [%{source: "core/a.ex"}], publish: true}
     assert Inventory.reverse_index([entry]) == %{"core/a.ex" => ["lib/a.ex"]}
     assert_raise ArgumentError, fn -> Inventory.validate!([entry, entry]) end
     assert_raise ArgumentError, fn -> Inventory.validate!([entry, %{entry | target: "lib"}]) end
     assert_raise ArgumentError, fn -> Inventory.validate_path!("../secret") end
+    assert_raise ArgumentError, ~r/file\/directory collision/, fn ->
+      Inventory.validate!([%{entry | target: "lib/A"}, %{entry | target: "lib/a/b.ex"}])
+    end
   end
 end

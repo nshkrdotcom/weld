@@ -1,0 +1,151 @@
+{
+  "schema": "weld.benchmark-cases/2",
+  "instructions": [
+    "Copy this file, replace every absolute source/configuration path and artifact ID, then pass --cases YOUR_FILE.json.",
+    "Inputs are copied without .git, .weld, deps or _build; symlinks and special files are refused. Original consumer checkouts are never modified.",
+    "Each configs entry supplies a relative manifest target inside the disposable copy. Optional manifest_source supplies a benchmark-specific manifest to copy to that target; its workspace root must be relative to the target location.",
+    "The exact baseline SHA selects baseline; the checkpoint SHA selects checkpoint when provided, otherwise current; other refs select current. A ref name or full commit SHA can also be a configs key.",
+    "Every selected operation runs once cold and five times warm. Verify executes the real qualifier and may need network access, installed native tools and declared project prerequisites.",
+    "Full/live force materialization on all six samples. Full_cache/live_cache retain state, measure cold population once, and require all five warm samples to be actual validated cache hits.",
+    "Docs and native compile command durations inside verification are recorded separately when instrumentable. Optional operations docs and native run explicit commands in the generated project; provide docs_command/native_command and arrange declared prerequisites when using them.",
+    "Run mix weld setup first in the Weld checkout. Run on the same idle host and pinned Elixir/OTP/Hex toolchain. Never interpret this script as publication authorization."
+  ],
+  "cases": [
+    {
+      "name": "medex_base",
+      "path": "/absolute/path/to/medex-workspace",
+      "operations": [
+        "plan",
+        "full",
+        "live",
+        "full_cache",
+        "live_cache",
+        "verify"
+      ],
+      "configs": {
+        "baseline": {
+          "manifest": "packaging/benchmark.exs",
+          "manifest_source": "/absolute/path/to/benchmark-configs/medex-baseline.exs",
+          "artifacts": [
+            "REPLACE_WITH_BASE_ARTIFACT"
+          ]
+        },
+        "current": {
+          "manifest": "build_support/weld.exs",
+          "artifacts": [
+            "REPLACE_WITH_BASE_ARTIFACT"
+          ]
+        }
+      }
+    },
+    {
+      "name": "opus",
+      "path": "/absolute/path/to/opus-workspace",
+      "native": true,
+      "operations": [
+        "plan",
+        "full",
+        "live",
+        "full_cache",
+        "live_cache",
+        "verify"
+      ],
+      "configs": {
+        "baseline": {
+          "manifest": "packaging/benchmark.exs",
+          "manifest_source": "/absolute/path/to/benchmark-configs/opus-baseline.exs",
+          "artifacts": [
+            "REPLACE_WITH_OPUS_ARTIFACT"
+          ]
+        },
+        "current": {
+          "manifest": "build_support/weld.exs",
+          "artifacts": [
+            "REPLACE_WITH_OPUS_ARTIFACT"
+          ]
+        }
+      }
+    },
+    {
+      "name": "rtc",
+      "path": "/absolute/path/to/rtc-workspace",
+      "operations": [
+        "plan",
+        "full",
+        "live",
+        "full_cache",
+        "live_cache",
+        "verify"
+      ],
+      "configs": {
+        "baseline": {
+          "manifest": "packaging/benchmark.exs",
+          "manifest_source": "/absolute/path/to/benchmark-configs/rtc-baseline.exs",
+          "artifacts": [
+            "REPLACE_WITH_RTC_ARTIFACT"
+          ]
+        },
+        "current": {
+          "manifest": "build_support/weld.exs",
+          "artifacts": [
+            "REPLACE_WITH_RTC_ARTIFACT"
+          ]
+        }
+      }
+    },
+    {
+      "name": "med_fabric",
+      "path": "/absolute/path/to/med-fabric-workspace",
+      "operations": [
+        "plan",
+        "full",
+        "live",
+        "full_cache",
+        "live_cache",
+        "verify"
+      ],
+      "configs": {
+        "baseline": {
+          "manifest": "packaging/benchmark.exs",
+          "manifest_source": "/absolute/path/to/benchmark-configs/med-fabric-baseline.exs",
+          "artifacts": [
+            "REPLACE_WITH_FABRIC_ARTIFACT"
+          ]
+        },
+        "current": {
+          "manifest": "build_support/weld.exs",
+          "artifacts": [
+            "REPLACE_WITH_FABRIC_ARTIFACT"
+          ]
+        }
+      }
+    },
+    {
+      "name": "sprout",
+      "path": "/absolute/path/to/sprout-workspace",
+      "operations": [
+        "plan",
+        "full",
+        "live",
+        "full_cache",
+        "live_cache",
+        "verify"
+      ],
+      "configs": {
+        "baseline": {
+          "manifest": "packaging/benchmark.exs",
+          "manifest_source": "/absolute/path/to/benchmark-configs/sprout-baseline.exs",
+          "artifacts": [
+            "REPLACE_WITH_SPROUT_ARTIFACT"
+          ]
+        },
+        "current": {
+          "manifest": "build_support/weld.exs",
+          "artifacts": [
+            "REPLACE_WITH_SPROUT_ARTIFACT"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -6,7 +6,7 @@ defmodule Weld.PlanTest do
   alias Weld.Plan
 
   test "computes a runtime closure from roots" do
-    plan = Plan.build!(FixtureCase.manifest_path("library_bundle", "fixture_bundle"))
+    plan = Plan.build!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
 
     assert plan.selected_ids == ["core/contracts", "runtime/local"]
     assert plan.excluded_ids == []
@@ -15,7 +15,7 @@ defmodule Weld.PlanTest do
 
   test "keeps test-only tooling out of the selected closure while preserving the edge" do
     plan =
-      Plan.build!(FixtureCase.manifest_path("root_workspace", "artifacts"),
+      Plan.build!(FixtureCase.copied_manifest_path("root_workspace", "artifacts"),
         artifact: "web_bundle"
       )
 
@@ -30,7 +30,7 @@ defmodule Weld.PlanTest do
   test "explains why one runtime project depends on another" do
     result =
       Weld.Commands.query_why!(
-        FixtureCase.manifest_path("root_workspace", "artifacts"),
+        FixtureCase.copied_manifest_path("root_workspace", "artifacts"),
         "apps/web",
         "apps/core",
         artifact: "web_bundle"

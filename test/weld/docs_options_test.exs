@@ -9,10 +9,12 @@ defmodule Weld.DocsOptionsTest do
     root = Manifest.load!(manifest).repo_root
     File.write!(Path.join(root, "runtime/local/mix.exs"), "raise \"recursive project load\"")
 
-    options = Weld.Commands.docs_options!(manifest)
+    artifact = manifest |> Manifest.load!() |> Manifest.artifact!(nil)
+    options = Support.docs_options(artifact)
 
     assert options[:main] == "readme"
-    assert options[:before_closing_body_tag].(:html) == Support.mermaid_hook()
+    assert artifact.package.docs.mermaid
+    assert Support.mermaid_hook() =~ "exdoc:loaded"
   end
 
   test "generated docs options preserve complete large custom hooks" do
@@ -64,6 +66,7 @@ defmodule Weld.DocsOptionsTest do
     File.write!(Path.expand("../hook.html", plan.manifest.repo_root), "<!-- traversed -->")
     link = Path.join(plan.manifest.repo_root, "build_support/linked_hook.html")
     File.ln_s!(outside, link)
+    plan = Plan.build!(manifest)
 
     for path <- ["../hook.html", outside, "build_support/linked_hook.html"] do
       unsafe = put_in(plan.artifact.package.docs.hook_file, path)

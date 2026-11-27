@@ -23,7 +23,7 @@ defmodule Weld.ConfigGeneratorTest do
       repo_paths: %{"core_store_postgres" => "priv/repo"}
     }
 
-    Generator.generate!([], build_path, repo_infos, migration_layout)
+    generate!([], build_path, repo_infos, migration_layout)
 
     refute File.read!(Path.join(build_path, "config/dev.exs")) =~ "demo_store_postgres"
     refute File.read!(Path.join(build_path, "config/test.exs")) =~ "demo_store_postgres"
@@ -54,7 +54,7 @@ defmodule Weld.ConfigGeneratorTest do
     migration_layout = %{case: :single, repo_count: 0, repo_paths: %{}}
 
     result =
-      Generator.generate!(
+      generate!(
         [
           project("apps/demo_project", project_root, :demo_project),
           project("tooling/test_support", support_root, :demo_support)
@@ -87,7 +87,7 @@ defmodule Weld.ConfigGeneratorTest do
 
     migration_layout = %{case: :single, repo_count: 0, repo_paths: %{}}
 
-    Generator.generate!(
+    generate!(
       [project("apps/demo_project", project_root, :demo_project)],
       build_path,
       [],
@@ -131,7 +131,7 @@ defmodule Weld.ConfigGeneratorTest do
 
     migration_layout = %{case: :single, repo_count: 0, repo_paths: %{}}
 
-    Generator.generate!(
+    generate!(
       [
         project("apps/a", app_a, :app_a),
         project("apps/b", app_b, :app_b)
@@ -151,6 +151,17 @@ defmodule Weld.ConfigGeneratorTest do
     assert loaded[:app_a][:dir] == Path.join(build_path, "config/runtime_sources/apps_a")
     assert loaded[:app_b][:dir] == Path.join(build_path, "config/runtime_sources/apps_b")
     assert loaded[:app_b][:leaked?] == nil
+  end
+
+  defp generate!(projects, build_path, repo_infos, migration_layout, opts \\ []) do
+    projects = Enum.map(projects, fn project ->
+      Map.put(project, :facts, Weld.Shell.Snapshot.observe!(project.abs_path))
+    end)
+    result = Generator.plan!(projects, repo_infos, migration_layout, opts)
+    nodes = Enum.reduce(projects, %{}, &Map.merge(&2, &1.facts.nodes))
+    facts = %{root: build_path, nodes: nodes}
+    Weld.Shell.Materializer.execute!(%{full: result.operations, empty_dirs: []}, facts, build_path, :full)
+    result
   end
 
   defp project(id, abs_path, app) do

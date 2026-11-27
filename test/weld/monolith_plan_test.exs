@@ -18,8 +18,9 @@ defmodule Weld.MonolithPlanTest do
   defp targets(plan), do: Enum.map(plan.output_inventory, & &1.target)
 
   test "read-only planning, inspection, live and full share the final inventory", c do
+    before_state = Weld.Receipt.tree(Path.join(c.root, ".weld"))
     plan = Plan.build!(c.manifest)
-    refute File.exists?(Path.join(c.root, ".weld"))
+    assert Weld.Receipt.tree(Path.join(c.root, ".weld")) == before_state
     assert plan.output_inventory != []
     report = Weld.Commands.inspect!(c.manifest).artifact
     assert report.source_target_basis == :projection
@@ -45,13 +46,11 @@ defmodule Weld.MonolithPlanTest do
     for live <- [false, true] do
       result = Projector.project!(plan, live: live)
       assert Enum.sort(result.verification_files) == Enum.sort(targets(plan))
-      lock = result.lockfile_path |> File.read!() |> Jason.decode!()
-      assert lock["source"]["target_basis"] == "projection"
-
-      assert lock["source"]["output_inventory"] ==
-               Jason.decode!(Jason.encode!(plan.output_inventory))
-
-      assert lock["source"]["inventory"] == Jason.decode!(Jason.encode!(plan.source_inventory))
+      inventory = Weld.Plan.Inventory.portable(plan)
+      assert Enum.map(inventory["entries"], & &1["target"]) == Enum.sort(targets(plan))
+      assert inventory["layout"]["name"] == "flat"
+      refute File.exists?(Path.join(result.build_path, "projection.lock.json"))
+      refute File.exists?(Path.join(result.build_path, "weld.provenance.json"))
       assert Enum.all?(targets(plan), &File.regular?(Path.join(result.build_path, &1)))
       refute "test" in result.package_files
     end
@@ -116,16 +115,16 @@ defmodule Weld.MonolithPlanTest do
 
   test "a stale plan or a generated path collision cannot replace an active view", c do
     previous = Weld.Commands.project!(c.manifest)
-    marker = File.read!(Path.join(previous.build_path, "weld.provenance.json"))
+    marker = Weld.Hash.observation(previous.build_path)
     stale = Plan.build!(c.manifest)
     put(c.root, "runtime/api/lib/new.txt", "changed after planning")
     assert_raise Error, ~r/inputs changed after planning/, fn -> Projector.project!(stale) end
-    assert File.read!(Path.join(previous.build_path, "weld.provenance.json")) == marker
+    assert Weld.Hash.observation(previous.build_path) == marker
 
     path = put(c.root, "core/store/lib/monolith_bundle/application.ex", "# reserved\n")
     assert_raise Error, ~r/projection path collision/, fn -> Plan.build!(c.manifest) end
     assert File.read!(path) == "# reserved\n"
-    assert File.read!(Path.join(previous.build_path, "weld.provenance.json")) == marker
+    assert Weld.Hash.observation(previous.build_path) == marker
   end
 
   test "non-support helper requires retain their projected relative target", c do

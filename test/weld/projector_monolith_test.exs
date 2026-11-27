@@ -11,7 +11,7 @@ defmodule Weld.ProjectorMonolithTest do
 
     assert result.build_path =~ "/.weld/v2/full/monolith_bundle/project"
     assert File.regular?(Path.join(result.build_path, "mix.exs"))
-    assert File.regular?(Path.join(result.build_path, "projection.lock.json"))
+    refute File.exists?(Path.join(result.build_path, "projection.lock.json"))
     refute "projection.lock.json" in result.package_files
     assert File.regular?(Path.join(result.build_path, "lib/fixture/store.ex"))
     assert File.regular?(Path.join(result.build_path, "lib/fixture/api.ex"))
@@ -171,7 +171,7 @@ defmodule Weld.ProjectorMonolithTest do
   test "fails closed when discovered monolith test support projects are not declared" do
     manifest_path = explicit_test_support_manifest_path!(["apps/core"])
 
-    assert_raise Weld.Error, ~r/test_support_projects/, fn ->
+    assert_raise Weld.Error, ~r/flat.test_support/, fn ->
       Weld.Commands.project!(manifest_path)
     end
   end

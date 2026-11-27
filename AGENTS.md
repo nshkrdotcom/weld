@@ -1,95 +1,103 @@
 # AGENTS.md
 
-This file defines the working contract for `/home/home/p/g/n/weld`.
+This repository owns Weld, the maintainer tool that compiles explicit Elixir
+workspace declarations into standalone projects and qualified release bundles.
+Weld is not an application workspace or a dependency-source selector.
 
-## Purpose
+## Source ownership and architecture
 
-`weld` is the publication and projection tool for Elixir monorepos.
+Keep one owner per semantic fact:
 
-It is not an application workspace. The repo owns the Weld library, Mix tasks,
-guides, and fixture-backed verification surface for package projection,
-verification, release preparation, projection tracking, and archive creation.
+| Responsibility | Owner |
+| --- | --- |
+| Closed schema and typed CLI requests | `Core.Manifest`, `Manifest`, `CLI`, `Commands` |
+| Filesystem and isolated dev/test/prod Mix observations | `Workspace`, `Workspace.Probe`, `Shell.Snapshot` |
+| Graph, selection and final layout decisions | `Graph`, `Core.Compiler`, `Core.Selection`, layout policies |
+| Source roles, provenance, targets, watches and portable identities | `Plan.Inventory`, `Core.Inventory`, `Core.Identity` |
+| Shared generated Mix, OTP and bootstrap content | `Layout.Render`, `Config.Generator` |
+| Planned file operations and exact output validation | `Shell.Materializer` |
+| Managed ownership, leases, transitions and recovery | `Output` |
+| G01–G12 qualification and frozen bytes | `Verifier`, `Shell.Runner`, `Shell.Hex`, `SmokeApp` |
+| Immutable bundle proof, pins, local refs and remote outcomes | `Release`, `ReleaseStatus`, `ReleaseReceipt`, `Git` |
 
-## Repository Shape
+The pure compiler receives explicit facts and returns values. It must not read
+files, invoke Mix/Git/processes, inspect OS environment, or call effect modules.
+Generated consumer code is data until executed in the consumer. Keep rendering
+shared between components and flat; preserve keeps native Mix metadata and uses
+the same inventory and executor. Do not reintroduce the old projector/plan cycle,
+multiple inventory authorities, duplicate proof readers or generated reports in
+published projects.
 
-The current layout is:
+Runtime application code under `lib/**` must not call direct OS env APIs.
+Runtime env reads belong in `config/runtime.exs` or a `Config.Provider`.
+The shell takes declared context and explicitly configured tool/transport facts.
+No credentials belong in portable records, logs, command examples or fixtures.
 
-```text
-weld/
-  lib/           # Weld library code and Mix tasks
-  test/          # fixture-backed tests and support helpers
-  guides/        # user-facing guides and reference docs
-  assets/        # docs/logo assets
-```
+## Working rules
 
-Important subtrees:
+- Make generic behavior changes in Weld; keep actual consumer declarations in
+  their repositories. No MedEx, Opus, RTC or Fabric special cases in the compiler.
+- Keep schema 2, the one `mix weld COMMAND` task and the `Weld.run/2` boundary.
+  Do not restore dotted tasks, old manifest/state readers, ETF proof, legacy
+  receipts or the rebuild publisher. There is no runtime migration mode.
+- Preserve behavioral test intent. Change assertions when a documented schema 2
+  contract intentionally changes, and record that disposition. Add narrow
+  regression tests for real defects, then verify actual generated output.
+- Keep probes bounded and isolated; share one observation per workspace revision
+  across a batch. Read-only commands must not initialize state or change source.
+- Only explicit `setup` changes the checkout ignore rule. Mutations require v2
+  ownership. Keep metadata locks short; do not hash trees, run subprocesses or
+  use the network while holding the checkout metadata lock.
+- Use active artifact/destination leases, immutable bundles, durable transition
+  journals and atomic pinned pointers. Never infer dead ownership from age.
+- Full/live developer views are not qualification evidence. Verify and prepare
+  use fresh detached runs, frozen locks, exact inventories and all required gates.
+- Preserve exact frozen package/docs bytes for publication and archive. Unknown
+  remote outcomes need read-only reconciliation; do not blindly retry a send.
+- Never weaken a gate to make a consumer pass. Do not use skipped tests, dummy
+  successes, invented locks, timings, bundle IDs or runtime results.
+- Runtime absence defers execution only. Finish implementable source, fixtures,
+  scripts and documentation; state precisely which commands were not run.
 
-- `lib/weld/` for core planner, projector, verifier, release, git, graph, and workspace code
-- `lib/mix/tasks/` for the public CLI surface
-- `test/weld/` for direct unit/integration coverage
-- `test/fixtures/` for projection and release fixture repos
-- `test/support/` for reusable fixture/test helpers
-- `guides/` for durable user-facing documentation
-
-## Operating Rules
-
-- Keep `weld` focused on generic publication/projection behavior. Do not add
-  repo-specific consumer hacks here.
-- Keep dependency-source selection outside Weld. Weld owns package projection,
-  artifact verification, and release bundles; it does not carry or verify a
-  consumer dependency-source helper, manifest, or ecosystem publish order.
-- Runtime application code under `lib/**` must not call direct OS env APIs.
-  Runtime env reads belong in `config/runtime.exs` or a `Config.Provider`.
-- Prefer fixture-backed tests when changing projection, verification, or git
-  behavior. Validate real generated output instead of only unit-level mocks.
-- Treat the public Mix tasks and manifest shape as the product surface. Changes
-  to behavior or defaults must be reflected in guides and changelog entries.
-- Keep generated output examples and wording aligned with the current package
-  projection and monolith semantics.
-- Do not weaken verification behavior to make a consumer pass. Fix the
-  projection or manifest model instead.
-
-## Release Handoff
-
-Use the Weld 0.20.0 CLI and keep local release state under `.weld/v2/`.
+## Development and release workflow
 
 ```bash
+mix weld help
+mix weld setup
+mix weld plan --all
+mix weld project --artifact <name> --kind live
+mix weld project --artifact <name> --kind full
+mix weld verify --artifact <name>
 mix weld release-plan
 mix weld prepare --artifact <name>
 mix weld status --artifact <name> --format json
-mix weld track --artifact <name> --identity <sha> --tag-release
-mix weld verify-tag <tag> --artifact <name> --identity <sha>
-mix weld publish --artifact <name> --identity <sha> --dry-run
-mix weld archive --artifact <name> --identity <sha>
+mix weld stage --artifact <name> --identity <full-bundle-id>
+mix weld track --artifact <name> --identity <full-bundle-id> --tag-release
+mix weld verify-tag <tag> --artifact <name> --identity <full-bundle-id>
+mix weld publish --artifact <name> --identity <full-bundle-id> --dry-run
+mix weld archive --artifact <name> --identity <full-bundle-id>
 ```
 
-- Keep immutable bundles under `.weld/v2/bundles/`. Use `mix weld stage` with an
-  explicit identity to create an isolated review copy.
-- Projection commits and annotated tags carry `weld.receipt/v2` evidence.
-  Keep the source version tag on the qualified source commit separate from
-  the projection receipt tag.
-- Use a disposable local checkout and bare remote to exercise tracking.
-  Production publication and pushing release refs require explicit approval.
-- Weld's own root Mix project builds its Hex package from its source checkout.
+Commit the manifest and setup ignore rule before preparation. `--identity` pins
+historical operations independently of the current manifest; use explicit
+`--root` when needed. `--current` selects a pointer once. Each stage creates its
+own review run. A source version tag on the qualified source commit is separate
+from an annotated projection receipt tag. The public Hex write adapter remains
+disabled until destination-specific authenticated conformance proves its full
+exact-byte contract. No ordinary test, dry run or QC script authorizes production
+publication or pushing release refs.
 
-## Documentation Homes
+Exercise local tracking and atomic push only in disposable repositories and a
+bare local remote. Keep original sibling consumer checkouts unchanged; migrate
+and qualify disposable copies. Weld's root Mix project builds its own Hex package
+from source; `build_support/weld.exs` also describes native preserve qualification
+without duplicating authoritative package metadata.
 
-- `README.md` is the front door
-- `guides/` holds durable usage, workflow, architecture, and reference material
-- `CHANGELOG.md` records release-visible changes
+## Required validation workflow
 
-If a change affects how consumers integrate or publish with Weld, update the
-relevant guide in the same change.
-
-## Required Validation Workflow
-
-For documentation-only changes, including READMEs, guides, changelogs,
-docstrings, and settings that only affect ExDoc output, run
-`git diff --check` and `mix docs --warnings-as-errors`. Spot-check any changed
-commands or examples. Skip `mix ci` and the full code validation workflow.
-
-For changes to runtime behavior, Mix tasks, dependency declarations, or build
-behavior, run these from the repo root:
+For documentation-only changes run `git diff --check` and
+`mix docs --warnings-as-errors`; spot-check changed commands and links.
+For runtime, dependency, task or build changes, run the complete sequence:
 
 ```bash
 mix format --check-formatted
@@ -101,22 +109,48 @@ mix docs --warnings-as-errors
 mix ci
 ```
 
-`mix ci` is the acceptance gate for those code and build changes.
+`mix ci` is the repository acceptance gate. All fifteen original independent
+lanes remain; `qualification_faults` and `hex_consumption` add mandatory fault
+and signed registry coverage. `scripts/test_ci.exs` isolates build paths and caps
+concurrent fixture-building jobs at two. The fast lane cannot replace any
+isolated lane.
 
-## Working Style
+Also run the architectural and delivery contract checks:
 
-- Prefer TDD/RGR when changing projection or release behavior.
-- Add or extend fixture coverage first when touching manifest resolution,
-  output layout, dependency canonicalization, or git tracking.
-- Keep guides and examples synchronized with the implemented behavior.
-- Keep commit surfaces tight. This repo is infrastructure, so incidental churn
-  in docs, fixtures, and task output should be deliberate and coherent.
+```bash
+mix run scripts/qc/architecture_check.exs
+mix xref graph --format cycles --fail-above 0
+mix xref graph --format cycles --label compile-connected --fail-above 0
+python scripts/qc/static_check.py
+python scripts/git_ref_contract.py
+bash scripts/qc/loopback_transport.sh
+mix run --no-start scripts/qc/qualify_layouts.exs -- --output /tmp/weld-qc-layouts
+mix run --no-start scripts/qc/prepare_reuse.exs -- --output /tmp/weld-qc-reuse
+```
 
-## Common Pitfalls
+Use fresh output directories. See `guides/testing_strategy.md` and
+`scripts/qc/README.md` for native/compiler/Hex/browser prerequisites and the
+approved sandbox conformance procedure. The reference toolchain is Elixir
+1.20.5, OTP 29.1.2, Hex 2.7.0 and the resolved Hex Core 0.21.1 lock entry. Run the
+maintainer's supported minimum-version matrix too; the declared `~> 1.18` range
+is not evidence that this session tested every version.
 
-- Do not couple `weld` to one consumer repo's local path layout.
-- Do not assume package projection and monolith mode can share the same fix.
-- Do not update release flow behavior without also checking projection-branch
-  semantics and prepared bundle behavior.
-- Do not rely on one fixture when the behavior is mode-specific; add or update
-  the correct fixture for the scenario.
+After ordinary QC and any source repairs, the maintainer runs the final large
+synthetic soak. Record one cold and five warm samples per revision, actual
+failures, medians/maxima, memory, probe/process counts, copy bytes and cache size.
+Keep qualification, exact archive consumption, docs and native timings separate.
+Soak results alone never imply release readiness.
+
+## Documentation and evidence
+
+Update README, affected guides, the 0.20.0 changelog and ExDoc entries with every
+public behavior change. `guides/qc/` holds acceptance/disposition/source accounting;
+`scripts/qc/` holds reproducible validation drivers, not production logic moved
+out of `lib` to improve a line-count metric. Production size targets are goals,
+not permission to remove safety checks; quantify and explain any exception.
+
+Record commands and exit statuses from the current source. Historical checkpoint
+observations are historical. A source review, Python check or Git primitive
+experiment does not establish compilation, ExUnit, browser or consumer success.
+The next runtime-enabled agent repairs failures and reruns affected gates before
+handing only the final long soak to the maintainer.

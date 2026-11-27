@@ -5,17 +5,29 @@ defmodule Weld.DocsPreview do
   @makeup_group ~r/(<span class="[^"]+" data-group-id=")(?<prefix>[0-9]{10})-([0-9]+)"/
 
   def copy!(source, target) do
+    Weld.Output.reject_tree_links!(source)
     File.mkdir!(target)
 
     # ExDoc's EPUB includes a random UUID, wall-clock time and ZIP timestamps.
-    for entry <- File.ls!(source), Path.extname(entry) != ".epub" do
-      File.cp_r!(Path.join(source, entry), Path.join(target, entry))
-    end
+    copy_html_payload!(source, target)
 
     for path <- Path.wildcard(Path.join(target, "**/*.html")) do
       bytes = File.read!(path)
       normalized = stable_groups(bytes)
       if bytes != normalized, do: File.write!(path, normalized)
+    end
+  end
+
+  defp copy_html_payload!(source, target) do
+    for entry <- File.ls!(source), Path.extname(entry) != ".epub" do
+      from = Path.join(source, entry)
+      to = Path.join(target, entry)
+      if File.dir?(from) do
+        File.mkdir!(to)
+        copy_html_payload!(from, to)
+      else
+        File.cp!(from, to)
+      end
     end
   end
 

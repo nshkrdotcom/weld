@@ -1,7 +1,8 @@
 defmodule Weld.Layout.FilePlan do
   @moduledoc false
 
-  alias Weld.{Error, Hash, Output}
+  alias Weld.Error
+  alias Weld.Core.{Facts, Inventory}
 
   def copy(source, target, kind, operation \\ :link_or_copy) do
     %{target: target, sources: [source], kind: kind, operation: operation, content: nil}
@@ -19,25 +20,37 @@ defmodule Weld.Layout.FilePlan do
 
   # Preserve the historical first destination and repeated slug-prefix policy.
   # Identical files share one physical output and all source owners.
-  def merge!(operations, source, target, slug, kind) do
+  def merge!(facts, operations, source, target, slug, kind) do
     case Enum.find(operations, &(&1.target == target)) do
-      nil -> {operations ++ [copy(source, target, kind)], target, []}
-      existing -> merge_existing!(operations, existing, source, slug, kind)
+      nil -> {operations ++ [copy(source, target, kind, source_operation(kind))], target, []}
+      existing -> merge_existing!(facts, operations, existing, source, slug, kind)
     end
   end
 
-  defp merge_existing!(operations, existing, source, slug, kind) do
+  defp merge_existing!(facts, operations, existing, source, slug, kind) do
     target = existing.target
 
-    if existing.operation == :link_or_copy and
-         fingerprint(hd(existing.sources)) == fingerprint(source) do
+    if is_nil(existing.content) and equal_source?(facts, hd(existing.sources), source) do
       participants = existing.sources ++ [source]
-      updated = %{existing | sources: Enum.uniq(participants)}
+      updated = %{existing | sources: Enum.sort(Enum.uniq(participants)), operation: :copy}
       {replace_target(operations, updated), target, participants}
     else
+      if kind == :native or String.starts_with?(target, "include/") or
+           (kind == :compiled and Path.extname(target) in ~w(.ex .exs .erl .hrl .c .h .cpp .cc)),
+        do: raise(Error, "conflicting source files at #{target}")
       {destination, collisions} = remap_target(target, slug, operations, existing.sources)
-      {operations ++ [copy(source, destination, kind)], destination, collisions ++ [source]}
+      {operations ++ [copy(source, destination, kind, source_operation(kind))], destination, collisions ++ [source]}
     end
+  end
+
+  defp source_operation(kind) when kind in [:native, :runtime, :metadata], do: :copy
+  defp source_operation(_kind), do: :link_or_copy
+
+  defp equal_source?(facts, left, right) do
+    left = Facts.stat!(facts, left)
+    right = Facts.stat!(facts, right)
+    left.sha256 == right.sha256 and left.size == right.size and
+      (Bitwise.band(left.mode, 0o111) != 0) == (Bitwise.band(right.mode, 0o111) != 0)
   end
 
   defp replace_target(operations, replacement) do
@@ -64,7 +77,7 @@ defmodule Weld.Layout.FilePlan do
              String.split(target, "/"),
              &(&1 in ["", ".", "..", ".git", ".weld", "_build", "deps", ".mix_sources.json"])
            ) or
-           target in ["projection.lock.json", "weld.provenance.json", "mix.lock"] do
+           target in ["projection.lock.json", "weld.provenance.json"] do
         raise Error, "unsafe planned destination: #{target}"
       end
     end
@@ -83,6 +96,7 @@ defmodule Weld.Layout.FilePlan do
       raise Error, "projection file/directory collision: #{parent} and #{target}"
     end
 
+    _ = Inventory.validate!(operations)
     Enum.sort_by(operations, & &1.target)
   end
 
@@ -105,28 +119,6 @@ defmodule Weld.Layout.FilePlan do
     end
   end
 
-  def materialize!(operations, build_path, kind) do
-    for op <- validate!(operations) do
-      target = Output.source!(build_path, op.target)
-      if File.exists?(target), do: raise(Error, "projection path collision: #{op.target}")
-      File.mkdir_p!(Path.dirname(target))
-
-      case op do
-        %{content: content} when is_binary(content) ->
-          File.write!(target, content, [:exclusive])
-
-        %{operation: :link_or_copy, sources: [source | _]} when kind == :live ->
-          File.ln_s!(source, target)
-
-        %{sources: [source | _]} ->
-          File.cp!(source, target)
-          File.chmod!(target, Bitwise.band(File.stat!(source).mode, 0o777))
-      end
-
-      op.target
-    end
-  end
-
   def slug(id) do
     case id |> String.replace(~r/[^a-zA-Z0-9]+/, "_") |> String.trim("_") |> String.downcase() do
       "" -> "root"
@@ -134,76 +126,4 @@ defmodule Weld.Layout.FilePlan do
     end
   end
 
-  def validate_materialized!(operations, build_path, kind, fingerprints) do
-    Enum.each(operations, &validate_materialized_operation!(&1, build_path, kind, fingerprints))
-    :ok
-  end
-
-  defp validate_materialized_operation!(
-         %{content: content} = op,
-         build_path,
-         _kind,
-         _fingerprints
-       )
-       when is_binary(content) do
-    target = Path.join(build_path, op.target)
-
-    unless File.regular?(target) and File.read!(target) == content,
-      do: raise(Error, "generated output differs from plan: #{op.target}")
-  end
-
-  defp validate_materialized_operation!(
-         %{operation: :link_or_copy, sources: [source | _]} = op,
-         build_path,
-         :live,
-         _fingerprints
-       ) do
-    target = Path.join(build_path, op.target)
-
-    unless File.read_link(target) == {:ok, source},
-      do: raise(Error, "live link differs from plan: #{op.target}")
-  end
-
-  defp validate_materialized_operation!(
-         %{sources: [source | _]} = op,
-         build_path,
-         _kind,
-         fingerprints
-       ) do
-    target = Path.join(build_path, op.target)
-
-    unless fingerprint(target) == Map.fetch!(fingerprints, source),
-      do: raise(Error, "copied output differs from plan: #{op.target}")
-  end
-
-  def fingerprint(path) do
-    Output.reject_link!(path)
-
-    case File.lstat(path) do
-      {:ok, %{type: :regular, mode: mode}} -> {Hash.sha256_file(path), Bitwise.band(mode, 0o111)}
-      {:error, :enoent} -> :missing
-      _ -> raise Error, "invalid planned input: #{path}"
-    end
-  end
-
-  def topology(path) do
-    Output.reject_link!(path)
-
-    case File.lstat(path) do
-      {:ok, %{type: :directory}} ->
-        [
-          {path, :directory}
-          | Enum.flat_map(Enum.sort(File.ls!(path)), &topology(Path.join(path, &1)))
-        ]
-
-      {:ok, %{type: :regular}} ->
-        [{path, :regular}]
-
-      {:error, :enoent} ->
-        [{path, :missing}]
-
-      _ ->
-        raise Error, "invalid planned input: #{path}"
-    end
-  end
 end

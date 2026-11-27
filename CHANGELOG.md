@@ -7,25 +7,109 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.20.0] - 2026-11-26
 
+This is a breaking schema 2 release. Source implementation and runtime
+qualification are separate: the current completion session has no Elixir, OTP
+or Mix runtime, so its new formatter/compiler/test/docs/consumer results are
+pending. Historical checkpoint results do not qualify these changes.
+
+### Added
+
+- Define closed schema 2 workspace, project input, artifact, layout, file,
+  verification and publication declarations with path-qualified errors,
+  duplicate/unknown-key rejection and explicit unsupported combinations.
+- Collect bounded immutable source observations and isolated dev/test/prod Mix
+  metadata once per workspace revision. Observe helper files, required files,
+  missing roots and discovery patterns; diagnose unsupported metadata drift.
+- Introduce a pure compiler and one portable inventory for components, flat and
+  preserve layouts: exact full/live operations, file and directory link groups,
+  normalized executable modes, empty directories, source roles, generated
+  provenance, topology and absence watches, and explicit publication membership.
+- Add canonical JSON and domain-separated input, plan, project, package, docs,
+  qualification, bundle and cache identities. Reject noncanonical or malformed
+  proof and bind bundle records to exact frozen observations and gate facts.
+- Add v2 state ownership, artifact and destination leases, bounded metadata lock
+  acquisition, run records, journaled activation/sealing/pointer transitions,
+  dead-owner recovery and conservative GC. Active, interrupted and unknown work
+  stays protected; GC defaults to a read-only report.
+- Implement G01–G12 as one qualification path for verify and prepare. Freeze a
+  resolved standalone lock, re-probe effective metadata, compare actual source
+  and artifact test identities, recheck complete inventories at gate boundaries,
+  and freeze exact package/docs archives once.
+- Inspect actual Hex archive metadata, entry kinds, paths, normalized modes,
+  sizes, digests and contents. Install the exact archive through an ordinary
+  signed loopback Hex registry in a detached consumer with no Weld dependency;
+  configured smoke and native payload behavior run in that consumer.
+- Add explicit locked-preserve proof reuse eligibility tied to public context,
+  compiler/toolchain/trust facts and intact sealed evidence. Ineligible reuse
+  runs qualification; corrupt sealed bundles fail closed; `--fresh` bypasses
+  proof and mutable work-cache reuse.
+- Add immutable `inventory.json`, `qualification.json`, `bundle.json`, exact
+  package/docs payloads and `weld.current/2` pointers, plus strict canonical
+  annotated Git receipts. Historical pin operations work without the current
+  manifest, including tag-only verification and idempotent exact-byte archives.
+- Add durable per-part package/docs publication intent and outcomes, conservative
+  authenticated readback, conflict and staging states, read-only reconciliation
+  queries and partial continuation without repeating a confirmed package send.
+- Add fault, malformed proof/archive, subprocess, concurrency, killed-owner,
+  GC-race, exact HTTP body, signed-consumer and native fixture tests. Supply
+  architecture, source accounting, local Git, browser, reuse, conformance,
+  representative benchmark and synthetic soak drivers.
+
 ### Changed
 
-- Make artifact compilation, inventory, materialization and qualification
-  explicit stages; share layout support between components and flat artifacts.
-- Introduce schema 2 manifests with explicit workspace projects, layout policies,
-  declared native inputs and stricter validation.
-- Consolidate the CLI into `mix weld COMMAND` and the public `Weld.run/2` API.
-- Add canonical domain-separated identity and inventory comparison primitives;
-  compare affected inputs across Git revisions.
-- Isolate qualification copies, freeze dependency locks, validate exact package
-  contents, and separate managed v2 state and bundle metadata from old formats.
-- Freeze documentation archives and publish the qualified package bytes directly;
-  record unresolved external outcomes and expose reconciliation.
+- Consolidate the public surface into `mix weld COMMAND` and `Weld.run/2`, with
+  typed requests, one JSON result envelope, stderr diagnostics and stable exit
+  codes. Complete help, views, contexts, historical `--root` pins, run lookup,
+  recovery, doctor, remote status and deterministic batch error aggregation.
+- Use one shared facts value for batch commands and one snapshot per side of
+  affected analysis. Compare genuine Git trees, old/new graph contributors,
+  adds/deletes/renames/modes and unknown facts conservatively. Release planning
+  reports dependency order and constraints without scheduling publication.
+- Preserve actual and publication graphs, computed requirements and Hex aliases,
+  optional features and mixed dependency scopes. Remote Git requirements remain
+  valid for non-Hex artifacts; Hex publication requires versioned package
+  boundaries. Reject effective local filesystem Git locators before rendering
+  unless generated layouts replace them with canonical remote Git or Hex
+  declarations. Preserve requires a native declaration change. Selected internal
+  path dependencies retain the chosen layout's ownership rules.
+- Share generated Mix, OTP application and runtime bootstrap renderers between
+  components and flat. Preserve native Mix callbacks and nested path behavior
+  through the common executor. Keep checked-in docs hooks and installed `priv`
+  bootstrap independent of the original checkout.
+- Keep ordinary live code linked where safe; copy native, configuration,
+  metadata and mutable runtime inputs. Require refresh for copied input,
+  structural, discovery and flat topology changes. Validate exact expected
+  targets, empty directories and live links before reusing a view.
+- Normalize projected regular modes to 0644/0755 according to executable bits;
+  preserve source modes in the source checkout. Equal-byte/equal-mode flat
+  deduplication retains every origin, while code conflicts fail before activation.
+- Bound subprocess time and output, sanitize private logs, scrub inherited
+  Mix/Hex/compiler overrides and terminate process groups on timeout. Run gates
+  outside metadata locks and keep the parent prepare lease through sealing.
+- Use local ref compare-and-swap and explicit atomic branch/tag push, reject tag
+  conflicts before mutation, keep source tags separate and never overwrite tags.
+- Keep exact-byte public writes disabled until the destination and pinned
+  adapter pass authenticated conformance. Unsupported public docs readback or
+  staged-absence representations remain unknown rather than authorizing a send.
+- Update all guides, README, AGENTS, self-hosting schema 2 declaration, ExDoc and
+  acceptance/disposition evidence for the complete change since 0.19.0. Retain
+  all fifteen isolated CI lanes and add qualification fault and Hex-consumer lanes.
+- Retain the resolved Hex Core 0.21.1 lock pin and remove unused Multigraph and
+  telemetry dependencies.
 
 ### Removed
 
-- Remove dotted Mix tasks, implicit workspace discovery, the old public bang API,
-  and the rebuild-and-publish Mix task handoff.
-- Do not migrate or consume legacy manifests, receipts, or generated state.
+- Remove dotted/duplicate Mix tasks, implicit discovery, old public bang APIs,
+  legacy manifests/state/receipt readers, ETF proof and embedded projection
+  reports. No compatibility runtime or automatic migration is provided.
+- Remove the rebuild-and-publish handoff. Publication consumes frozen archive
+  bytes only; staging changes do not qualify or replace a bundle.
+- Replace separate source-project/live projector authorities and shell-side
+  input selection with pure preserve/live/input policies and one executor.
+- Adopt schema 2 in a clean coordinated change: create explicit project/layout
+  declarations, run `mix weld setup`, commit the ignore rule and manifest, then
+  prepare a new bundle. Keep historical state with its historical tool version;
+  do not import it into v2.
 
 ## [0.19.0] - 2026-11-25
 
