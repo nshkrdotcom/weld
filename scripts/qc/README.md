@@ -2,8 +2,8 @@
 
 These drivers execute real commands when Elixir, OTP and Mix are installed.
 They never write a passing record when a prerequisite or check is unavailable.
-The current editing environment has none of those three runtimes, so the drivers
-and Elixir tests have not been executed here. Run from the Weld checkout after
+Runtime QC records driver and test results with their source revisions. Run
+from the Weld checkout after
 `mix deps.get` and `MIX_ENV=test mix compile --warnings-as-errors`.
 
 ## Local archive, runner and HTTP boundary contracts

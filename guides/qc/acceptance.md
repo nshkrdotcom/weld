@@ -1,9 +1,8 @@
 # Weld 0.20.0 acceptance and evidence
 
 This ledger maps the complete Part 2 acceptance contract to the current source.
-The original editing environment
-had no Elixir, Erlang or Mix. Runtime QC records execution results separately,
-with the exact source commit and command exit status for each run.
+The original editing environment lacked Elixir, Erlang and Mix. Runtime QC
+records the exact source commit and command exit status for each run.
 
 ## Source and test disposition
 
@@ -29,8 +28,8 @@ retained; obsolete embedded-report and rebuild-handoff expectations are replaced
 by explicit schema 2 contracts, not by relaxed success conditions.
 
 Runtime QC updated assertions for schema 2. Live guard tests require the quoted
-refresh command and the rejection specific to each Hex command. The native artifact plan checks
-unique target membership through `output_inventory` and separately checks
+refresh command and the rejection specific to each Hex command. The native
+artifact plan checks unique target membership through `output_inventory` and separately checks
 `mix.exs` source provenance. The mutable graph destination test expects the
 source-inventory rejection for `doc`, which is excluded from observations, and
 retains the output-overlap assertion for `mix.lock`. Both cases still verify that
@@ -40,7 +39,8 @@ the location of its staged project.
 ## A01–A40 coverage
 
 All paths in the test column ending in `_test` are under `test/weld/` with the
-`.exs` suffix. Code names are Weld modules unless a script is named. Consult the runtime QC index for execution status. A36 additionally requires the
+`.exs` suffix. Code names are Weld modules unless a script is named. Consult the
+runtime QC index for execution status. A36 additionally requires the
 actual external checkouts and toolchains. A37 requires runtime measurements in
 addition to static accounting.
 

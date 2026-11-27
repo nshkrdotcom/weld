@@ -18,9 +18,9 @@ not AST complexity, compiled module counts, xref results or coverage. Generated
 code strings may contain the counted keywords. The script never claims to parse
 or compile Elixir.
 
-## Measured current source
+## Implementation handoff checkpoint
 
-| Metric | 0.19 baseline | Checkpoint | Completed source |
+| Metric | 0.19 baseline | Checkpoint | Initial runtime handoff |
 | --- | ---: | ---: | ---: |
 | Production implementation files | 71 | 54 | 62 |
 | Physical production lines | 12,355 | 12,771 | 13,797 |
@@ -101,12 +101,33 @@ cases. Existing independent CI lanes remain and two focused lanes were added.
 Source counts do not establish preserved runtime behavior; the full suite is the
 acceptance gate.
 
+## Runtime QC recount
+
+The pinned formatter expanded previously unformatted implementation files. It
+added physical lines for layout and whitespace, which this metric includes.
+Runtime QC also repaired behavior exposed by compilation and qualification.
+
+| Metric | Runtime QC measurement |
+| --- | ---: |
+| Production implementation files | 62 |
+| Physical production lines | 19,251 |
+| Nonblank/noncomment lines | 15,918 |
+| Lexical module declarations | 74 |
+| Lexical function declarations | 1,426 |
+| Lexical branch keywords | 1,217 |
+| Direct dependencies, all scopes | 7 |
+| Public Mix task files | 1 |
+
+This measurement exceeds the physical line target by **9,351
+lines (94.5%)** and the file target by **7 files**.
+Rerun the same counter after additional repairs.
+
 ## Runtime and scaling status
 
-No Elixir/OTP/Mix or GNU time executable was available. No current timing, RSS,
-probe-count, speedup or compiled xref result exists. Historical checkpoint warm
-plan timings in the completion brief were measured during concurrent QC and
-remain directional history, not current measurements.
+The implementation environment lacked Elixir, OTP, Mix and GNU time. The
+runtime QC index records subsequent compilation, xref and test observations for
+their exact source. Historical checkpoint warm plan timings were observed during
+concurrent QC. Use measured current samples for performance comparisons.
 
 `scripts/qc/benchmark.py` supplies exact revision checkouts, one cold/five warm
 samples, forced full/live materializations separately from asserted cache hits,
