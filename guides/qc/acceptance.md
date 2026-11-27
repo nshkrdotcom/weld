@@ -1,8 +1,8 @@
 # Weld 0.20.0 acceptance and evidence
 
 This ledger maps the complete Part 2 acceptance contract to the current source.
-The original editing environment lacked Elixir, Erlang and Mix. Runtime QC
-records the exact source commit and command exit status for each run.
+Runtime QC records the exact source commit, toolchain and command exit status
+for each executed gate.
 
 ## Source and test disposition
 
@@ -54,10 +54,10 @@ addition to static accounting.
 | A06 | One common inventory and three policies | `Plan.Inventory; Layout.Components; Layout.Flat; Layout.Preserve; Layout.Render` | `artifact_plan_test; monolith_plan_test; projector_package_mode_test; core_compiler_test` |
 | A07 | Aliases, requirements, boundaries, all scopes and cycles | `Graph; Plan.Boundary; Core.Selection; Core.ReleaseOrder` | `graph_scope_v2_test; git_dependency_portability_test; plan_test; release_plan_test; artifact_plan_test; workspace_snapshot_v2_test` |
 | A08 | Compiler ownership separate from dependency membership | `Plan.Inventory; Core.Selection; Plan.Boundary` | `artifact_plan_test; source_consumption_test; plan_test` |
-| A09 | Exact full/live targets, native callbacks and detached behavior | `Shell.Materializer; Shell.Native; Layout.Preserve; Layout.Live` | `source_project_test; projector_monolith_test; graph_live_test; source_consumption_test; scripts/qc/qualify_layouts.exs` |
+| A09 | Exact full/live targets, native callbacks and detached behavior | `Shell.Materializer; Shell.Native; Layout.Preserve; Layout.Live` | `source_project_test; native_package_metadata_test; projector_monolith_test; graph_live_test; source_consumption_test; scripts/qc/qualify_layouts.exs` |
 | A10 | Native sources, pins, modes, missing paths and installed build | `Core.Inputs; Plan.Inventory; Shell.Snapshot; Shell.Hex; SmokeApp` | `core_facts_test; snapshot_contract_test; verification_integrity_test; hex_consumption_contract_test; test/fixtures/native_hex` |
 | A11 | Config companions/imports, lexical scope and installed priv | `Config.Generator; Layout.Render; Shell.Materializer` | `config_generator_test; projector_config_cache_test; bootstrap_relocation_test; projector_package_mode_test` |
-| A12 | Flat collisions, deduplication, remaps, migrations and helpers | `Layout.FilePlan; Layout.Flat; Layout.Flat.Migrations; Layout.Flat.TestHelper` | `monolith_plan_test; monolith_config_spike_test; monolith_test_helper_spike_test; core_identity_test` |
+| A12 | Flat collisions, deduplication, remaps, migrations, helpers and OTP app identity | `Layout.FilePlan; Layout.Flat; Layout.Flat.Migrations; Layout.Flat.TestHelper` | `monolith_plan_test; monolith_otp_app_identity_test; monolith_config_spike_test; monolith_test_helper_spike_test; core_identity_test` |
 | A13 | Exact docs inputs/hooks and bounded static rendering claims | `Layout.Support; DocsPreview; DocsSmoke; Verifier` | `docs_options_test; docs_smoke_test; docs_preview_test; ergonomics_and_docs_smoke_test; scripts/qc/browser_docs.mjs` |
 | A14 | Complete provenance, roles, watches and package membership | `Core.Inputs; Plan.Inventory; Core.Inventory; Shell.Hex` | `inventory_contract_test; core_compiler_test; artifact_plan_test; verification_integrity_test; hex_archive_contract_test` |
 | A15 | Input-class isolation, cache keys and relevant invalidation | `Plan.Inventory; Shell.Snapshot; Projector; Receipt` | `core_compiler_test; snapshot_contract_test; projector_config_cache_test; projector_test; source_project_test` |

@@ -62,6 +62,8 @@ recorded in the release evidence.
   before and after preserve materialization.
 - Use declared links in generated package metadata and omit the redundant
   maintainers field. Preserve follows the pinned Hex default Makefile patterns.
+- Allow `Application.app_dir/2` for the surviving `:flat` monolith `package.otp_app`
+  while continuing to reject absorbed component OTP app assumptions.
 
 - Consolidate the public surface into `mix weld COMMAND` and `Weld.run/2`, with
   typed requests, one JSON result envelope, stderr diagnostics and stable exit

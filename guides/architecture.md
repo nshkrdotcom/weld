@@ -57,14 +57,21 @@ may deduplicate with multiple origins. Conflicting code, module names, include
 files, slugs or file/directory destinations fail before activation. Eligible
 non-code assets can receive a deterministic owner prefix. Private asset
 collisions fail. Migration restamps and Repo/config overlays share one mapping.
-The declared test-support set must match discovered support exactly.
+The declared test-support set must match discovered support exactly. Because
+absorbed component OTP apps do not exist at runtime, flat validation allows
+`Application.app_dir/2` for the surviving `package.otp_app` (resolved against
+merged `priv/`) while rejecting `Application.app_dir/2` for absorbed component
+apps and rejecting `Application.app_dir/1` and `Application.ensure_all_started/1,2`
+across all selected projects.
 
 **Preserve** copies a disjoint, explicit inventory around one native Mix project.
 Its full `mix.exs`, application callback, package metadata and dependencies remain
-source-owned. A fresh process validates each staged project/environment, so
-competing Mix module names cannot contaminate another probe. Missing helpers or
-escaping compiler and mutable paths fail. Unsupported live Mix AST shapes fail
-with a full-view alternative; full projection does not require a live transform.
+source-owned. A fresh process validates each staged project/environment — comparing
+effective identity, dependencies, normalized compiler options and observed package
+fields per environment — so competing Mix module names cannot contaminate another
+probe. Missing helpers or escaping compiler and mutable paths fail. Unsupported
+live Mix AST shapes fail with a full-view alternative; full projection does not
+require a live transform.
 
 All policies produce the same operation form: copy, generated write, proven
 deduplication, and an explicit live link variant. The executor cannot select
@@ -107,9 +114,11 @@ Raw archive hashes remain SHA-256 of the actual archive bytes.
 | Projection/work cache IDs | Local optimization keys; never release proof |
 
 Checkout paths, transient run names, transport settings and timings are not
-portable identity inputs. Live link locators have a separate local cache digest.
-A changed source commit can change qualification even when project bytes agree.
-The canonical vectors and relocation tests define the executable contract.
+portable identity inputs; checkout-relative `{:i, charlist}` Erlang include
+options are normalized into portable relative descriptors. Live link locators
+have a separate local cache digest. A changed source commit can change
+qualification even when project bytes agree. The canonical vectors and
+relocation tests define the executable contract.
 
 ## Live views, cache and affected
 

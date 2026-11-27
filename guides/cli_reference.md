@@ -48,8 +48,8 @@ Common flags are `--manifest PATH`, `--root PATH`, `--format text|json`, `--verb
 | `verify` | Artifact or `--all`, `--fresh`, `--context VALUE` | Isolated verification run without changing CURRENT. |
 | `prepare` | Artifact or `--all`, `--fresh`, `--context VALUE`, `--reuse CONTEXT` | Clean committed qualified bundle and atomic CURRENT activation. |
 | `status` | Optional artifact or `--all`, `--identity ID`, `--remote` | Read-only integrity, freshness, refs, outcomes and next command. |
-| `diff` | Optional artifact, `--kind full|live|bundle`, `--identity ID` for bundle | Planned targets versus observed bytes/modes/links, including missing and unexpected entries. |
-| `path` | Optional artifact, `--kind full|live|bundle|docs|archive|run`, `--identity ID`, `--run ID` | Exact local path and presence state. Text output is the path alone. |
+| `diff` | Optional artifact, `--kind full|live|bundle` (default `full`), `--identity ID` for bundle | Planned targets versus observed bytes/modes/links, including missing and unexpected entries. |
+| `path` | Optional artifact, `--kind full|live|bundle|docs|archive|run` (default `full`), `--identity ID`, `--run ID` | Exact local path and presence state. Text output is the path alone. |
 | `doctor` | Optional root/manifest | Toolchain, declarations, managed-state safety and owner/lease diagnostics. No `--fix`. |
 | `docs-check DIR` | Directory positional argument | Static documentation/Mermaid diagnostics; does not execute JavaScript. |
 | `lint` | `--root PATH` | Runtime OS-environment policy check; no dependency-source policy. |
@@ -60,10 +60,10 @@ Common flags are `--manifest PATH`, `--root PATH`, `--format text|json`, `--verb
 | `publish` | Pin, `--tag TAG`, `--dry-run`, `--yes`, `--allow-source-drift` | Verified frozen archives only; exact-byte transport conformance is required for writes. |
 | `reconcile` | `--identity ID`, optional artifact when unambiguous | Remote observation and durable outcome classification; never uploads. |
 | `archive` | Pin; `--all` only with `--current` | Exact immutable bundle copy with separate local archival state. |
-| `gc` | `--keep N` (default 2), `--dry-run`, `--apply` | Deterministic completed-run pruning. Without `--apply`, it is read-only. |
+| `gc` | `--keep N` (default 2, `>= 0`), `--dry-run`, `--apply` (exclusive) | Deterministic completed-run pruning. Without `--apply`, it is read-only. |
 | `recover` | `--root PATH`, optional `--lease ID` | Inspect interrupted records, or explicitly recover the selected owner only if proved dead. |
 
-A **pin** is `--identity ID` or `--current`. IDs are complete 64-character lowercase hexadecimal digests; prefixes are rejected. `--identity` is exclusive with `--current` and `--all`. `--current` explicitly opts into resolving the current pointer once under the operation's lease.
+A **pin** is `--identity ID` or `--current`. IDs are complete 64-character lowercase hexadecimal digests; prefixes are rejected. `--artifact`, `--run`, and `--lease` identifiers must match `[A-Za-z0-9][A-Za-z0-9_.-]*`. `--identity` is exclusive with `--current` and `--all`. `--current` explicitly opts into resolving the current pointer once under the operation's lease.
 
 `--run ID` is required for `path --kind run`, and is invalid with other kinds. Run lookup returns the run directory. For a stage review, its `project/` subdirectory contains the review copy. Bundle identities apply to bundle/docs/archive paths, not development outputs or run lookup. `path --kind archive` locates the archived bundle directory, not an unqualified newly built tarball.
 

@@ -48,8 +48,8 @@ See [getting started](guides/getting_started.md), the [manifest reference](guide
 | Area | Current contract |
 | --- | --- |
 | Source selection | Explicit schema 2 project globs and typed extra/native inputs; actual and publication graphs keep aliases, optional features and dependency scopes. |
-| Planning | One pure compiler consumes shared observations and produces exact targets, provenance, role membership, missing-input watches and full/live variants. |
-| Generated projects | Components and flat share Mix/OTP/config renderers; preserve keeps native callbacks. Installed bootstrap, assets and native inputs remain usable without the source checkout. |
+| Planning | One pure compiler consumes shared observations and produces exact targets, provenance, role membership, missing-input watches, normalized `{:i, charlist}` Erlang include descriptors and full/live variants. |
+| Generated projects | Components and flat share Mix/OTP/config renderers with manifest-only `package.links`; flat preserves `Application.app_dir/2` on the surviving `package.otp_app` while rejecting absorbed component app identities; preserve keeps native callbacks and Hex `Makefile*` defaults. Installed bootstrap, assets and native inputs remain usable without the source checkout. |
 | Development views | Ordinary code may stay linked in live views. Mutable runtime/config/native inputs are copied, structural changes require refresh, and cache hits validate the complete expected output. |
 | Qualification | G01–G12 resolve and freeze the standalone lock, compare real source/artifact test identities, inspect exact package/docs archives and install the package through ordinary signed Hex consumption. |
 | Release evidence | Canonical domain-separated identities, strict immutable bundle records and full identity pins replace embedded reports and permissive legacy receipts. |

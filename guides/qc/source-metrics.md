@@ -111,24 +111,24 @@ Runtime QC also repaired behavior exposed by compilation and qualification.
 | Metric | Runtime QC measurement |
 | --- | ---: |
 | Production implementation files | 62 |
-| Physical production lines | 19,460 |
-| Nonblank/noncomment lines | 16,049 |
+| Physical production lines | 19,538 |
+| Nonblank/noncomment lines | 16,112 |
 | Lexical module declarations | 74 |
-| Lexical function declarations | 1,555 |
-| Lexical branch keywords | 1,201 |
+| Lexical function declarations | 1,571 |
+| Lexical branch keywords | 1,208 |
 | Direct dependencies, all scopes | 7 |
 | Public Mix task files | 1 |
 
-This measurement exceeds the physical line target by **9,560
-lines (96.6%)** and the file target by **7 files**.
+This measurement exceeds the physical line target by **9,638
+lines (97.4%)** and the file target by **7 files**.
 Rerun the same counter after additional repairs.
 
 ## Runtime and scaling status
 
-The initial editing environment lacked Elixir, OTP, Mix and GNU time. Runtime QC
-records compilation, xref, test and driver observations against the exact source
-revision executed. Historical checkpoint warm plan timings were observed during
-concurrent QC. Use measured current samples for performance comparisons.
+Runtime QC records compilation, xref, test and driver observations against the
+exact source revision executed. Historical checkpoint warm plan timings are
+retained only as historical reference; use measured current samples for
+performance comparisons.
 
 `scripts/qc/benchmark.py` supplies exact revision checkouts, one cold/five warm
 samples, forced full/live materializations separately from asserted cache hits,

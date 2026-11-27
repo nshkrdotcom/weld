@@ -2,9 +2,9 @@
 
 The source suite and generated artifact suite are independent gates. A plan is
 not a build result, a package build is not an installed-consumer result, and
-static docs checks do not establish browser rendering. Weld 0.20.0 includes
-runtime test source and reproducible QC drivers even when the implementation
-machine cannot execute Elixir.
+static docs checks do not establish browser rendering. Weld 0.20.0 pairs
+isolated ExUnit lanes with reproducible standalone QC drivers across layouts,
+native payloads, signed Hex registries and browser rendering.
 
 ## Required repository gates
 
@@ -100,9 +100,11 @@ link-target drift or cycles fail. Source trees remain untouched by detached
 verification and compilation.
 
 Flat cases cover code conflicts, equal-byte/mode deduplication with all origins,
-stable asset remaps, migration restamps, explicit support sets, static helper
-requires and unsupported AST. Config cases cover lexical scope, companions,
-known environment imports, runtime evaluation and installed `priv` bootstrap.
+stable asset remaps, migration restamps, explicit support sets, surviving
+`package.otp_app` `Application.app_dir/2` asset reads after relocation versus
+rejected absorbed component app identities, static helper requires and
+unsupported AST. Config cases cover lexical scope, companions, known environment
+imports, runtime evaluation and installed `priv` bootstrap.
 
 ## Runtime qualification and actual consumers
 

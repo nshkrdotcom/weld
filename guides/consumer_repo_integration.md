@@ -4,7 +4,7 @@ Weld is a maintainer tool. Downstream applications consume an ordinary detached 
 
 ## Producer responsibilities
 
-Declare all source projects with explicit schema 2 globs, choose the appropriate components/flat/preserve policy, and make native/helpers/config/docs inputs explicit. Resolve external package boundaries and publish aliases in the native declarations or canonical manifest policy. The artifact compiler owns membership and mapping; release-plan derives order from the resulting publication requirements.
+Declare all source projects with explicit schema 2 globs, choose the appropriate components/flat/preserve policy, and make native/helpers/config/docs inputs explicit. For `:flat` monoliths, absorbed component OTP apps lose standalone runtime `.app` identities while `Application.app_dir/2` on the surviving `package.otp_app` continues resolving merged `priv/` assets after relocation. Resolve external package boundaries and publish aliases in the native declarations or canonical manifest policy. The artifact compiler owns membership and mapping; release-plan derives order from the resulting publication requirements.
 
 ```bash
 mix weld plan --all --format json
