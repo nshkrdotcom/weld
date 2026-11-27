@@ -369,16 +369,20 @@ defmodule Weld.Layout.Flat do
 
   defp validate_source_assumptions!(plan) do
     Enum.each(Selection.projects_for_view(plan, :test), &validate_project_roots!/1)
+    surviving_app = Atom.to_string(plan.artifact.package.otp_app)
     selected_apps = MapSet.new(Enum.map(plan.selected_projects, &Atom.to_string(&1.app)))
+
+    app_sets = %{
+      selected: selected_apps,
+      absorbed: MapSet.delete(selected_apps, surviving_app)
+    }
 
     issues =
       plan.selected_projects
       |> Enum.flat_map(fn project ->
         project
         |> source_files_for_scan()
-        |> Enum.flat_map(
-          &scan_file_for_selected_app_assumptions(&1, project, plan, selected_apps)
-        )
+        |> Enum.flat_map(&scan_file_for_selected_app_assumptions(&1, project, plan, app_sets))
       end)
 
     if issues != [] do
@@ -446,22 +450,96 @@ defmodule Weld.Layout.Flat do
     end)
   end
 
-  defp scan_file_for_selected_app_assumptions(path, project, plan, selected_apps) do
+  defp scan_file_for_selected_app_assumptions(path, project, plan, app_sets) do
     contents = Facts.read!(project.facts, path)
     relative = Path.relative_to(path, plan.manifest.repo_root)
 
+    contents
+    |> find_selected_app_assumptions(path, app_sets)
+    |> Enum.map(fn {label, app} ->
+      "#{relative} uses #{label}(:#{app}) and still assumes standalone package app identity for #{project.id}"
+    end)
+  end
+
+  defp find_selected_app_assumptions(contents, path, app_sets) do
+    case Code.string_to_quoted(contents, file: path) do
+      {:ok, ast} -> ast_selected_app_assumptions(ast, app_sets)
+      {:error, _} -> regex_selected_app_assumptions(contents, app_sets)
+    end
+  end
+
+  defp ast_selected_app_assumptions(ast, app_sets) do
+    {_ast, matches} =
+      Macro.prewalk(ast, [], fn node, acc ->
+        {next_node, match} = inspect_application_call_node(node, app_sets)
+        if match, do: {next_node, [match | acc]}, else: {next_node, acc}
+      end)
+
+    Enum.reverse(matches)
+  end
+
+  defp inspect_application_call_node(
+         {:|>, _, [first_arg, {{:., _, [module, fun]}, _, rest_args}]} = node,
+         app_sets
+       )
+       when is_list(rest_args) do
+    if application_module?(module) do
+      args = [first_arg | rest_args]
+      {{:__block__, [], args}, classify_application_call(module, fun, args, app_sets)}
+    else
+      {node, nil}
+    end
+  end
+
+  defp inspect_application_call_node({{:., _, [module, fun]}, _, args} = node, app_sets)
+       when is_list(args) do
+    {node, classify_application_call(module, fun, args, app_sets)}
+  end
+
+  defp inspect_application_call_node(node, _app_sets), do: {node, nil}
+
+  defp classify_application_call(module, fun, [app | rest], app_sets) when is_atom(app) do
+    if application_module?(module) do
+      forbidden_application_call(fun, Atom.to_string(app), rest, app_sets)
+    end
+  end
+
+  defp classify_application_call(_module, _fun, _args, _app_sets), do: nil
+
+  defp forbidden_application_call(:ensure_all_started, app, rest, app_sets)
+       when length(rest) <= 1 do
+    if MapSet.member?(app_sets.selected, app), do: {"Application.ensure_all_started", app}
+  end
+
+  defp forbidden_application_call(:app_dir, app, [], app_sets) do
+    if MapSet.member?(app_sets.selected, app), do: {"Application.app_dir", app}
+  end
+
+  defp forbidden_application_call(:app_dir, app, [_subpath], app_sets) do
+    if MapSet.member?(app_sets.absorbed, app), do: {"Application.app_dir", app}
+  end
+
+  defp forbidden_application_call(_fun, _app, _rest, _app_sets), do: nil
+
+  defp application_module?({:__aliases__, _, [:Application]}), do: true
+  defp application_module?({:__aliases__, _, [:"Elixir", :Application]}), do: true
+  defp application_module?(:"Elixir.Application"), do: true
+  defp application_module?(_other), do: false
+
+  defp regex_selected_app_assumptions(contents, app_sets) do
     [
       {"Application.ensure_all_started",
-       ~r/Application\.ensure_all_started\(\s*:(?<app>[a-zA-Z0-9_]+)/},
-      {"Application.app_dir", ~r/Application\.app_dir\(\s*:(?<app>[a-zA-Z0-9_]+)/}
+       ~r/Application\.ensure_all_started\(\s*:(?<app>[a-zA-Z0-9_]+)/, app_sets.selected},
+      {"Application.app_dir", ~r/Application\.app_dir\(\s*:(?<app>[a-zA-Z0-9_]+)\s*,/,
+       app_sets.absorbed},
+      {"Application.app_dir", ~r/Application\.app_dir\(\s*:(?<app>[a-zA-Z0-9_]+)\s*\)/,
+       app_sets.selected}
     ]
-    |> Enum.flat_map(fn {label, regex} ->
+    |> Enum.flat_map(fn {label, regex, forbidden_apps} ->
       Regex.scan(regex, contents, capture: :all_names)
       |> Enum.map(&List.first/1)
-      |> Enum.filter(&MapSet.member?(selected_apps, &1))
-      |> Enum.map(fn app ->
-        "#{relative} uses #{label}(:#{app}) and still assumes standalone package app identity for #{project.id}"
-      end)
+      |> Enum.filter(&MapSet.member?(forbidden_apps, &1))
+      |> Enum.map(&{label, &1})
     end)
   end
 
