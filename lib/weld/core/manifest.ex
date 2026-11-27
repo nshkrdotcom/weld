@@ -263,6 +263,31 @@ defmodule Weld.Core.Manifest do
     path = at <> ".verify"
     verify = validate!(raw, @verify, path)
 
+    validate_verification_policy!(verify, raw, layout, path)
+
+    paths!(verify[:artifact_tests], path <> ".artifact_tests", false)
+    tests = verify[:artifact_tests]
+    context = unique!(verify[:context], path <> ".context") |> Enum.sort()
+
+    for name <- context,
+        not Regex.match?(~r/\A[A-Za-z_][A-Za-z0-9_.:-]*\z/, name),
+        do:
+          fail!(:invalid_context, path <> ".context", "context names must be public identifiers")
+
+    smoke =
+      if is_nil(verify[:smoke]),
+        do: nil,
+        else: validate!(verify[:smoke], @smoke, path <> ".smoke")
+
+    if smoke, do: path!(smoke[:entry_file], path <> ".smoke.entry_file")
+
+    verify
+    |> Keyword.put(:smoke, smoke)
+    |> Keyword.put(:artifact_tests, tests)
+    |> Keyword.put(:context, context)
+  end
+
+  defp validate_verification_policy!(verify, raw, layout, path) do
     if not verify[:hex_build] and
          (verify[:hex_publish_check] or not Keyword.has_key?(raw, :hex_publish_check)),
        do:
@@ -290,27 +315,6 @@ defmodule Weld.Core.Manifest do
           path <> ".artifact_tests",
           "preserve verifies the native project's tests"
         )
-
-    paths!(verify[:artifact_tests], path <> ".artifact_tests", false)
-    tests = verify[:artifact_tests]
-    context = unique!(verify[:context], path <> ".context") |> Enum.sort()
-
-    for name <- context,
-        not Regex.match?(~r/\A[A-Za-z_][A-Za-z0-9_.:-]*\z/, name),
-        do:
-          fail!(:invalid_context, path <> ".context", "context names must be public identifiers")
-
-    smoke =
-      if is_nil(verify[:smoke]),
-        do: nil,
-        else: validate!(verify[:smoke], @smoke, path <> ".smoke")
-
-    if smoke, do: path!(smoke[:entry_file], path <> ".smoke.entry_file")
-
-    verify
-    |> Keyword.put(:smoke, smoke)
-    |> Keyword.put(:artifact_tests, tests)
-    |> Keyword.put(:context, context)
   end
 
   defp layout!(:preserve, a, at) do
@@ -399,36 +403,7 @@ defmodule Weld.Core.Manifest do
     deps =
       package[:dev_deps]
       |> Enum.with_index()
-      |> Enum.map(fn {dep, index} ->
-        case dep do
-          {app, requirement, opts}
-          when is_atom(app) and is_binary(requirement) and is_list(opts) ->
-            normalized =
-              dependency!([requirement: requirement, opts: opts], "#{at}.dev_deps[#{index}]")
-
-            only = List.wrap(normalized[:opts][:only])
-
-            if only == [] or Enum.any?(only, &(&1 not in [:dev, :test])) or
-                 normalized[:opts][:runtime] != false or
-                 Keyword.keys(opts) --
-                   [:only, :runtime, :optional, :override, :hex, :repo, :organization] != [],
-               do:
-                 fail!(
-                   :invalid_dependency,
-                   "#{at}.dev_deps[#{index}]",
-                   "development dependency must be Hex-only, scoped to dev/test and runtime: false"
-                 )
-
-            {app, requirement, normalized[:opts]}
-
-          _ ->
-            fail!(
-              :invalid_dependency,
-              "#{at}.dev_deps[#{index}]",
-              "expected {app, requirement, options}"
-            )
-        end
-      end)
+      |> Enum.map(fn {dep, index} -> development_dependency!(dep, "#{at}.dev_deps[#{index}]") end)
 
     unique!(Enum.map(deps, &elem(&1, 0)), at <> ".dev_deps")
 
@@ -436,6 +411,27 @@ defmodule Weld.Core.Manifest do
     |> Keyword.put(:links, links)
     |> Keyword.put(:dev_deps, Enum.sort_by(deps, &elem(&1, 0)))
   end
+
+  defp development_dependency!({app, requirement, opts}, at)
+       when is_atom(app) and is_binary(requirement) and is_list(opts) do
+    normalized = dependency!([requirement: requirement, opts: opts], at)
+    only = List.wrap(normalized[:opts][:only])
+    allowed_options = [:only, :runtime, :optional, :override, :hex, :repo, :organization]
+
+    if only == [] or Enum.any?(only, &(&1 not in [:dev, :test])) or
+         normalized[:opts][:runtime] != false or Keyword.keys(opts) -- allowed_options != [],
+       do:
+         fail!(
+           :invalid_dependency,
+           at,
+           "development dependency must be Hex-only, scoped to dev/test and runtime: false"
+         )
+
+    {app, requirement, normalized[:opts]}
+  end
+
+  defp development_dependency!(_, at),
+    do: fail!(:invalid_dependency, at, "expected {app, requirement, options}")
 
   defp docs!(docs, at) do
     for key <- [:main, :logo, :hook_file], docs[key], do: path!(docs[key], "#{at}.#{key}")
@@ -533,19 +529,29 @@ defmodule Weld.Core.Manifest do
   end
 
   defp validate_dependency_mix_options!(opts, at) do
-    if opts[:hex] && not (is_binary(opts[:hex]) or is_atom(opts[:hex])),
-      do: fail!(:invalid_dependency, at <> ".hex", "expected package name")
-
-    if Keyword.has_key?(opts, :app) and not (is_atom(opts[:app]) and opts[:app] != nil),
-      do: fail!(:invalid_dependency, at <> ".app", "expected application atom or false")
-
-    if Keyword.has_key?(opts, :compile) and
-         not (is_binary(opts[:compile]) or opts[:compile] == false),
-       do: fail!(:invalid_dependency, at <> ".compile", "expected a command string or false")
+    validate_dependency_hex!(opts, at)
+    validate_dependency_app!(opts, at)
+    validate_dependency_compile!(opts, at)
 
     if opts[:system_env], do: string_map!(opts[:system_env], at <> ".system_env")
     for key <- [:subdir, :sparse], opts[key], do: path!(opts[key], "#{at}.#{key}")
     for key <- [:git], opts[key], do: public_url!(opts[key], "#{at}.#{key}")
+  end
+
+  defp validate_dependency_hex!(opts, at) do
+    if opts[:hex] && not (is_binary(opts[:hex]) or is_atom(opts[:hex])),
+      do: fail!(:invalid_dependency, at <> ".hex", "expected package name")
+  end
+
+  defp validate_dependency_app!(opts, at) do
+    if Keyword.has_key?(opts, :app) and not (is_atom(opts[:app]) and opts[:app] != nil),
+      do: fail!(:invalid_dependency, at <> ".app", "expected application atom or false")
+  end
+
+  defp validate_dependency_compile!(opts, at) do
+    if Keyword.has_key?(opts, :compile) and
+         not (is_binary(opts[:compile]) or opts[:compile] == false),
+       do: fail!(:invalid_dependency, at <> ".compile", "expected a command string or false")
   end
 
   defp declarations!(declarations, project?, at) when is_list(declarations) do
@@ -727,12 +733,17 @@ defmodule Weld.Core.Manifest do
   defp named!(value, path) do
     case named_errors(value, path) do
       [] ->
-        if(is_map(value), do: Enum.sort_by(value, fn {key, _} -> to_string(key) end), else: value)
+        named_entries(value)
 
       [error | _] ->
         throw({:manifest_error, error})
     end
   end
+
+  defp named_entries(value) when is_map(value),
+    do: Enum.sort_by(value, fn {key, _} -> to_string(key) end)
+
+  defp named_entries(value), do: value
 
   defp get(value, key, default),
     do: if(Keyword.keyword?(value), do: Keyword.get(value, key, default), else: default)
