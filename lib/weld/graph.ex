@@ -77,85 +77,89 @@ defmodule Weld.Graph do
   end
 
   defp handle_dep(graph, manifest, project, dep, app_index, path_index) do
-    opts = dep.opts
-
     cond do
-      opts[:path] ->
+      dep.opts[:path] ->
         path_dep(graph, manifest, project, dep, path_index)
 
-      opts[:git] || opts[:github] ->
-        case canonical_external_dep(manifest, dep) do
-          {:ok, external_dep} ->
-            Graph.add_external_dep(graph, project.id, external_dep)
+      dep.opts[:git] || dep.opts[:github] ->
+        git_dep(graph, manifest, project, dep)
 
-          :error ->
-            Graph.add_violation(
-              graph,
-              Violation.new(
-                :external_git_dependency,
-                "git dependencies are not supported in weld artifacts without a canonical dependency declaration",
-                project: project.id,
-                dependency: dep.app
-              )
-            )
-        end
+      Map.has_key?(app_index, dep.app) ->
+        project_dep(graph, project, dep, Map.fetch!(app_index, dep.app))
 
-      Map.has_key?(app_index, dep.app) and
-          not compatible_project_dependency?(
-            dep,
-            Map.fetch!(graph.projects, Map.fetch!(app_index, dep.app))
-          ) ->
+      true ->
+        package_dep(graph, manifest, project, dep)
+    end
+  end
+
+  defp git_dep(graph, manifest, project, dep) do
+    case canonical_external_dep(manifest, dep) do
+      {:ok, external_dep} ->
+        Graph.add_external_dep(graph, project.id, external_dep)
+
+      :error ->
         Graph.add_violation(
           graph,
           Violation.new(
-            :incompatible_dependency_identity,
-            "declared dependency package/version conflicts with the discovered project",
+            :external_git_dependency,
+            "git dependencies are not supported in weld artifacts without a canonical dependency declaration",
             project: project.id,
-            dependency: dep.app,
-            details: %{target: Map.fetch!(app_index, dep.app)}
+            dependency: dep.app
           )
         )
+    end
+  end
 
-      Map.has_key?(app_index, dep.app) ->
-        target = Map.fetch!(app_index, dep.app)
-
-        Graph.add_edge(
-          graph,
-          %Edge{
-            from: project.id,
-            to: target,
-            app: dep.app,
-            requirement: dep.requirement,
-            kind:
-              infer_kind(
-                dep.opts,
-                project.classification,
-                Map.fetch!(graph.classifications, target)
-              ),
-            opts: dep.opts
-          }
+  defp project_dep(graph, project, dep, target) do
+    if compatible_project_dependency?(dep, Map.fetch!(graph.projects, target)) do
+      project_edge(graph, project, dep, target)
+    else
+      Graph.add_violation(
+        graph,
+        Violation.new(
+          :incompatible_dependency_identity,
+          "declared dependency package/version conflicts with the discovered project",
+          project: project.id,
+          dependency: dep.app,
+          details: %{target: target}
         )
+      )
+    end
+  end
 
-      true ->
-        case external_package_dependency(manifest, dep) do
-          {:ok, external_dep} ->
-            Graph.add_external_dep(graph, project.id, external_dep)
+  defp project_edge(graph, project, dep, target) do
+    Graph.add_edge(
+      graph,
+      %Edge{
+        from: project.id,
+        to: target,
+        app: dep.app,
+        requirement: dep.requirement,
+        kind:
+          infer_kind(dep.opts, project.classification, Map.fetch!(graph.classifications, target)),
+        opts: dep.opts
+      }
+    )
+  end
 
-          {:error, message} ->
-            Graph.add_violation(
-              graph,
-              Violation.new(:conflicting_dependency, message,
-                project: project.id,
-                dependency: dep.app,
-                details: %{
-                  source: Path.join(project.id, "mix.exs"),
-                  requirement: dep.requirement,
-                  hint:
-                    "Declare one compatible versioned dependency or an explicit canonical source."
-                }
-              )
-            )
-        end
+  defp package_dep(graph, manifest, project, dep) do
+    case external_package_dependency(manifest, dep) do
+      {:ok, external_dep} ->
+        Graph.add_external_dep(graph, project.id, external_dep)
+
+      {:error, message} ->
+        Graph.add_violation(
+          graph,
+          Violation.new(:conflicting_dependency, message,
+            project: project.id,
+            dependency: dep.app,
+            details: %{
+              source: Path.join(project.id, "mix.exs"),
+              requirement: dep.requirement,
+              hint: "Declare one compatible versioned dependency or an explicit canonical source."
+            }
+          )
+        )
     end
   end
 
@@ -184,96 +188,90 @@ defmodule Weld.Graph do
   defp path_dep(graph, manifest, project, dep, path_index) do
     dep_path = Path.expand(dep.opts[:path], project.abs_path)
 
-    within_repo? =
-      dep_path == manifest.repo_root or String.starts_with?(dep_path, manifest.repo_root <> "/")
+    case Map.fetch(path_index, dep_path) do
+      {:ok, target} ->
+        path_project_dep(graph, project, dep, target)
 
-    cond do
-      Map.has_key?(path_index, dep_path) and
-          Map.fetch!(graph.projects, Map.fetch!(path_index, dep_path)).app != dep.app ->
-        Graph.add_violation(
-          graph,
-          Violation.new(
-            :incompatible_dependency_app,
-            "path dependency app does not match the target project",
-            project: project.id,
-            dependency: dep.app,
-            details: %{target: Map.fetch!(path_index, dep_path)}
-          )
+      :error ->
+        within_repo? =
+          dep_path == manifest.repo_root or
+            String.starts_with?(dep_path, manifest.repo_root <> "/")
+
+        if within_repo?,
+          do: unresolved_path_dep(graph, manifest, project, dep, dep_path),
+          else: external_path_dep(graph, manifest, project, dep, dep_path)
+    end
+  end
+
+  defp path_project_dep(graph, project, dep, target) do
+    if Map.fetch!(graph.projects, target).app == dep.app do
+      project_edge(graph, project, dep, target)
+    else
+      Graph.add_violation(
+        graph,
+        Violation.new(
+          :incompatible_dependency_app,
+          "path dependency app does not match the target project",
+          project: project.id,
+          dependency: dep.app,
+          details: %{target: target}
         )
+      )
+    end
+  end
 
-      Map.has_key?(path_index, dep_path) ->
-        target = Map.fetch!(path_index, dep_path)
-
-        Graph.add_edge(
-          graph,
-          %Edge{
-            from: project.id,
-            to: target,
-            app: dep.app,
-            requirement: dep.requirement,
-            kind:
-              infer_kind(
-                dep.opts,
-                project.classification,
-                Map.fetch!(graph.classifications, target)
-              ),
-            opts: dep.opts
-          }
+  defp external_path_dep(graph, manifest, project, dep, dep_path) do
+    if Map.has_key?(manifest.dependencies, dep.app) do
+      canonical_path_dep(graph, manifest, project, dep, dep_path)
+    else
+      Graph.add_violation(
+        graph,
+        Violation.new(
+          :external_path_dependency,
+          "path dependency outside the workspace requires an explicit canonical dependency declaration",
+          project: project.id,
+          dependency: dep.app
         )
+      )
+    end
+  end
 
-      not within_repo? and not Map.has_key?(manifest.dependencies, dep.app) ->
+  defp canonical_path_dep(graph, manifest, project, dep, dep_path) do
+    case canonical_external_dep(manifest, dep) do
+      {:ok, external_dep} ->
+        Graph.add_external_dep(graph, project.id, external_dep)
+
+      :error ->
         Graph.add_violation(
           graph,
           Violation.new(
             :external_path_dependency,
-            "path dependency outside the workspace requires an explicit canonical dependency declaration",
-            project: project.id,
-            dependency: dep.app
-          )
-        )
-
-      not within_repo? ->
-        case canonical_external_dep(manifest, dep) do
-          {:ok, external_dep} ->
-            Graph.add_external_dep(graph, project.id, external_dep)
-
-          :error ->
-            Graph.add_violation(
-              graph,
-              Violation.new(
-                :external_path_dependency,
-                "path dependency points outside the workspace without a canonical dependency declaration",
-                project: project.id,
-                dependency: dep.app,
-                details: %{path: dep_path}
-              )
-            )
-        end
-
-      Facts.regular?(project.facts, Path.join(dep_path, "mix.exs")) ->
-        Graph.add_violation(
-          graph,
-          Violation.new(
-            :path_dep_to_undiscovered_project,
-            "path dependency points at a workspace project that was not discovered",
+            "path dependency points outside the workspace without a canonical dependency declaration",
             project: project.id,
             dependency: dep.app,
-            details: %{path: Path.relative_to(dep_path, manifest.repo_root)}
-          )
-        )
-
-      within_repo? ->
-        Graph.add_violation(
-          graph,
-          Violation.new(
-            :unresolved_path_dependency,
-            "path dependency could not be resolved",
-            project: project.id,
-            dependency: dep.app,
-            details: %{path: Path.relative_to(dep_path, manifest.repo_root)}
+            details: %{path: dep_path}
           )
         )
     end
+  end
+
+  defp unresolved_path_dep(graph, manifest, project, dep, dep_path) do
+    {code, message} =
+      if Facts.regular?(project.facts, Path.join(dep_path, "mix.exs")) do
+        {:path_dep_to_undiscovered_project,
+         "path dependency points at a workspace project that was not discovered"}
+      else
+        {:unresolved_path_dependency, "path dependency could not be resolved"}
+      end
+
+    Graph.add_violation(
+      graph,
+      Violation.new(code, message,
+        project: project.id,
+        dependency: dep.app,
+        details: %{path: Path.relative_to(dep_path, manifest.repo_root)}
+      )
+    )
   end
 
   defp canonical_external_dep(manifest, dep) do

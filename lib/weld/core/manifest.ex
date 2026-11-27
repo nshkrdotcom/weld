@@ -878,6 +878,8 @@ defmodule Weld.Core.Manifest do
           )
   end
 
+  @spec fail!(atom(), binary(), binary()) :: no_return()
+  @spec fail!(atom(), binary(), binary(), map()) :: no_return()
   defp fail!(code, path, message, details \\ %{}),
     do: throw({:manifest_error, diagnostic(code, path, message, details)})
 

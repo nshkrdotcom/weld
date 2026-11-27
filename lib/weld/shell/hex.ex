@@ -292,7 +292,7 @@ defmodule Weld.Shell.Hex do
   # proplist into a map. Ambiguous duplicate keys must never become evidence.
   defp validate_raw_metadata!(bytes) when byte_size(bytes) <= 1024 * 1024 do
     unless String.valid?(bytes), do: raise(Error, "Hex metadata must be UTF-8")
-    raw_terms!(String.to_charlist(bytes), MapSet.new())
+    raw_terms!(String.to_charlist(bytes), %{})
   end
 
   defp validate_raw_metadata!(_), do: raise(Error, "Hex metadata exceeds its bound")
@@ -319,9 +319,9 @@ defmodule Weld.Shell.Hex do
   defp raw_term!(tokens, rest, seen) do
     case :erl_parse.parse_term(tokens) do
       {:ok, {key, value}} when is_binary(key) ->
-        if MapSet.member?(seen, key), do: raise(Error, "duplicate Hex metadata key")
+        if Map.has_key?(seen, key), do: raise(Error, "duplicate Hex metadata key")
         validate_raw_value!(value)
-        raw_terms!(rest, MapSet.put(seen, key))
+        raw_terms!(rest, Map.put(seen, key, true))
 
       _ ->
         raise Error, "invalid Hex metadata term"
@@ -1063,6 +1063,7 @@ defmodule Weld.Shell.Hex do
 
   defp outcome_id?(id) when is_binary(id), do: Regex.match?(~r/\A[0-9a-f]{24}\z/, id)
   defp outcome_id?(_), do: false
+  @spec invalid_outcome!() :: no_return()
   defp invalid_outcome!, do: raise(Error, "invalid canonical publication outcome")
 
   defp validate_outcome_observation!(value, part_state, destination) do

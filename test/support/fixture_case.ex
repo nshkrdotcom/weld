@@ -1,6 +1,10 @@
 defmodule Weld.FixtureCase do
-  alias Weld.Shell.Hex
   @moduledoc false
+
+  alias Weld.Core.Identity
+  alias Weld.{Git, Hash, Output}
+  alias Weld.Plan.Inventory
+  alias Weld.Shell.Hex
 
   def fixture_path(name) do
     Path.expand(Path.join(["..", "fixtures", name]), __DIR__)
@@ -40,9 +44,6 @@ defmodule Weld.FixtureCase do
   # Synthetic gate observations are confined to fixture construction. This helper
   # builds real canonical evidence and real Hex archives, never production proof.
   def write_tracking_fixture!(root, manifest, opts \\ []) do
-    alias Weld.Core.Identity
-    alias Weld.{Git, Hash, Output}
-    alias Weld.Plan.Inventory
     stage = Output.temporary!(root, "staging")
     project = Path.join(stage, "project")
     docs = Path.join(stage, "docs")
@@ -62,60 +63,9 @@ defmodule Weld.FixtureCase do
     observed = Hash.observation(project)
     docs_observed = Hash.observation(docs)
 
-    inputs =
-      for file <- observed["entries"] do
-        %{
-          "id" => "file:" <> file["path"],
-          "kind" => "file",
-          "roles" => ["metadata"],
-          "owners" => ["fixture"],
-          "fact" => Map.put(file, "mode", if(file["executable"], do: 0o755, else: 0o644))
-        }
-      end
-
-    entries =
-      for file <- observed["entries"] do
-        variant = %{
-          "strategy" => "copy",
-          "source" => "file:" <> file["path"],
-          "content_sha256" => file["sha256"],
-          "size" => file["size"],
-          "executable" => file["executable"],
-          "group" => nil
-        }
-
-        %{
-          "target" => file["path"],
-          "kind" => "file",
-          "roles" => ["metadata"],
-          "owners" => ["fixture"],
-          "origins" => ["file:" <> file["path"]],
-          "full" => variant,
-          "live" => variant,
-          "package" => true,
-          "verify" => true
-        }
-      end
-
-    package =
-      if hex? do
-        metadata = %{
-          "name" => "fixture_bundle",
-          "app" => "fixture_bundle",
-          "version" => "0.1.0",
-          "files" => Enum.map(observed["entries"], & &1["path"]),
-          "requirements" => %{},
-          "build_tools" => ["mix"]
-        }
-
-        files =
-          for file <- observed["entries"],
-              do: {String.to_charlist(file["path"]), File.read!(Path.join(project, file["path"]))}
-
-        {:ok, %{tarball: bytes}} = :hex_tarball.create(metadata, files)
-        File.write!(Path.join(stage, "package.tar"), bytes)
-        Hex.package_observation!(Path.join(stage, "package.tar"))
-      end
+    inputs = fixture_inputs(observed)
+    entries = fixture_entries(observed)
+    package = fixture_package!(stage, project, observed, hex?)
 
     docs_archive = if hex?, do: Hex.freeze_docs!(docs, Path.join(stage, "docs.tar.gz"))
     manifest_path = Path.relative_to(manifest, root)
@@ -200,40 +150,7 @@ defmodule Weld.FixtureCase do
     archive_sha256 = if hex?, do: Hash.sha256_file(Path.join(stage, "package.tar"))
     docs_id = Identity.digest("docs", docs_observed)
 
-    gates =
-      for number <- 1..12 do
-        id = "G" <> String.pad_leading(to_string(number), 2, "0")
-        skip = id in ["G03", "G07", "G09"] or (not hex? and id in ["G08", "G10"])
-
-        facts =
-          case id do
-            "G08" when hex? ->
-              %{
-                "archive_sha256" => archive_sha256,
-                "package_id" => package_id,
-                "entries" => length(package.entries)
-              }
-
-            "G11" ->
-              %{
-                "docs_id" => docs_id,
-                "docs_archive_sha256" => docs_archive && docs_archive.sha256,
-                "roundtrip_verified" => hex?,
-                "archive_policy" =>
-                  if(hex?, do: "exact_frozen_payload", else: "non_hex_docs_tree")
-              }
-
-            _ ->
-              %{"synthetic_fixture" => true}
-          end
-
-        %{
-          "id" => id,
-          "status" => if(skip, do: "skip", else: "pass"),
-          "facts" => facts,
-          "skip_reason" => if(skip, do: "fixture policy disables this gate")
-        }
-      end
+    gates = fixture_gates(hex?, package, package_id, archive_sha256, docs_id, docs_archive)
 
     proof = %{
       "schema" => "weld.qualification/2",
@@ -256,6 +173,120 @@ defmodule Weld.FixtureCase do
     File.write!(Path.join(stage, "inventory.json"), Identity.canonical(inventory))
     File.write!(Path.join(stage, "qualification.json"), Identity.canonical(proof))
 
+    seal_fixture!(root, stage, inventory, proof, hex?)
+  end
+
+  defp fixture_inputs(observed) do
+    for file <- observed["entries"] do
+      %{
+        "id" => "file:" <> file["path"],
+        "kind" => "file",
+        "roles" => ["metadata"],
+        "owners" => ["fixture"],
+        "fact" => Map.put(file, "mode", if(file["executable"], do: 0o755, else: 0o644))
+      }
+    end
+  end
+
+  defp fixture_entries(observed) do
+    for file <- observed["entries"] do
+      variant = %{
+        "strategy" => "copy",
+        "source" => "file:" <> file["path"],
+        "content_sha256" => file["sha256"],
+        "size" => file["size"],
+        "executable" => file["executable"],
+        "group" => nil
+      }
+
+      %{
+        "target" => file["path"],
+        "kind" => "file",
+        "roles" => ["metadata"],
+        "owners" => ["fixture"],
+        "origins" => ["file:" <> file["path"]],
+        "full" => variant,
+        "live" => variant,
+        "package" => true,
+        "verify" => true
+      }
+    end
+  end
+
+  defp fixture_package!(_stage, _project, _observed, false), do: nil
+
+  defp fixture_package!(stage, project, observed, true) do
+    metadata = %{
+      "name" => "fixture_bundle",
+      "app" => "fixture_bundle",
+      "version" => "0.1.0",
+      "files" => Enum.map(observed["entries"], & &1["path"]),
+      "requirements" => %{},
+      "build_tools" => ["mix"]
+    }
+
+    files =
+      for file <- observed["entries"],
+          do: {String.to_charlist(file["path"]), File.read!(Path.join(project, file["path"]))}
+
+    {:ok, %{tarball: bytes}} = :hex_tarball.create(metadata, files)
+    File.write!(Path.join(stage, "package.tar"), bytes)
+    Hex.package_observation!(Path.join(stage, "package.tar"))
+  end
+
+  defp fixture_gates(hex?, package, package_id, archive_sha256, docs_id, docs_archive) do
+    for number <- 1..12 do
+      id = "G" <> String.pad_leading(to_string(number), 2, "0")
+      skip = id in ["G03", "G07", "G09"] or (not hex? and id in ["G08", "G10"])
+
+      facts =
+        fixture_gate_facts(id, hex?, package, package_id, archive_sha256, docs_id, docs_archive)
+
+      %{
+        "id" => id,
+        "status" => if(skip, do: "skip", else: "pass"),
+        "facts" => facts,
+        "skip_reason" => if(skip, do: "fixture policy disables this gate")
+      }
+    end
+  end
+
+  defp fixture_gate_facts(
+         "G08",
+         true,
+         package,
+         package_id,
+         archive_sha256,
+         _docs_id,
+         _docs_archive
+       ) do
+    %{
+      "archive_sha256" => archive_sha256,
+      "package_id" => package_id,
+      "entries" => length(package.entries)
+    }
+  end
+
+  defp fixture_gate_facts(
+         "G11",
+         hex?,
+         _package,
+         _package_id,
+         _archive_sha256,
+         docs_id,
+         docs_archive
+       ) do
+    %{
+      "docs_id" => docs_id,
+      "docs_archive_sha256" => docs_archive && docs_archive.sha256,
+      "roundtrip_verified" => hex?,
+      "archive_policy" => if(hex?, do: "exact_frozen_payload", else: "non_hex_docs_tree")
+    }
+  end
+
+  defp fixture_gate_facts(_, _, _, _, _, _, _), do: %{"synthetic_fixture" => true}
+
+  defp seal_fixture!(root, stage, inventory, proof, hex?) do
     descriptor = fn name ->
       %{
         "path" => name,
@@ -270,7 +301,7 @@ defmodule Weld.FixtureCase do
       "layout" => "components",
       "package" => "fixture_bundle",
       "version" => "0.1.0",
-      "compiler_id" => compiler,
+      "compiler_id" => inventory["compiler_id"],
       "input_id" => inventory["input_id"],
       "plan_id" => inventory["plan_id"],
       "project_id" => proof["project_id"],
@@ -279,7 +310,7 @@ defmodule Weld.FixtureCase do
       "archive_sha256" => proof["archive_sha256"],
       "docs_id" => proof["docs_id"],
       "docs_archive_sha256" => proof["docs_archive_sha256"],
-      "source" => source,
+      "source" => proof["source"],
       "files" => %{
         "inventory" => descriptor.("inventory.json"),
         "qualification" => descriptor.("qualification.json"),

@@ -221,7 +221,8 @@ defmodule Weld.Core.Selection do
     values |> Enum.uniq() |> Enum.reject(&(&1 in excluded)) |> Enum.sort()
   end
 
-  @spec ensure_valid!(map()) :: map()
+  @spec ensure_valid!(%{required(:violations) => [], optional(any()) => any()}) ::
+          %{required(:violations) => [], optional(any()) => any()}
   def ensure_valid!(%{violations: []} = plan), do: plan
 
   def ensure_valid!(%{violations: violations}) do

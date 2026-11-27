@@ -31,46 +31,10 @@ defmodule Weld.Layout.Preserve do
 
     outputs = Inventory.preserve_inventory(plan)
 
-    for entry <- Inputs.mapped(plan) do
-      unless Enum.any?(outputs, &(&1.target == entry.target and &1.publish == entry.publish)),
-        do:
-          raise(
-            Error,
-            "preserve inventory does not cover declared target/publication: #{entry.target}"
-          )
-    end
-
-    full =
-      for entry <- outputs do
-        source = Path.join(plan.manifest.repo_root, hd(entry.inputs).source)
-
-        operation =
-          if entry.kind in [:compiled, :test] and
-               hd(entry.inputs).source not in plan.structural_inputs and
-               not Enum.any?(Path.split(entry.target), &(&1 in ~w(c_src priv config))),
-             do: :link_or_copy,
-             else: :copy
-
-        FilePlan.copy(source, entry.target, entry.kind, operation)
-      end
-
-    full = FilePlan.validate!(full)
-
-    groups =
-      for entry <- roots,
-          entry.directory,
-          children = Enum.filter(full, &covered?(&1.target, entry.target)),
-          children != [],
-          Enum.all?(children, &(&1.operation == :link_or_copy)),
-          do: entry
-
-    links =
-      for op <- full,
-          op.operation == :link_or_copy,
-          not Enum.any?(groups, &covered?(op.target, &1.target)),
-          do: {op.target, Path.relative_to(hd(op.sources), plan.manifest.repo_root)}
-
-    links = links ++ Enum.map(groups, &{&1.target, &1.source})
+    validate_mapped_outputs!(plan, outputs)
+    full = full_operations(plan, outputs)
+    groups = live_groups(roots, full)
+    links = live_links(plan, full, groups)
 
     guard =
       Live.guard_ast(plan,
@@ -117,6 +81,54 @@ defmodule Weld.Layout.Preserve do
       native_projects: projects,
       config_warnings: []
     }
+  end
+
+  defp validate_mapped_outputs!(plan, outputs) do
+    for entry <- Inputs.mapped(plan) do
+      unless Enum.any?(outputs, &(&1.target == entry.target and &1.publish == entry.publish)),
+        do:
+          raise(
+            Error,
+            "preserve inventory does not cover declared target/publication: #{entry.target}"
+          )
+    end
+  end
+
+  defp full_operations(plan, outputs) do
+    full =
+      for entry <- outputs do
+        source = Path.join(plan.manifest.repo_root, hd(entry.inputs).source)
+
+        operation =
+          if entry.kind in [:compiled, :test] and
+               hd(entry.inputs).source not in plan.structural_inputs and
+               not Enum.any?(Path.split(entry.target), &(&1 in ~w(c_src priv config))),
+             do: :link_or_copy,
+             else: :copy
+
+        FilePlan.copy(source, entry.target, entry.kind, operation)
+      end
+
+    FilePlan.validate!(full)
+  end
+
+  defp live_groups(roots, full) do
+    for entry <- roots,
+        entry.directory,
+        children = Enum.filter(full, &covered?(&1.target, entry.target)),
+        children != [],
+        Enum.all?(children, &(&1.operation == :link_or_copy)),
+        do: entry
+  end
+
+  defp live_links(plan, full, groups) do
+    links =
+      for op <- full,
+          op.operation == :link_or_copy,
+          not Enum.any?(groups, &covered?(op.target, &1.target)),
+          do: {op.target, Path.relative_to(hd(op.sources), plan.manifest.repo_root)}
+
+    links ++ Enum.map(groups, &{&1.target, &1.source})
   end
 
   defp validate_inventory!(facts, checkout, root, roots, targets, required) do

@@ -34,21 +34,24 @@ defmodule Weld.Verifier do
         )
 
       lease ->
-        root = Output.checkout(plan.manifest.repo_root)
-
-        unless lease.root == root and lease.record["artifact"] == plan.artifact.id and
-                 lease.record["operation"] == "prepare" and
-                 Enum.any?(Output.leases(root), fn {path, record} ->
-                   path == lease.path and record == lease.record
-                 end),
-               do:
-                 raise(
-                   Error,
-                   "qualification requires the active parent prepare lease for this artifact"
-                 )
-
+        validate_parent_lease!(plan, lease)
         verify_with_lease!(plan, lease, opts)
     end
+  end
+
+  defp validate_parent_lease!(plan, lease) do
+    root = Output.checkout(plan.manifest.repo_root)
+
+    unless lease.root == root and lease.record["artifact"] == plan.artifact.id and
+             lease.record["operation"] == "prepare" and
+             Enum.any?(Output.leases(root), fn {path, record} ->
+               path == lease.path and record == lease.record
+             end),
+           do:
+             raise(
+               Error,
+               "qualification requires the active parent prepare lease for this artifact"
+             )
   end
 
   defp verify_with_lease!(plan, lease, opts) do
@@ -669,25 +672,8 @@ defmodule Weld.Verifier do
 
     {tests, counts} =
       Enum.reduce(projects, {[], []}, fn project, {tests, counts} ->
-        root = Path.join([state.root, "baseline-work", Identity.raw(project.id)])
-        project_root = if project.id == ".", do: mirror, else: Path.join(mirror, project.id)
-        _ = run_mix!(project_root, root, :test, ["deps.get"], "G03-resolve")
-        frozen = observe_tree!(mirror)
-        {result, records} = run_tests!(project_root, root, "G03")
-
-        unless frozen == observe_tree!(mirror),
-          do: raise(Error, "G03: source baseline modified frozen source mirror")
-
-        records =
-          Enum.map(
-            records,
-            &Map.update!(&1, "file", fn path ->
-              if project.id == ".", do: path, else: project.id <> "/" <> path
-            end)
-          )
-
-        {tests ++ records,
-         counts ++ [%{project_id: project.id, app: project.app, test_count: result.test_count}]}
+        {records, count} = baseline_project!(state, mirror, project)
+        {tests ++ records, counts ++ [count]}
       end)
 
     {Enum.sort_by(tests, &test_key/1),
@@ -699,6 +685,25 @@ defmodule Weld.Verifier do
        project_test_counts: counts
      }}
   end
+
+  defp baseline_project!(state, mirror, project) do
+    root = Path.join([state.root, "baseline-work", Identity.raw(project.id)])
+    project_root = if project.id == ".", do: mirror, else: Path.join(mirror, project.id)
+    _ = run_mix!(project_root, root, :test, ["deps.get"], "G03-resolve")
+    frozen = observe_tree!(mirror)
+    {result, records} = run_tests!(project_root, root, "G03")
+
+    unless frozen == observe_tree!(mirror),
+      do: raise(Error, "G03: source baseline modified frozen source mirror")
+
+    records = Enum.map(records, &prefix_baseline_file(&1, project.id))
+    {records, %{project_id: project.id, app: project.app, test_count: result.test_count}}
+  end
+
+  defp prefix_baseline_file(record, "."), do: record
+
+  defp prefix_baseline_file(record, project_id),
+    do: Map.update!(record, "file", &(project_id <> "/" <> &1))
 
   defp run_tests!(project, root, gate) do
     File.mkdir_p!(root)
@@ -769,34 +774,7 @@ defmodule Weld.Verifier do
   defp read_test_events!(path, project, output) do
     case File.read(path) do
       {:ok, bytes} when byte_size(bytes) <= 16 * 1024 * 1024 ->
-        lines = String.split(bytes, "\n", trim: true)
-
-        unless List.first(lines) == "suite_started" and List.last(lines) == "suite_finished",
-          do: raise(Error, "incomplete ExUnit execution evidence")
-
-        tests =
-          Enum.map(Enum.slice(lines, 1, max(length(lines) - 2, 0)), fn line ->
-            case String.split(line, "\t") do
-              ["test", file, module, name, state] when state in ~w(pass skip excluded) ->
-                file = file |> Base.decode64!() |> Path.relative_to(project)
-                Weld.Core.Inventory.validate_path!(file)
-
-                %{
-                  "file" => file,
-                  "module" => Base.decode64!(module),
-                  "name" => Base.decode64!(name),
-                  "state" => state
-                }
-
-              _ ->
-                raise Error, "unsupported or failed ExUnit test identity"
-            end
-          end)
-
-        unless length(Enum.uniq_by(tests, &test_key/1)) == length(tests),
-          do: raise(Error, "ambiguous duplicate ExUnit test identities")
-
-        Enum.sort_by(tests, &test_key/1)
+        parse_test_events!(bytes, project)
 
       {:error, :enoent} ->
         if output =~ "There are no tests to run",
@@ -805,6 +783,41 @@ defmodule Weld.Verifier do
 
       _ ->
         raise Error, "invalid bounded ExUnit execution evidence"
+    end
+  end
+
+  defp parse_test_events!(bytes, project) do
+    lines = String.split(bytes, "\n", trim: true)
+
+    unless List.first(lines) == "suite_started" and List.last(lines) == "suite_finished",
+      do: raise(Error, "incomplete ExUnit execution evidence")
+
+    tests =
+      lines
+      |> Enum.slice(1, max(length(lines) - 2, 0))
+      |> Enum.map(&parse_test_event!(&1, project))
+
+    unless length(Enum.uniq_by(tests, &test_key/1)) == length(tests),
+      do: raise(Error, "ambiguous duplicate ExUnit test identities")
+
+    Enum.sort_by(tests, &test_key/1)
+  end
+
+  defp parse_test_event!(line, project) do
+    case String.split(line, "\t") do
+      ["test", file, module, name, state] when state in ~w(pass skip excluded) ->
+        file = file |> Base.decode64!() |> Path.relative_to(project)
+        Weld.Core.Inventory.validate_path!(file)
+
+        %{
+          "file" => file,
+          "module" => Base.decode64!(module),
+          "name" => Base.decode64!(name),
+          "state" => state
+        }
+
+      _ ->
+        raise Error, "unsupported or failed ExUnit test identity"
     end
   end
 
@@ -912,45 +925,7 @@ defmodule Weld.Verifier do
   defp package_metadata!(config, files) do
     package = config[:package] || []
 
-    requirements =
-      (config[:deps] || [])
-      |> Enum.reduce(%{}, fn dep, acc ->
-        {app, requirement, opts} =
-          case dep do
-            {app, requirement, opts} -> {app, requirement, opts}
-            {app, opts} when is_list(opts) -> {app, nil, opts}
-            {app, requirement} -> {app, requirement, []}
-          end
-
-        if is_nil(opts[:only]) or :prod in List.wrap(opts[:only]) do
-          unless is_binary(requirement) and is_nil(opts[:path]) and is_nil(opts[:git]) and
-                   is_nil(opts[:github]),
-                 do:
-                   raise(
-                     Error,
-                     "Hex qualification requires ordinary registry publication dependencies"
-                   )
-
-          name = to_string(opts[:hex] || app)
-          if Map.has_key?(acc, name), do: raise(Error, "duplicate Hex publication dependency")
-
-          repo =
-            (opts[:repo] ||
-               if(opts[:organization], do: "hexpm:" <> opts[:organization], else: "hexpm"))
-            |> to_string()
-            |> String.split(":", parts: 2)
-            |> List.last()
-
-          Map.put(acc, name, %{
-            "app" => to_string(app),
-            "requirement" => requirement,
-            "optional" => opts[:optional] || false,
-            "repository" => repo
-          })
-        else
-          acc
-        end
-      end)
+    requirements = Enum.reduce(config[:deps] || [], %{}, &add_publication_requirement!/2)
 
     %{
       "name" => to_string(package[:name] || config[:app]),
@@ -968,6 +943,42 @@ defmodule Weld.Verifier do
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
+  end
+
+  defp add_publication_requirement!(dep, acc) do
+    {app, requirement, opts} = publication_dep(dep)
+
+    if is_nil(opts[:only]) or :prod in List.wrap(opts[:only]),
+      do: put_publication_requirement!(acc, app, requirement, opts),
+      else: acc
+  end
+
+  defp publication_dep({app, requirement, opts}), do: {app, requirement, opts}
+  defp publication_dep({app, opts}) when is_list(opts), do: {app, nil, opts}
+  defp publication_dep({app, requirement}), do: {app, requirement, []}
+
+  defp put_publication_requirement!(acc, app, requirement, opts) do
+    unless is_binary(requirement) and is_nil(opts[:path]) and is_nil(opts[:git]) and
+             is_nil(opts[:github]),
+           do:
+             raise(Error, "Hex qualification requires ordinary registry publication dependencies")
+
+    name = to_string(opts[:hex] || app)
+    if Map.has_key?(acc, name), do: raise(Error, "duplicate Hex publication dependency")
+
+    Map.put(acc, name, %{
+      "app" => to_string(app),
+      "requirement" => requirement,
+      "optional" => opts[:optional] || false,
+      "repository" => publication_repository(opts)
+    })
+  end
+
+  defp publication_repository(opts) do
+    (opts[:repo] || if(opts[:organization], do: "hexpm:" <> opts[:organization], else: "hexpm"))
+    |> to_string()
+    |> String.split(":", parts: 2)
+    |> List.last()
   end
 
   defp package_empty_dirs!(project, config, empty_dirs) do
@@ -1099,16 +1110,22 @@ defmodule Weld.Verifier do
       do: raise(Error, "qualification must record G01–G12 exactly once in order")
 
     for {gate, spec} <- Enum.zip(gates, specs) do
-      unless Enum.sort(Map.keys(gate)) == ~w(facts id skip_reason status) and
-               is_map(gate["facts"]) and
-               ((gate["status"] == "pass" and is_nil(gate["skip_reason"])) or
-                  (gate["status"] == "skip" and not spec.required and
-                     gate["skip_reason"] == spec.skip_reason)),
-             do: raise(Error, "invalid or skipped mandatory qualification gate #{spec.id}")
+      unless valid_gate_fields?(gate) and valid_gate_status?(gate, spec),
+        do: raise(Error, "invalid or skipped mandatory qualification gate #{spec.id}")
     end
 
     :ok
   end
+
+  defp valid_gate_fields?(gate),
+    do: Enum.sort(Map.keys(gate)) == ~w(facts id skip_reason status) and is_map(gate["facts"])
+
+  defp valid_gate_status?(%{"status" => "pass", "skip_reason" => nil}, _spec), do: true
+
+  defp valid_gate_status?(%{"status" => "skip", "skip_reason" => reason}, spec),
+    do: not spec.required and reason == spec.skip_reason
+
+  defp valid_gate_status?(_, _), do: false
 
   defp portable(%Regex{} = regex, _root),
     do: %{"regex" => Regex.source(regex), "options" => Regex.opts(regex)}

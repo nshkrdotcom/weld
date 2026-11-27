@@ -74,11 +74,19 @@ defmodule Weld.Layout.Support do
     |> Enum.filter(&Facts.regular?(plan.facts, Path.join(plan.manifest.repo_root, &1)))
   end
 
-  @doc false
-  @spec docs_options(map() | Manifest.Artifact.t()) :: keyword()
-  def docs_options(%{artifact: _} = plan), do: docs_options(plan.artifact)
+  @type docs_artifact :: %Manifest.Artifact{package: Manifest.Package.t()}
 
-  def docs_options(%Manifest.Artifact{} = artifact) do
+  @doc false
+  @spec docs_options(
+          %{required(:artifact) => docs_artifact(), optional(any()) => any()}
+          | docs_artifact()
+        ) :: nonempty_list({atom(), term()})
+  def docs_options(%Manifest.Artifact{} = artifact), do: artifact_docs_options(artifact)
+
+  def docs_options(%{artifact: %Manifest.Artifact{} = artifact}),
+    do: artifact_docs_options(artifact)
+
+  defp artifact_docs_options(artifact) do
     docs = artifact.package.docs
 
     extras =

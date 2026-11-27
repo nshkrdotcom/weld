@@ -450,6 +450,7 @@ defmodule Weld.Workspace do
 
   defp environment_value(config, key), do: config[key]
 
+  @spec environment_error!(binary(), atom(), atom(), binary()) :: no_return()
   defp environment_error!(project_id, env, field, reason),
     do:
       raise(Error,

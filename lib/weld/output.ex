@@ -932,7 +932,7 @@ defmodule Weld.Output do
   end
 
   defp recovery_action!("view", record, paths, base) do
-    %{target: target, stage: stage, backup: backup} = paths
+    %{target: target, backup: backup} = paths
     actual = if File.exists?(target), do: tree_record(target)
     saved = if File.exists?(backup), do: tree_record(backup)
     phase = record["phase"]
@@ -940,26 +940,6 @@ defmodule Weld.Output do
 
     view_recovery!(actual, saved, phase, {old, record["new"]}, paths, base)
   end
-
-  defp view_recovery!(current, saved, _phase, {old, current}, paths, base),
-    do: recover_installed_view!(base, paths.backup, old, saved)
-
-  defp view_recovery!(nil, old, phase, {old, _new}, paths, _base)
-       when old != nil and phase not in ["committed", "cleaned"],
-       do: {:restore, paths.backup, paths.target}
-
-  defp view_recovery!(old, nil, phase, {old, _new}, _paths, _base)
-       when phase in ["reserved", "cleaned"],
-       do: :none
-
-  defp view_recovery!(nil, _saved, "reserved", {nil, _new}, paths, _base) do
-    if File.dir?(paths.stage), do: :none, else: ambiguous_view_recovery!(paths)
-  end
-
-  defp view_recovery!(_, _, _, _, paths, _base), do: ambiguous_view_recovery!(paths)
-
-  defp ambiguous_view_recovery!(paths),
-    do: raise(Error, "ambiguous activation; retained all paths: #{paths.journal}")
 
   defp recovery_action!("immutable", record, paths, _base) do
     intact? =
@@ -996,6 +976,28 @@ defmodule Weld.Output do
   end
 
   defp recovery_action!(_, _, _, _), do: raise(Error, "unknown journal kind")
+
+  defp view_recovery!(current, saved, _phase, {old, current}, paths, base),
+    do: recover_installed_view!(base, paths.backup, old, saved)
+
+  defp view_recovery!(nil, old, phase, {old, _new}, paths, _base)
+       when old != nil and phase not in ["committed", "cleaned"],
+       do: {:restore, paths.backup, paths.target}
+
+  defp view_recovery!(old, nil, phase, {old, _new}, _paths, _base)
+       when phase in ["reserved", "cleaned"],
+       do: :none
+
+  defp view_recovery!(nil, _saved, "reserved", {nil, _new}, paths, _base) do
+    if File.dir?(paths.stage), do: :none, else: ambiguous_view_recovery!(paths)
+  end
+
+  defp view_recovery!(_, _, _, _, paths, _base), do: ambiguous_view_recovery!(paths)
+
+  @spec ambiguous_view_recovery!(%{required(:journal) => binary(), optional(any()) => any()}) ::
+          no_return()
+  defp ambiguous_view_recovery!(paths),
+    do: raise(Error, "ambiguous activation; retained all paths: #{paths.journal}")
 
   defp recovered_bundle_matches?(actual, expected, target) do
     actual == expected["pointer"] and File.dir?(target) and

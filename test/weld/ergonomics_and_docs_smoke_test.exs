@@ -113,13 +113,39 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     assert Enum.all?(actual.kept, &File.dir?/1)
   end
 
-  test "mix weld doctor outputs valid JSON" do
-    json = capture_io(fn -> Mix.Task.rerun("weld", ["doctor", "--format", "json"]) end)
-    assert %{"ok" => true, "data" => data} = Jason.decode!(json)
+  test "mix weld doctor outputs valid JSON for a healthy isolated workspace" do
+    manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    root = Weld.Manifest.load!(manifest).repo_root
+    FixtureCase.init_git!(root)
+    args = ["doctor", "--root", root, "--manifest", manifest, "--format", "json"]
+
+    json = capture_io(fn -> Mix.Task.rerun("weld", args) end)
+    assert %{"ok" => true, "data" => data, "diagnostics" => []} = Jason.decode!(json)
     checks = Map.new(data["checks"], &{&1["name"], &1})
+    assert data["root"] == root
     assert is_binary(checks["elixir"]["value"])
-    assert checks["git"]["state"] in ["ok", "error"]
-    assert is_integer(data["errors"])
+    assert checks["git"]["state"] == "ok"
+    assert data["errors"] == 0
+    assert data["declarations"]["artifacts"] == ["fixture_bundle"]
+  end
+
+  test "mix weld doctor reports invalid managed state as JSON and exits nonzero" do
+    manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    root = Weld.Manifest.load!(manifest).repo_root
+    FixtureCase.init_git!(root)
+    owner = Weld.Output.path(root, ["OWNER"])
+    File.write!(owner, "invalid owner\n")
+    args = ["doctor", "--root", root, "--manifest", manifest, "--format", "json"]
+
+    json =
+      capture_io(fn ->
+        assert catch_exit(Mix.Task.rerun("weld", args)) == {:shutdown, 3}
+      end)
+
+    assert %{"ok" => false, "data" => data, "diagnostics" => [_ | _]} = Jason.decode!(json)
+    assert data["errors"] > 0
+    assert data["state"] == nil
+    assert File.read!(owner) == "invalid owner\n"
   end
 
   test "mix weld.status adds a next command to each artifact" do
