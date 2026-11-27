@@ -1,5 +1,5 @@
 defmodule Weld.SnapshotContractTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.{Error, FixtureCase, Plan, Projector}
   alias Weld.Plan.Inventory

@@ -1,5 +1,5 @@
 defmodule Weld.CLISubprocessV2Test do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   alias Weld.FixtureCase
 
   setup do
@@ -36,6 +36,7 @@ defmodule Weld.CLISubprocessV2Test do
     assert File.ls!(dir) == []
   end
 
+  @tag :slow
   test "nested invocation resolves explicit manifest against invocation cwd and logs only to stderr" do
     root = FixtureCase.copy_fixture("library_bundle")
     FixtureCase.init_git!(root)
@@ -94,7 +95,7 @@ defmodule Weld.CLISubprocessV2Test do
   end
 
   defp cli(cwd, args) do
-    log = Path.join(System.tmp_dir!(), "weld-cli-stderr-#{System.unique_integer([:positive])}")
+    log = Path.join(FixtureCase.unique_tmp_dir("weld_cli_stderr"), "stderr.log")
     paths = :code.get_path() |> Enum.map(&to_string/1) |> Enum.flat_map(&["-pa", &1])
     argv = paths ++ ["-e", "Mix.start(); Mix.CLI.main(System.argv())", "--", "weld" | args]
 

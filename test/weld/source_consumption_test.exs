@@ -1,5 +1,5 @@
 defmodule Weld.SourceConsumptionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Mix.Dep.Lock
   alias Weld.FixtureCase

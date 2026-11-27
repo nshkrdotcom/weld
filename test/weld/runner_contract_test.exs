@@ -48,6 +48,7 @@ defmodule Weld.RunnerContractTest do
     assert File.stat!(log).size > 200_000
   end
 
+  @tag :slow
   test "timeout terminates descendants and preserves a sanitized failure tail" do
     root = FixtureCase.unique_tmp_dir("runner-timeout")
 

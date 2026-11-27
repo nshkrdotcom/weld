@@ -1,8 +1,9 @@
 defmodule Weld.ProjectorConfigCacheTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.{FixtureCase, Manifest}
 
+  @tag :slow
   test "full and live package caches refresh config, imports, and companion bytes" do
     for live? <- [false, true] do
       {manifest, config_root} = config_fixture!()
@@ -30,6 +31,7 @@ defmodule Weld.ProjectorConfigCacheTest do
     end
   end
 
+  @tag :slow
   test "full and live package caches track missing config roots, additions, and removals" do
     for live? <- [false, true] do
       {manifest, config_root} = config_fixture!()
@@ -74,6 +76,7 @@ defmodule Weld.ProjectorConfigCacheTest do
     end
   end
 
+  @tag :slow
   test "full and live package caches refresh executable changes and normalize non-executable permissions" do
     for live? <- [false, true] do
       {manifest, config_root} = config_fixture!()

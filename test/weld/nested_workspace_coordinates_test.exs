@@ -1,5 +1,5 @@
 defmodule Weld.NestedWorkspaceCoordinatesTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   setup do
     %{tmp_dir: Weld.FixtureCase.unique_tmp_dir("weld_nested_coordinates")}
@@ -62,6 +62,7 @@ defmodule Weld.NestedWorkspaceCoordinatesTest do
     assert error.code == :inputs_changed
   end
 
+  @tag :slow
   test "nested Git snapshots retain manifest provenance and structural affected paths", %{
     tmp_dir: checkout
   } do

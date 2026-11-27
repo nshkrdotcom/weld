@@ -1,5 +1,5 @@
 defmodule Weld.PlanTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.FixtureCase
   alias Weld.Graph
@@ -13,6 +13,7 @@ defmodule Weld.PlanTest do
     assert plan.violations == []
   end
 
+  @tag :slow
   test "keeps test-only tooling out of the selected closure while preserving the edge" do
     plan =
       Plan.build!(FixtureCase.copied_manifest_path("root_workspace", "artifacts"),
@@ -27,6 +28,7 @@ defmodule Weld.PlanTest do
            end)
   end
 
+  @tag :slow
   test "explains why one runtime project depends on another" do
     result =
       Weld.Commands.query_why!(

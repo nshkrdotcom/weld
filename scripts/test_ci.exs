@@ -1,5 +1,8 @@
 jobs = [
   {"fast", nil},
+  {"hex_consumption", "hex_consumption_contract_test"},
+  {"qualification_faults", "qualification_contract_test"},
+  {"slow", nil},
   {"source_consumption", "source_consumption_test"},
   {"release", "release_test"},
   {"formatter", "release_test"},
@@ -14,9 +17,26 @@ jobs = [
   {"component_prepare", "component_tests_test"},
   {"graph_consumption", "graph_live_test"},
   {"bootstrap_relocation", "bootstrap_relocation_test"},
-  {"qualification_faults", "qualification_contract_test"},
-  {"hex_consumption", "hex_consumption_contract_test"}
+  {"probe_timeout", "workspace_snapshot_v2_test"}
 ]
+
+# Each lane has its own build root. Keep the two broad source lanes bounded
+# because a single test module can also launch four metadata VMs in parallel.
+cores = System.schedulers_online()
+default_jobs = cores |> div(6) |> max(1) |> min(4)
+
+max_jobs =
+  case Integer.parse(System.get_env("WELD_CI_JOBS", Integer.to_string(default_jobs))) do
+    {count, ""} when count > 0 and count <= length(jobs) -> count
+    _ -> raise "WELD_CI_JOBS must be a positive integer no larger than the lane count"
+  end
+
+source_cases = cores |> div(8) |> max(1) |> min(4)
+
+IO.puts(
+  "Weld CI: #{length(jobs)} isolated lanes, #{max_jobs} at a time, " <>
+    "#{source_cases} source cases per lane"
+)
 
 build = Mix.Project.build_path()
 suffix = Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
@@ -31,10 +51,15 @@ try do
       File.cp_r!(build, Path.join(build_root, "test"))
 
       args =
-        if test_file do
-          ["--only", "ci_build:#{name}", "test/weld/#{test_file}.exs"]
-        else
-          []
+        cond do
+          name == "fast" ->
+            ["--max-cases", Integer.to_string(source_cases)]
+
+          name == "slow" ->
+            ["--max-cases", Integer.to_string(source_cases), "--only", "slow"]
+
+          true ->
+            ["--max-cases", "1", "--only", "ci_build:#{name}", "test/weld/#{test_file}.exs"]
         end
 
       Blitz.command(
@@ -49,8 +74,8 @@ try do
       )
     end)
 
-  # Each lane launches additional Mix VMs to compile fixture projects.
-  Blitz.run!(commands, max_concurrency: 2)
+  # Blitz streams labeled child output and reports failures with their lane.
+  Blitz.run!(commands, max_concurrency: max_jobs)
 after
   File.rm_rf!(scratch)
 end

@@ -1,5 +1,5 @@
 defmodule Weld.ConfigGeneratorTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.Config.Generator
   alias Weld.FixtureCase

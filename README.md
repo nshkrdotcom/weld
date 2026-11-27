@@ -92,9 +92,11 @@ trust and detached-consumption contracts.
 
 Run the full [validation sequence](guides/testing_strategy.md#required-repository-gates), `mix ci`, the detached
 three-layout/native consumer matrix and actual ecosystem consumers before
-release. The original fifteen isolated lanes remain, with two new fault/Hex
-consumer lanes. [Testing strategy](guides/testing_strategy.md) and
-the QC driver section there document exact commands, browser evidence,
+release. `mix test` runs the fast source checks; `mix test --include slow`
+adds the slower source cases. `mix ci` runs both tiers and all isolated
+integration lanes, including fault, signed Hex consumer and probe-timeout
+checks. [Testing strategy](guides/testing_strategy.md) and the QC driver
+section there document exact commands, browser evidence,
 canonical proof, crash/concurrency, representative measurements and the final
 manual synthetic soak. The acceptance and disposition ledgers live in
 [guides/qc](guides/qc/acceptance.md).

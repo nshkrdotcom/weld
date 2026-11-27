@@ -1,5 +1,5 @@
 defmodule Weld.HexPublicationFaultTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   alias Weld.Core.Identity
   alias Weld.{Error, FixtureCase, HTTPFixture}
   alias Weld.Shell.Hex

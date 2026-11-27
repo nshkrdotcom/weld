@@ -159,6 +159,7 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     assert %{"data" => [%{"next_command" => "mix weld prepare" <> _}]} = Jason.decode!(json)
   end
 
+  @tag :slow
   test "docs.hook_file is the single owner of the hook text and a missing file fails" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
     plan = Weld.Plan.build!(manifest)

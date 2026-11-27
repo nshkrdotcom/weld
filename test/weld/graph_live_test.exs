@@ -1,5 +1,5 @@
 defmodule Weld.GraphLiveTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.{Error, FixtureCase}
 
@@ -29,6 +29,7 @@ defmodule Weld.GraphLiveTest do
     assert :no_path = Weld.Graph.path(graph, "c", "a", :package)
   end
 
+  @tag :slow
   test "package live links component directories and keeps generated files regular" do
     root = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
@@ -60,6 +61,7 @@ defmodule Weld.GraphLiveTest do
     assert {_, 0} = evaluate(refreshed.build_path)
   end
 
+  @tag :slow
   test "live guard observes creation of a source lock and discovered project" do
     root = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
@@ -78,6 +80,7 @@ defmodule Weld.GraphLiveTest do
     assert status != 0
   end
 
+  @tag :slow
   test "all live modes reject packaging, including dry runs" do
     for {fixture, artifact} <- [
           {"library_bundle", "fixture_bundle"},
@@ -104,6 +107,7 @@ defmodule Weld.GraphLiveTest do
     end
   end
 
+  @tag :slow
   test "monolith content is live but topology and transformed config require refresh" do
     root = FixtureCase.copy_fixture("monolith_bundle")
     manifest = Path.join(root, "packaging/weld/monolith_bundle.exs")
@@ -127,6 +131,7 @@ defmodule Weld.GraphLiveTest do
     assert status != 0
   end
 
+  @tag :slow
   test "duplicate graph modules cannot displace a valid candidate" do
     root = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
@@ -153,6 +158,7 @@ defmodule Weld.GraphLiveTest do
     assert File.read!(source) == bytes
   end
 
+  @tag :slow
   test "a linked document replaced by a source symlink invalidates the view" do
     root = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")

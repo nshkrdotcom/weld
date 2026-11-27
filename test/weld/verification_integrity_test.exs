@@ -1,5 +1,5 @@
 defmodule Weld.VerificationIntegrityTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.Core.Identity
   alias Weld.{Error, FixtureCase, Hash}
@@ -21,6 +21,7 @@ defmodule Weld.VerificationIntegrityTest do
     refute frozen == identity.()
   end
 
+  @tag :slow
   test "mutable graph output destinations cannot link into source" do
     for fixture <- ["library_bundle", "monolith_bundle"], path <- ["mix.lock", "doc"] do
       root = FixtureCase.copy_fixture(fixture)
@@ -112,6 +113,7 @@ defmodule Weld.VerificationIntegrityTest do
     end
   end
 
+  @tag :slow
   test "native live mutable outputs cannot target authoritative source" do
     for field <- ["build_path", "deps_path", "lockfile"] do
       root = FixtureCase.copy_fixture("nested_source_project")

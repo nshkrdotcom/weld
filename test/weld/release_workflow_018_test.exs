@@ -21,6 +21,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert {:error, _} = ReleaseReceipt.parse("Weld-Receipt: " <> noncanonical)
   end
 
+  @tag :slow
   test "status lists all artifacts by default and identifies their release paths" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
     {source, _} = Code.eval_file(manifest)
@@ -96,6 +97,7 @@ defmodule Weld.ReleaseWorkflow018Test do
            )
   end
 
+  @tag :slow
   test "track writes canonical receipts, annotated tags, same-tree commits, and verifies tags" do
     {manifest, plan, first} = publication_fixture!()
     root = plan.manifest.repo_root
@@ -162,6 +164,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert %{status: :missing_local, tree: :match} = ReleaseStatus.verify_tag(root, tracked.tag)
   end
 
+  @tag :slow
   test "release_status classifies states and explicit pins archive across current swaps" do
     {manifest, plan, first} = publication_fixture!()
 
@@ -187,6 +190,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert one.artifact == "fixture_bundle"
   end
 
+  @tag :slow
   test "local tracking can later atomically push over a proved remote ancestor" do
     {manifest, plan, first} = publication_fixture!()
     root = plan.manifest.repo_root
@@ -220,6 +224,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert Git.revision(root) == source_head
   end
 
+  @tag :slow
   test "remote divergence or unavailable ancestry proof cannot advance local refs" do
     {manifest, plan, first} = publication_fixture!()
     root = plan.manifest.repo_root
@@ -268,6 +273,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     refute MapSet.member?(tracked, Path.basename(manifest))
   end
 
+  @tag :slow
   test "stage isolates edits and run lookup identifies each review copy" do
     {manifest, plan, bundle} = publication_fixture!()
     first = Release.stage!(plan, identity: bundle.identity)
@@ -287,6 +293,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     assert Path.join(path, "project") == second.project_path
   end
 
+  @tag :slow
   test "publication requires confirmation and dry-run makes no transport calls" do
     {_, plan, bundle} = publication_fixture!()
 
@@ -309,6 +316,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     end
   end
 
+  @tag :slow
   test "publication submits exactly the pinned package and docs bytes" do
     {_, plan, bundle} = publication_fixture!()
     parent = self()
@@ -336,6 +344,7 @@ defmodule Weld.ReleaseWorkflow018Test do
     refute_receive {:docs, _, _, _}
   end
 
+  @tag :slow
   test "crash after docs submission blocks a repeat and reconciliation only reads" do
     {_, plan, bundle} = publication_fixture!()
     {:ok, remote} = Agent.start_link(fn -> %{package: File.read!(bundle.tarball_path)} end)

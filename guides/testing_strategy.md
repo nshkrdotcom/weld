@@ -33,14 +33,40 @@ command on the committed source.
 
 ## Independent CI lanes
 
-`scripts/test_ci.exs` retains all fifteen existing lanes and adds two focused
-lanes. Each has isolated build output, at most two concurrent fixture-building
-jobs, and warnings as errors. The fast lane excludes integration-tagged cases;
-a fast pass never stands in for integration acceptance.
+`mix test` runs the fast source tier. Cases taking roughly one second or more
+in the serial reference trace are tagged `:slow`; existing `:integration` tags
+continue to identify detached and release-scale tests. All assertions remain.
+
+```bash
+mix test
+mix test --only slow
+mix test --include slow
+mix test --include slow test/weld/source_project_test.exs
+mix ci
+```
+
+Independent fixture roots, literal facts and isolated child VMs permit many
+ExUnit modules to run asynchronously. Tests that change global Mix state, cwd
+or OS environment remain synchronous. Preserve cases with independent fixture
+roots run in separate modules. Default ExUnit concurrency is bounded to one
+case per four online schedulers, at most six; `--max-cases N` overrides it.
+Use an ordinary untraced run for wall-time measurements; `--trace` normally
+serializes ExUnit and changes the workload.
+
+`scripts/test_ci.exs` retains the seventeen existing lanes and adds a slow
+source lane and the previously unassigned integration probe-timeout lane.
+Each has isolated build output and warnings as errors. On a 24-scheduler host,
+the default is four simultaneous CI lanes and three ExUnit cases per broad
+source lane. Individual integration lanes retain serial execution. Nested
+fixture builds and metadata VMs make unrestricted fanout counterproductive;
+set `WELD_CI_JOBS=2` to reduce load, or tune after measuring on the actual host.
+Blitz streams labeled results. Fast and slow source passes never stand in for
+integration acceptance.
 
 | Lane | Scope |
 | --- | --- |
-| fast | Ordinary unit, schema, CLI, archive, state and helper tests |
+| fast | Source tests excluding `:slow` and `:integration` |
+| slow | Slower source tests (`:slow`) |
 | source_consumption | Detached source/path/Git consumption |
 | release | Preparation, immutable evidence and release behavior |
 | formatter | Actual generated formatting |
@@ -57,6 +83,7 @@ a fast pass never stands in for integration acceptance.
 | bootstrap_relocation | Installed bootstrap after source relocation |
 | qualification_faults | Frozen-input mutation and mandatory gate failures |
 | hex_consumption | Signed registry consumption, including native payload |
+| probe_timeout | Stuck metadata subprocess termination and cleanup |
 
 ## Architecture and canonical proof
 

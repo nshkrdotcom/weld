@@ -1,14 +1,14 @@
 defmodule Weld.SourceProjectTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.{Error, FixtureCase}
 
   setup do
     root = FixtureCase.copy_fixture("source_project")
-    on_exit(fn -> File.rm_rf!(Path.dirname(root)) end)
     %{root: root, manifest: Path.join(root, "build_support/weld.exs")}
   end
 
+  @tag :slow
   test "full projection contains portable root inputs, live points back to source", %{
     root: root,
     manifest: manifest
@@ -41,6 +41,7 @@ defmodule Weld.SourceProjectTest do
     refute marker(Weld.Commands.project!(manifest))["plan_id"] == digest
   end
 
+  @tag :slow
   test "duplicate modules and escaping links fail before candidate activation", %{
     root: root,
     manifest: manifest
@@ -61,6 +62,7 @@ defmodule Weld.SourceProjectTest do
     assert File.regular?(Path.join(full.build_path, "mix.exs"))
   end
 
+  @tag :slow
   test "missing helper in the portable inventory cannot displace a good candidate", %{
     root: root,
     manifest: manifest
@@ -82,25 +84,49 @@ defmodule Weld.SourceProjectTest do
     assert previous == marker(full)
   end
 
-  test "the live CLI flag keeps source-preserving projects available", %{
-    root: root,
-    manifest: manifest
-  } do
-    Mix.Task.rerun("weld", [
-      "project",
-      "--manifest",
-      manifest,
-      "--artifact",
-      "sprout",
-      "--kind",
-      "live"
-    ])
+  defp marker(projection) do
+    [root, suffix] = String.split(projection.build_path, "/.weld/v2/", parts: 2)
+    [kind, artifact | _] = Path.split(suffix)
 
-    assert File.regular?(Path.join(root, ".weld/v2/live/sprout/mix.exs"))
+    Weld.Output.path(root, ["views", artifact, kind <> ".json"])
+    |> File.read!()
+    |> Jason.decode!()
+  end
+end
+
+defmodule Weld.SourceProjectTest.Mix do
+  @moduledoc false
+  import ExUnit.Assertions
+
+  def mix!(root, args) do
+    {output, status} = mix(root, args)
+    assert status == 0, "mix #{Enum.join(args, " ")} in #{root}:\n#{output}"
+    output
   end
 
-  test "a real transitive path dependency stays separate and needs its compiler inputs", ctx do
-    %{root: root, manifest: manifest} = ctx
+  def mix(root, args) do
+    System.cmd("mix", args,
+      cd: root,
+      stderr_to_stdout: true,
+      env: [
+        {"MIX_ENV", "test"},
+        {"MIX_DEPS_PATH", nil},
+        {"MIX_BUILD_PATH", nil},
+        {"MIX_BUILD_ROOT", nil}
+      ]
+    )
+  end
+end
+
+defmodule Weld.SourceProjectTransitiveTest do
+  use ExUnit.Case, async: true
+  alias Weld.{Error, FixtureCase}
+  import Weld.SourceProjectTest.Mix, only: [mix!: 2]
+
+  @tag :slow
+  test "a real transitive path dependency stays separate and needs its compiler inputs" do
+    root = FixtureCase.copy_fixture("source_project")
+    manifest = Path.join(root, "build_support/weld.exs")
     mixfile = Path.join(root, "mix.exs")
     original = File.read!(mixfile)
 
@@ -181,7 +207,14 @@ defmodule Weld.SourceProjectTest do
       Weld.Commands.project!(manifest)
     end
   end
+end
 
+defmodule Weld.SourceProjectNestedTest do
+  use ExUnit.Case, async: true
+  alias Weld.{Error, FixtureCase}
+  import Weld.SourceProjectTest.Mix, only: [mix!: 2, mix: 2]
+
+  @tag :slow
   test "nested source preserves its native callbacks, tests and publication inventory" do
     root = FixtureCase.copy_fixture("nested_source_project")
     manifest = Path.join(root, "build_support/weld.exs")
@@ -280,32 +313,28 @@ defmodule Weld.SourceProjectTest do
     mix!(consumer, ["deps.get"])
     assert mix!(consumer, ["test"]) =~ ~r/(?:1 test, 0 failures|Result: 1 passed)/
   end
+end
 
-  defp mix!(root, args) do
-    {output, status} = mix(root, args)
-    assert status == 0, "mix #{Enum.join(args, " ")} in #{root}:\n#{output}"
-    output
-  end
+# Mix.Task mutates process-global task state, so keep this CLI case serial.
+defmodule Weld.SourceProjectCLITest do
+  use ExUnit.Case, async: false
+  alias Weld.FixtureCase
 
-  defp mix(root, args) do
-    System.cmd("mix", args,
-      cd: root,
-      stderr_to_stdout: true,
-      env: [
-        {"MIX_ENV", "test"},
-        {"MIX_DEPS_PATH", nil},
-        {"MIX_BUILD_PATH", nil},
-        {"MIX_BUILD_ROOT", nil}
-      ]
-    )
-  end
+  @tag :slow
+  test "the live CLI flag keeps source-preserving projects available" do
+    root = FixtureCase.copy_fixture("source_project")
+    manifest = Path.join(root, "build_support/weld.exs")
 
-  defp marker(projection) do
-    [root, suffix] = String.split(projection.build_path, "/.weld/v2/", parts: 2)
-    [kind, artifact | _] = Path.split(suffix)
+    Mix.Task.rerun("weld", [
+      "project",
+      "--manifest",
+      manifest,
+      "--artifact",
+      "sprout",
+      "--kind",
+      "live"
+    ])
 
-    Weld.Output.path(root, ["views", artifact, kind <> ".json"])
-    |> File.read!()
-    |> Jason.decode!()
+    assert File.regular?(Path.join(root, ".weld/v2/live/sprout/mix.exs"))
   end
 end

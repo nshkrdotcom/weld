@@ -1,5 +1,5 @@
 defmodule Weld.ReleaseTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   @moduletag timeout: 180_000
 
@@ -211,6 +211,7 @@ defmodule Weld.ReleaseTest do
              Weld.Hash.sha256_file(prepared_b.tarball_path)
   end
 
+  @tag :slow
   test "track and archive reject a changed prepared project" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
     FixtureCase.init_git!(repo_root)
@@ -237,6 +238,7 @@ defmodule Weld.ReleaseTest do
     refute FixtureCase.branch_exists?(repo_root, "projection/fixture_bundle")
   end
 
+  @tag :slow
   test "release tracking uses projection package-name branches with orphan history" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
     manifest_path = Path.join([repo_root, "packaging", "weld", "fixture_bundle.exs"])
@@ -263,6 +265,7 @@ defmodule Weld.ReleaseTest do
     assert status != 0
   end
 
+  @tag :slow
   test "release tracking is a no-op when the prepared bundle has not changed" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
     manifest_path = Path.join([repo_root, "packaging", "weld", "fixture_bundle.exs"])
@@ -279,6 +282,7 @@ defmodule Weld.ReleaseTest do
     assert second.commit_sha == first.commit_sha
   end
 
+  @tag :slow
   test "release tracking commits a new projection revision when the bundle changes" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
     manifest_path = Path.join([repo_root, "packaging", "weld", "fixture_bundle.exs"])
@@ -304,6 +308,7 @@ defmodule Weld.ReleaseTest do
     refute second.commit_sha == first.commit_sha
   end
 
+  @tag :slow
   test "release tracking can tag and push the projection branch" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
     manifest_path = Path.join([repo_root, "packaging", "weld", "fixture_bundle.exs"])

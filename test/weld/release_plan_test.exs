@@ -1,5 +1,5 @@
 defmodule Weld.ReleasePlanTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.{CLI, Error, FixtureCase, Manifest}
   alias Weld.Core.ReleaseOrder, as: ReleasePlan
@@ -23,6 +23,7 @@ defmodule Weld.ReleasePlanTest do
            ] = report["constraints"]
   end
 
+  @tag :slow
   test "--no-check reports incompatible release versions without failing" do
     manifest = coordinated_manifest!()
     {raw, _binding} = Code.eval_file(manifest)

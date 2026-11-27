@@ -1,5 +1,5 @@
 defmodule Weld.MonolithPlanTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.{Error, FixtureCase, Plan}
   alias Weld.Plan.Inventory
@@ -19,6 +19,7 @@ defmodule Weld.MonolithPlanTest do
 
   defp targets(plan), do: Enum.map(plan.output_inventory, & &1.target)
 
+  @tag :slow
   test "read-only planning, inspection, live and full share the final inventory", c do
     before_state = Weld.Receipt.tree(Path.join(c.root, ".weld"))
     plan = Plan.build!(c.manifest)
@@ -58,6 +59,7 @@ defmodule Weld.MonolithPlanTest do
     end
   end
 
+  @tag :slow
   test "deduplication and repeated remaps have exact source relationships", c do
     [first, second] = Enum.map(Plan.build!(c.manifest).selected_projects, & &1.id)
     slugs = %{"core/store" => "core_store", "runtime/api" => "runtime_api"}
@@ -92,6 +94,7 @@ defmodule Weld.MonolithPlanTest do
     assert Plan.build!(c.manifest).output_inventory == plan.output_inventory
   end
 
+  @tag :slow
   test "multiple migration repositories share a deterministic final restamp plan", c do
     source = "runtime/api/priv/repo/migrations/20260101000000_create_api.exs"
     put(c.root, source, "# synthetic migration\n")
@@ -115,6 +118,7 @@ defmodule Weld.MonolithPlanTest do
     assert Plan.build!(c.manifest).output_inventory == plan.output_inventory
   end
 
+  @tag :slow
   test "a stale plan or a generated path collision cannot replace an active view", c do
     previous = Weld.Commands.project!(c.manifest)
     marker = Weld.Hash.observation(previous.build_path)

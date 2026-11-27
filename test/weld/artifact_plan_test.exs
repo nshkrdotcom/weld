@@ -1,5 +1,5 @@
 defmodule Weld.ArtifactPlanTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.{Affected, FixtureCase, Graph, Plan}
 
@@ -8,6 +8,7 @@ defmodule Weld.ArtifactPlanTest do
     %{root: root, manifest: Path.join(root, "build_support/weld.exs")}
   end
 
+  @tag :slow
   test "source compilation ownership follows the compiler roots", %{manifest: manifest} do
     plan = Plan.build!(manifest)
 
@@ -24,6 +25,7 @@ defmodule Weld.ArtifactPlanTest do
     refute Enum.any?(Graph.edges(plan.graph), &(&1.from == "."))
   end
 
+  @tag :slow
   test "a contained path dependency remains a distinct project", %{
     root: root,
     manifest: manifest
@@ -50,6 +52,7 @@ defmodule Weld.ArtifactPlanTest do
            end)
   end
 
+  @tag :slow
   test "affected reports include additions and deletions in compiled source members", %{
     root: root,
     manifest: manifest
@@ -78,6 +81,7 @@ defmodule Weld.ArtifactPlanTest do
     assert result.affected_projects == []
   end
 
+  @tag :slow
   test "a nested source artifact keeps a native package dependency at its boundary", %{
     root: root,
     manifest: manifest
@@ -104,6 +108,7 @@ defmodule Weld.ArtifactPlanTest do
     assert Graph.path(plan.artifact_graph, "extensions/color", ".", :package) == :no_path
   end
 
+  @tag :slow
   test "a source artifact cannot externalize its native sibling path dependency", %{
     root: root,
     manifest: manifest
@@ -123,6 +128,7 @@ defmodule Weld.ArtifactPlanTest do
                  end
   end
 
+  @tag :slow
   test "graph artifacts require a canonical version when cutting local edges", %{
     manifest: manifest
   } do
@@ -141,6 +147,7 @@ defmodule Weld.ArtifactPlanTest do
     assert [%{original: {:sprout, "~> 0.1.0"}}] = Plan.external_deps_for_view(plan, :runtime)
   end
 
+  @tag :slow
   test "a boundary respects native test scope", %{root: root, manifest: manifest} do
     mixfile = Path.join(root, "extensions/color/mix.exs")
 

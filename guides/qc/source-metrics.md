@@ -98,7 +98,8 @@ their declared Mix scopes.
 
 All 161 baseline test paths remain. The declaration disposition ledger contains
 171 lexical rows, seven of which are shell test statements rather than ExUnit
-cases. Existing independent CI lanes remain and two focused lanes were added.
+cases. Existing independent CI lanes remain; fault, Hex consumer, slow source and
+probe-timeout lanes provide additional coverage.
 Source counts do not establish preserved runtime behavior; the full suite is the
 acceptance gate.
 

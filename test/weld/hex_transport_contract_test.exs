@@ -1,5 +1,5 @@
 defmodule Weld.HexTransportContractTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   alias Weld.Core.Identity
   alias Weld.{Error, HTTPFixture}
   alias Weld.Shell.Hex

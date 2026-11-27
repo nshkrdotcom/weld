@@ -18,6 +18,7 @@ defmodule Weld.MixTasksTest do
     end
   end
 
+  @tag :slow
   test "nested explicit setup and project share the checkout-root output" do
     root = FixtureCase.copy_fixture("source_project")
     FixtureCase.init_git!(root)

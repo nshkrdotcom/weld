@@ -1,5 +1,5 @@
 defmodule Weld.LiveTopologyContractTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.Layout.Live
 

@@ -1,5 +1,5 @@
 defmodule Weld.QualificationContractTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   alias Weld.Core.Identity
   alias Weld.{Error, FixtureCase, Plan}
   alias Weld.Shell.GC

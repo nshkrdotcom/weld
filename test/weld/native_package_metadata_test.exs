@@ -1,5 +1,5 @@
 defmodule Weld.NativePackageMetadataTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.{Commands, Error, FixtureCase, Plan}
   alias Weld.Plan.Inventory
@@ -15,6 +15,7 @@ defmodule Weld.NativePackageMetadataTest do
     }
   end
 
+  @tag :slow
   test "native staging preserves supported Hex package options", %{
     mixfile: mixfile,
     manifest: manifest
@@ -26,6 +27,7 @@ defmodule Weld.NativePackageMetadataTest do
     assert File.read!(Path.join(full.build_path, "mix.exs")) == mix
   end
 
+  @tag :slow
   test "native staging rejects a changed Hex organization", %{
     mixfile: mixfile,
     manifest: manifest
@@ -40,6 +42,7 @@ defmodule Weld.NativePackageMetadataTest do
     end
   end
 
+  @tag :slow
   test "Erlang charlist include paths stay relocation-stable in plan identities and preserve staging",
        %{
          root: root,
@@ -83,6 +86,7 @@ defmodule Weld.NativePackageMetadataTest do
     end
   end
 
+  @tag :slow
   test "preserve follows the pinned Hex default Makefile* pattern including Makefile.win", %{
     root: root,
     mixfile: mixfile,

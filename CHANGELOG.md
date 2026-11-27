@@ -56,6 +56,10 @@ recorded in the release evidence.
 
 ### Changed
 
+- Run isolated source tests asynchronously and separate slower source cases
+  from the default `mix test` run. Keep global Mix and environment mutations
+  serial, retain every integration lane and include the probe-timeout case in
+  CI. Bound concurrent CI lanes and nested ExUnit work for multicore hosts.
 - Normalize Erlang `{:i, charlist}` include paths in portable plan and
   qualification evidence and in preserve staging checks.
 - Compare the same observed native package metadata fields by Mix environment

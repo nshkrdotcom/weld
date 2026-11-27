@@ -1,5 +1,5 @@
 defmodule Weld.ProjectorTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.FixtureCase
 
@@ -28,6 +28,7 @@ defmodule Weld.ProjectorTest do
     assert mixfile =~ "components/runtime/local/lib"
   end
 
+  @tag :slow
   test "package links come from the manifest and maintainers are omitted" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
     source = File.read!(manifest)
@@ -53,6 +54,7 @@ defmodule Weld.ProjectorTest do
     refute mixfile =~ "github.com/nshkrdotcom/weld"
   end
 
+  @tag :slow
   test "reuses identical outputs and refreshes same-size edits and tampering" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
 
@@ -111,6 +113,7 @@ defmodule Weld.ProjectorTest do
     assert File.read!(application_file) =~ "@moduledoc false"
   end
 
+  @tag :slow
   test "full cache validates empty directories and normalized output permissions" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
     root = Weld.Manifest.load!(manifest).repo_root

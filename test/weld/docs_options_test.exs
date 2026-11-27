@@ -1,6 +1,6 @@
 defmodule Weld.DocsOptionsTest do
   alias Weld.Layout.Support
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.{FixtureCase, Manifest, Plan}
 
@@ -30,6 +30,7 @@ defmodule Weld.DocsOptionsTest do
     assert options[:before_closing_body_tag].(:epub) == ""
   end
 
+  @tag :slow
   test "hook changes invalidate full and live projections in both generated modes" do
     for {fixture, artifact} <- [
           {"library_bundle", "fixture_bundle"},
@@ -58,6 +59,7 @@ defmodule Weld.DocsOptionsTest do
     end
   end
 
+  @tag :slow
   test "custom hook paths reject traversal and symlink targets" do
     manifest = hook_manifest!("library_bundle", "fixture_bundle")
     plan = Plan.build!(manifest)

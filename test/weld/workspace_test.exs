@@ -26,6 +26,7 @@ defmodule Weld.WorkspaceTest do
     assert workspace.projects["runtime/api"].test_paths == ["test/fixture"]
   end
 
+  @tag :slow
   test "discovers projects from explicit manifest globs when the root has a mix.exs" do
     manifest = Manifest.load!(FixtureCase.copied_manifest_path("root_workspace", "artifacts"))
     workspace = Workspace.load!(manifest)
@@ -42,6 +43,7 @@ defmodule Weld.WorkspaceTest do
            ]
   end
 
+  @tag :slow
   test "reuses the already loaded root project when the manifest repo is the current project" do
     repo_root = FixtureCase.copy_fixture("root_workspace")
     manifest_path = Path.join([repo_root, "packaging", "weld", "artifacts.exs"])
@@ -56,6 +58,7 @@ defmodule Weld.WorkspaceTest do
     end)
   end
 
+  @tag :slow
   test "does not duplicate the root project when blitz_workspace already includes dot" do
     repo_root = FixtureCase.copy_fixture("root_workspace")
     manifest_path = Path.join([repo_root, "packaging", "weld", "artifacts.exs"])

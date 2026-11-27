@@ -1,5 +1,5 @@
 defmodule Weld.MonolithOtpAppIdentityTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.{Commands, Error, FixtureCase, Plan}
 
@@ -17,6 +17,7 @@ defmodule Weld.MonolithOtpAppIdentityTest do
     %{root: root, manifest: manifest}
   end
 
+  @tag :slow
   test "allows Application.app_dir/2 for the surviving monolith OTP app in runtime and tests after relocation",
        %{root: root, manifest: manifest} do
     asset_relative = "priv/static/exam_bundle.js"

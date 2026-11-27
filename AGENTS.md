@@ -109,11 +109,17 @@ mix docs --warnings-as-errors
 mix ci
 ```
 
-`mix ci` is the repository acceptance gate. All fifteen original independent
-lanes remain; `qualification_faults` and `hex_consumption` add mandatory fault
-and signed registry coverage. `scripts/test_ci.exs` isolates build paths and caps
-concurrent fixture-building jobs at two. The fast lane cannot replace any
-isolated lane.
+`mix test` excludes `:slow` and `:integration`; use `mix test --only slow`
+for the slower source cases or `mix test --include slow` for all source cases.
+Use `--max-cases N` to tune ExUnit without changing coverage. Keep tests that
+mutate Mix task/project state, OS environment or cwd synchronous.
+
+`mix ci` remains the repository acceptance gate. It runs the fast and slow
+source tiers plus every existing isolated integration lane and the previously
+unassigned probe-timeout case. `scripts/test_ci.exs` isolates build paths and
+bounds lane and ExUnit concurrency. Set `WELD_CI_JOBS=2` on constrained hosts
+or increase deliberately after measuring resource use. A fast pass cannot
+replace any release gate.
 
 Also run the architectural and delivery contract checks:
 

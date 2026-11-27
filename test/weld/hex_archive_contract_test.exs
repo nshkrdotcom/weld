@@ -1,5 +1,5 @@
 defmodule Weld.HexArchiveContractTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   alias Weld.{Error, FixtureCase, Hash}
   alias Weld.Shell.Hex
 

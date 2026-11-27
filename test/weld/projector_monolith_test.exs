@@ -1,8 +1,9 @@
 defmodule Weld.ProjectorMonolithTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.FixtureCase
 
+  @tag :slow
   test "projects a monolith artifact into a real root project tree" do
     result =
       Weld.Commands.project!(
@@ -63,6 +64,7 @@ defmodule Weld.ProjectorMonolithTest do
     refute mixfile =~ ", path:"
   end
 
+  @tag :slow
   test "uses the configured monolith README at the package root" do
     manifest = FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle")
     root = Path.expand("../..", Path.dirname(manifest))
@@ -154,6 +156,7 @@ defmodule Weld.ProjectorMonolithTest do
     assert output =~ ~r/(?:2 tests, 0 failures|Result: 2 passed)/
   end
 
+  @tag :slow
   test "allows explicit non-selected monolith test support projects" do
     manifest_path = explicit_test_support_manifest_path!(["tooling/test_support"])
     result = Weld.Commands.project!(manifest_path)
@@ -168,6 +171,7 @@ defmodule Weld.ProjectorMonolithTest do
            )
   end
 
+  @tag :slow
   test "fails closed when discovered monolith test support projects are not declared" do
     manifest_path = explicit_test_support_manifest_path!(["apps/core"])
 

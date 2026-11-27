@@ -83,6 +83,7 @@ defmodule Weld.WorkspaceSnapshotV2Test do
            ) == [:development_dep, :production_dep]
   end
 
+  @tag :slow
   test "production-only identity package compiler and application drift fail explicitly", %{
     tmp_dir: dir
   } do
@@ -145,6 +146,7 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     end
   end
 
+  @tag :slow
   test "declared dynamic helper input changes invalidate only its artifact", %{tmp_dir: dir} do
     {path, _counter} = workspace(dir)
     request = CLI.parse!("plan", ["--manifest", path, "--all"])
@@ -182,7 +184,7 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     refute File.exists?(Path.join(root, ".weld"))
   end
 
-  @tag integration: true
+  @tag integration: true, ci_build: "probe_timeout"
   test "a stuck metadata VM is bounded and leaves no active child", %{tmp_dir: dir} do
     source = Path.join(dir, "stuck")
     File.mkdir_p!(source)
@@ -199,6 +201,7 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     assert status != 0
   end
 
+  @tag :slow
   test "affected batches each historical tree once and includes removed artifacts", %{
     tmp_dir: dir
   } do
@@ -230,6 +233,7 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     assert length(probes(counter)) == 12
   end
 
+  @tag :slow
   test "an unavailable manifest is conservative while an invalid revision is an argument error",
        %{tmp_dir: dir} do
     {path, _counter} = workspace(dir)
@@ -261,6 +265,7 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     assert report.reasons != []
   end
 
+  @tag :slow
   test "release affected binds source provenance even when package content is unchanged", %{
     tmp_dir: dir
   } do
@@ -292,6 +297,7 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     assert release.source_revision_changed
   end
 
+  @tag :slow
   test "opaque canonical external source locators keep affected analysis conservative", %{
     tmp_dir: dir
   } do
@@ -324,6 +330,7 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     refute report.source_revision_changed
   end
 
+  @tag :slow
   test "runtime Git requirements are preserved only for explicit non-Hex artifacts", %{
     tmp_dir: dir
   } do

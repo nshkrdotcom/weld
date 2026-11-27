@@ -1,9 +1,10 @@
 defmodule Weld.AffectedTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.FixtureCase
   alias Weld.Plan.Inventory
 
+  @tag :slow
   test "maps a changed dependency project to its reverse dependents" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
     FixtureCase.init_git!(repo_root)
@@ -30,6 +31,7 @@ defmodule Weld.AffectedTest do
     assert result.affected_projects == ["core/contracts", "runtime/local"]
   end
 
+  @tag :slow
   test "unsupported portable metadata produces an affected unknown result" do
     root = FixtureCase.copy_fixture("library_bundle")
     mixfile = Path.join(root, "runtime/local/mix.exs")

@@ -117,7 +117,7 @@ logs and mutable pointers are operational records outside portable identity.
 
 ## Reproducible checks and explicit limitations
 
-Run the full sequence in `AGENTS.md`, the seventeen independent lanes in
+Run the full sequence in `AGENTS.md`, all fast, slow and integration lanes in
 `scripts/test_ci.exs`, and the additional architecture/consumer/native/browser/
 conformance commands in `guides/testing_strategy.md` and `scripts/qc/README.md`.
 `static_check.py` reports source counts, retained paths, pin retention, seven

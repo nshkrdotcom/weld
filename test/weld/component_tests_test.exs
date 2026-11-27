@@ -1,5 +1,5 @@
 defmodule Weld.ComponentTestsTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Weld.Core.Identity
   alias Weld.FixtureCase
@@ -37,6 +37,7 @@ defmodule Weld.ComponentTestsTest do
     %{root: root, manifest: manifest}
   end
 
+  @tag :slow
   test "component paths and helpers remain independent and are excluded from Hex", ctx do
     for kind <- [[], [live: true]] do
       result = Weld.Commands.project!(ctx.manifest, kind)
@@ -145,6 +146,7 @@ defmodule Weld.ComponentTestsTest do
     assert output =~ "3 tests, 0 failures" or output =~ "Result: 3 passed"
   end
 
+  @tag :slow
   test "component verification rejects tests inside a published compiler root", ctx do
     project = Path.join(ctx.root, "components/pure")
     File.rename!(Path.join(project, "test"), Path.join(project, "lib/verification"))
