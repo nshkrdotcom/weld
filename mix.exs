@@ -39,7 +39,7 @@ defmodule Weld.MixProject do
 
   defp deps do
     [
-      {:blitz, "~> 0.4.1", only: :test, runtime: false},
+      {:blitz, "~> 0.4.2", only: :test, runtime: false},
       {:credo, "~> 1.7", runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
