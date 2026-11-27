@@ -253,7 +253,7 @@ defmodule Weld.SourceProjectTest do
       )
 
     assert code != 0
-    assert message =~ "live projections cannot be packaged"
+    assert message =~ "live projections cannot be published"
 
     File.rm_rf!(root)
     assert mix!(detached, ["shade"]) =~ "jade"
