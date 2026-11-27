@@ -189,8 +189,9 @@ defmodule Weld.Commands do
       end
 
     plan.externalized_edges
-    |> Enum.filter(&MapSet.member?(pairs, {&1.from, &1.to}))
-    |> Enum.filter(&Weld.Graph.View.allowed?(&1.kind, view))
+    |> Enum.filter(fn edge ->
+      MapSet.member?(pairs, {edge.from, edge.to}) and Weld.Graph.View.allowed?(edge.kind, view)
+    end)
     |> Enum.map(&report_edge(plan, &1))
   end
 

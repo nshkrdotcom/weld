@@ -456,8 +456,7 @@ defmodule Weld.Output do
     confine!(opts[:lease].stage, stage)
     old_node = node_token!(target)
     stage_node = node_token!(stage)
-    old = if old_node, do: tree_record(target)
-    if old && not valid_existing?.(target), do: raise(Error, "unmanaged output: #{target}")
+    old = observe_existing_view!(old_node, target, valid_existing?)
     id = nonce()
     journal_dir = Path.join([base, "staging", id])
     File.mkdir_p!(journal_dir)
@@ -479,10 +478,9 @@ defmodule Weld.Output do
     journal = Path.join(journal_dir, "journal.json")
 
     try do
-      install_view!(root, stage, target, backup, record, journal, old_node, stage_node, opts)
-
-      unless tree_record(target) == record["new"], do: raise(Error, "activated view changed")
-      if old && tree_record(backup) != old, do: raise(Error, "activation backup changed")
+      paths = %{stage: stage, target: target, backup: backup, journal: journal}
+      install_view!(root, paths, record, {old_node, stage_node}, opts)
+      validate_active_view!(paths, record)
 
       with_lock(
         root,
@@ -504,7 +502,24 @@ defmodule Weld.Output do
     end
   end
 
-  defp install_view!(root, stage, target, backup, record, journal, old_node, stage_node, opts) do
+  defp observe_existing_view!(nil, _target, _valid_existing?), do: nil
+
+  defp observe_existing_view!(_node, target, valid_existing?) do
+    old = tree_record(target)
+    unless valid_existing?.(target), do: raise(Error, "unmanaged output: #{target}")
+    old
+  end
+
+  defp validate_active_view!(paths, record) do
+    unless tree_record(paths.target) == record["new"], do: raise(Error, "activated view changed")
+
+    if record["old"] && tree_record(paths.backup) != record["old"],
+      do: raise(Error, "activation backup changed")
+  end
+
+  defp install_view!(root, paths, record, {old_node, stage_node}, opts) do
+    %{stage: stage, target: target, backup: backup, journal: journal} = paths
+
     with_lock(
       root,
       fn ->
@@ -923,23 +938,28 @@ defmodule Weld.Output do
     phase = record["phase"]
     old = record["old"]
 
-    cond do
-      actual == record["new"] ->
-        recover_installed_view!(base, backup, old, saved)
-
-      is_nil(actual) and saved != nil and saved == old and phase not in ["committed", "cleaned"] ->
-        {:restore, backup, target}
-
-      actual == old and is_nil(saved) and phase in ["reserved", "cleaned"] ->
-        :none
-
-      is_nil(actual) and is_nil(old) and File.dir?(stage) and phase == "reserved" ->
-        :none
-
-      true ->
-        raise Error, "ambiguous activation; retained all paths: #{paths.journal}"
-    end
+    view_recovery!(actual, saved, phase, {old, record["new"]}, paths, base)
   end
+
+  defp view_recovery!(current, saved, _phase, {old, current}, paths, base),
+    do: recover_installed_view!(base, paths.backup, old, saved)
+
+  defp view_recovery!(nil, old, phase, {old, _new}, paths, _base)
+       when old != nil and phase not in ["committed", "cleaned"],
+       do: {:restore, paths.backup, paths.target}
+
+  defp view_recovery!(old, nil, phase, {old, _new}, _paths, _base)
+       when phase in ["reserved", "cleaned"],
+       do: :none
+
+  defp view_recovery!(nil, _saved, "reserved", {nil, _new}, paths, _base) do
+    if File.dir?(paths.stage), do: :none, else: ambiguous_view_recovery!(paths)
+  end
+
+  defp view_recovery!(_, _, _, _, paths, _base), do: ambiguous_view_recovery!(paths)
+
+  defp ambiguous_view_recovery!(paths),
+    do: raise(Error, "ambiguous activation; retained all paths: #{paths.journal}")
 
   defp recovery_action!("immutable", record, paths, _base) do
     intact? =
@@ -968,8 +988,7 @@ defmodule Weld.Output do
       do: raise(Error, "invalid pointer journal")
 
     unless actual == record["old"] or
-             (actual == expected["pointer"] and File.dir?(paths.target) and
-                tree_record(paths.target) == expected["tree"]),
+             recovered_bundle_matches?(actual, expected, paths.target),
            do:
              raise(Error, "pointer or sealed tree changed; retained all paths: #{paths.journal}")
 
@@ -977,6 +996,11 @@ defmodule Weld.Output do
   end
 
   defp recovery_action!(_, _, _, _), do: raise(Error, "unknown journal kind")
+
+  defp recovered_bundle_matches?(actual, expected, target) do
+    actual == expected["pointer"] and File.dir?(target) and
+      tree_record(target) == expected["tree"]
+  end
 
   defp recover_installed_view!(_base, _backup, _old, nil), do: :none
 

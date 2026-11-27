@@ -118,13 +118,7 @@ defmodule Weld.Layout.Components do
   defp source_operations!(plan, root, config_operations) do
     source_ops =
       for entry <- plan.source_inventory do
-        operation =
-          if (entry.kind == :artifact_test and not plan.artifact.verify.component_tests) or
-               entry.kind in [:native, :metadata] or entry.source in plan.structural_inputs or
-               Enum.any?(Path.split(entry.target), &(&1 in ["c_src", "priv", "config"])),
-             do: :copy,
-             else: :link_or_copy
-
+        operation = source_operation(plan, entry)
         FilePlan.copy(Path.join(root, entry.source), entry.target, entry.kind, operation)
       end
 
@@ -144,6 +138,14 @@ defmodule Weld.Layout.Components do
     end
 
     operations
+  end
+
+  defp source_operation(plan, entry) do
+    if (entry.kind == :artifact_test and not plan.artifact.verify.component_tests) or
+         entry.kind in [:native, :metadata] or entry.source in plan.structural_inputs or
+         Enum.any?(Path.split(entry.target), &(&1 in ["c_src", "priv", "config"])),
+       do: :copy,
+       else: :link_or_copy
   end
 
   defp generated_operations(plan, opts, inputs) do

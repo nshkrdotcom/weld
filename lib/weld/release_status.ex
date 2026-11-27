@@ -175,17 +175,8 @@ defmodule Weld.ReleaseStatus do
     do: raise(Error, "invalid bundle file descriptor: #{field}")
 
   defp validate_bindings!(metadata, inventory, qualification) do
-    unless inventory["artifact"] == metadata["artifact"] and
-             layout(inventory) == metadata["layout"] and
-             Enum.all?(~w(input_id plan_id compiler_id), &(inventory[&1] == metadata[&1])) and
-             Inventory.input_id(inventory) == metadata["input_id"] and
-             Inventory.plan_id(inventory) == metadata["plan_id"] and
-             Enum.all?(
-               ~w(plan_id project_id package_id archive_sha256 docs_id docs_archive_sha256 qualification_id source),
-               &(qualification[&1] == metadata[&1])
-             ) and
-             Identity.digest("qualification", Map.delete(qualification, "qualification_id")) ==
-               metadata["qualification_id"],
+    unless inventory_matches_bundle?(inventory, metadata) and
+             qualification_matches_bundle?(qualification, metadata),
            do: raise(Error, "bundle, inventory and qualification disagree")
 
     validate_source_binding!(metadata["source"], inventory)
@@ -195,19 +186,41 @@ defmodule Weld.ReleaseStatus do
     unless is_boolean(hex?) and hex? == not is_nil(metadata["package_id"]),
       do: raise(Error, "package payload disagrees with qualification policy")
 
-    if hex? do
-      unless is_list(inventory["package_entries"]) and is_map(inventory["package_metadata"]) and
-               Identity.digest("package", %{
-                 "metadata" => inventory["package_metadata"],
-                 "entries" => inventory["package_entries"]
-               }) == metadata["package_id"] and
-               inventory["package_metadata"]["name"] == metadata["package"] and
-               inventory["package_metadata"]["version"] == metadata["version"],
-             do: raise(Error, "package identity or metadata mismatch")
-    else
-      unless is_nil(inventory["package_entries"]) and is_nil(inventory["package_metadata"]),
-        do: raise(Error, "disabled package contains publication evidence")
-    end
+    validate_package_binding!(hex?, metadata, inventory)
+  end
+
+  defp inventory_matches_bundle?(inventory, metadata) do
+    keys = ~w(input_id plan_id compiler_id)
+
+    inventory["artifact"] == metadata["artifact"] and layout(inventory) == metadata["layout"] and
+      Map.take(inventory, keys) == Map.take(metadata, keys) and
+      Inventory.input_id(inventory) == metadata["input_id"] and
+      Inventory.plan_id(inventory) == metadata["plan_id"]
+  end
+
+  defp qualification_matches_bundle?(qualification, metadata) do
+    keys =
+      ~w(plan_id project_id package_id archive_sha256 docs_id docs_archive_sha256 qualification_id source)
+
+    Map.take(qualification, keys) == Map.take(metadata, keys) and
+      Identity.digest("qualification", Map.delete(qualification, "qualification_id")) ==
+        metadata["qualification_id"]
+  end
+
+  defp validate_package_binding!(true, metadata, inventory) do
+    entries = inventory["package_entries"]
+    package = inventory["package_metadata"]
+
+    unless is_list(entries) and is_map(package) and
+             Identity.digest("package", %{"metadata" => package, "entries" => entries}) ==
+               metadata["package_id"] and
+             package["name"] == metadata["package"] and package["version"] == metadata["version"],
+           do: raise(Error, "package identity or metadata mismatch")
+  end
+
+  defp validate_package_binding!(false, _metadata, inventory) do
+    unless is_nil(inventory["package_entries"]) and is_nil(inventory["package_metadata"]),
+      do: raise(Error, "disabled package contains publication evidence")
   end
 
   defp validate_source_binding!(source, inventory) do
@@ -256,9 +269,14 @@ defmodule Weld.ReleaseStatus do
              do: raise(Error, "bundle file checksum mismatch: #{file["path"]}")
     end
 
-    unless is_nil(metadata["package_id"]) or
-             (metadata["files"]["package"]["sha256"] == metadata["archive_sha256"] and
-                metadata["files"]["docs_archive"]["sha256"] == metadata["docs_archive_sha256"]),
+    validate_archive_descriptors!(metadata)
+  end
+
+  defp validate_archive_descriptors!(%{"package_id" => nil}), do: :ok
+
+  defp validate_archive_descriptors!(metadata) do
+    unless metadata["files"]["package"]["sha256"] == metadata["archive_sha256"] and
+             metadata["files"]["docs_archive"]["sha256"] == metadata["docs_archive_sha256"],
            do: raise(Error, "archive digest binding mismatch")
   end
 

@@ -263,7 +263,8 @@ defmodule Weld.Core.Manifest do
     path = at <> ".verify"
     verify = validate!(raw, @verify, path)
 
-    validate_verification_policy!(verify, raw, layout, path)
+    validate_hex_verification_policy!(verify, raw, path)
+    validate_layout_verification_policy!(verify, layout, path)
 
     paths!(verify[:artifact_tests], path <> ".artifact_tests", false)
     tests = verify[:artifact_tests]
@@ -287,7 +288,7 @@ defmodule Weld.Core.Manifest do
     |> Keyword.put(:context, context)
   end
 
-  defp validate_verification_policy!(verify, raw, layout, path) do
+  defp validate_hex_verification_policy!(verify, raw, path) do
     if not verify[:hex_build] and
          (verify[:hex_publish_check] or not Keyword.has_key?(raw, :hex_publish_check)),
        do:
@@ -296,7 +297,9 @@ defmodule Weld.Core.Manifest do
            path <> ".hex_publish_check",
            "hex_build: false requires explicit hex_publish_check: false"
          )
+  end
 
+  defp validate_layout_verification_policy!(verify, layout, path) do
     if verify[:component_tests] and layout != :components,
       do:
         fail!(

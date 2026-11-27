@@ -873,12 +873,7 @@ defmodule Weld.CLI do
   end
 
   defp next_action(entry) do
-    existing_action =
-      case entry[:next_command] do
-        "mix weld " <> rest -> rest |> String.split() |> hd()
-        _ -> nil
-      end
-
+    existing_action = command_action(entry[:next_command])
     states = [entry[:package_publish], entry[:docs_publish]]
 
     cond do
@@ -890,6 +885,9 @@ defmodule Weld.CLI do
       true -> "track"
     end
   end
+
+  defp command_action("mix weld " <> rest), do: rest |> String.split() |> hd()
+  defp command_action(_), do: nil
 
   defp render_next_command(nil, _entry, _opts, _location), do: nil
 

@@ -58,13 +58,7 @@ defmodule Weld.SmokeApp do
     version = metadata["version"]
     app = metadata["app"]
 
-    for {key, actual} <- [expected_app: app, expected_name: name, expected_version: version],
-        opts[key] do
-      unless to_string(opts[key]) == actual,
-        do: raise(Error, "archive consumer identity mismatch")
-    end
-
-    unless Regex.match?(~r/\A[a-z][a-z0-9_]*\z/, app), do: raise(Error, "invalid archive OTP app")
+    validate_archive_identity!(app, name, version, opts)
     registry = "weld_qualification"
     consumer!(root, app, {:hex, name, version, registry}, smoke_source)
     public = Path.join(root, "registry")
@@ -151,6 +145,16 @@ defmodule Weld.SmokeApp do
     after
       :inets.stop(:httpd, server)
     end
+  end
+
+  defp validate_archive_identity!(app, name, version, opts) do
+    for {key, actual} <- [expected_app: app, expected_name: name, expected_version: version],
+        opts[key] do
+      unless to_string(opts[key]) == actual,
+        do: raise(Error, "archive consumer identity mismatch")
+    end
+
+    unless Regex.match?(~r/\A[a-z][a-z0-9_]*\z/, app), do: raise(Error, "invalid archive OTP app")
   end
 
   defp offline_archive_rebuild!(root, server) do

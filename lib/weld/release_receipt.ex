@@ -74,20 +74,20 @@ defmodule Weld.ReleaseReceipt do
              record["schema"] == @schema and valid_name?(record["artifact"]) and
              valid_package?(record["package"]) and is_binary(record["version"]) and
              match?({:ok, _}, Version.parse(record["version"])) and
-             Enum.all?(
-               ~w(bundle_id qualification_id project_id docs_id compiler_id),
-               &Identity.valid?(record[&1])
-             ) and
-             Enum.all?(
-               ~w(archive_sha256 docs_archive_sha256),
-               &(is_nil(record[&1]) or Identity.valid?(record[&1]))
-             ) and
-             is_nil(record["archive_sha256"]) == is_nil(record["docs_archive_sha256"]) do
+             valid_receipt_digests?(record) do
       raise Error, "invalid Weld receipt schema"
     end
 
     validate_source!(record["source"])
     record
+  end
+
+  defp valid_receipt_digests?(record) do
+    required = ~w(bundle_id qualification_id project_id docs_id compiler_id)
+    archives = [record["archive_sha256"], record["docs_archive_sha256"]]
+
+    Enum.all?(required, &Identity.valid?(record[&1])) and
+      (Enum.all?(archives, &is_nil/1) or Enum.all?(archives, &Identity.valid?/1))
   end
 
   def validate_source!(source) do

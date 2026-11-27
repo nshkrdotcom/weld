@@ -55,15 +55,24 @@ defmodule Weld.Shell.Materializer do
   def validate!(layout, facts, stage, kind) do
     operations = Map.fetch!(layout, kind)
     groups = if kind == :live, do: Map.get(layout, :live_roots, []), else: []
-    links = Map.new(groups, &{&1.target, Path.join(facts.root, &1.source)})
+    links = expected_links(operations, groups, facts.root, kind)
+    validate_structure!(layout, operations, groups, stage, links)
+    validate_file_contents!(operations, groups, facts, stage, links)
+    for {_target, source} <- links, do: Output.reject_tree_links!(source)
+    file_summary(operations, links)
+  end
 
-    links =
-      for op <- operations,
-          kind == :live and op.operation == :link_or_copy and is_nil(op.content),
-          not Enum.any?(groups, &under?(op.target, &1.target)),
-          into: links,
-          do: {op.target, hd(op.sources)}
+  defp expected_links(operations, groups, root, kind) do
+    links = Map.new(groups, &{&1.target, Path.join(root, &1.source)})
 
+    for op <- operations,
+        kind == :live and op.operation == :link_or_copy and is_nil(op.content),
+        not Enum.any?(groups, &under?(op.target, &1.target)),
+        into: links,
+        do: {op.target, hd(op.sources)}
+  end
+
+  defp validate_structure!(layout, operations, groups, stage, links) do
     physical = physical_paths!(stage, "", links)
 
     expected =
@@ -81,7 +90,9 @@ defmodule Weld.Shell.Materializer do
 
     unless Enum.sort(empty_directories!(stage, "")) == empty,
       do: raise(Error, "materialized empty directory set differs from plan")
+  end
 
+  defp validate_file_contents!(operations, groups, facts, stage, links) do
     for op <- operations,
         not Map.has_key?(links, op.target),
         not Enum.any?(groups, &under?(op.target, &1.target)) do
@@ -97,22 +108,15 @@ defmodule Weld.Shell.Materializer do
       unless actual.sha256 == expected.sha256 and actual.mode == normalized_mode,
         do: raise(Error, "materialized bytes or mode differ from plan: #{op.target}")
     end
+  end
 
-    for {_target, source} <- links, do: Output.reject_tree_links!(source)
+  defp file_summary(operations, links) do
+    targets = Enum.map(operations, & &1.target)
 
-    %{
-      linked_files:
-        for(
-          op <- operations,
-          Enum.any?(links, fn {target, _} -> under?(op.target, target) end),
-          do: op.target
-        ),
-      copied_files:
-        Enum.map(operations, & &1.target) --
-          Enum.filter(Enum.map(operations, & &1.target), fn path ->
-            Enum.any?(links, fn {target, _} -> under?(path, target) end)
-          end)
-    }
+    {linked, copied} =
+      Enum.split_with(targets, &Enum.any?(links, fn {target, _} -> under?(&1, target) end))
+
+    %{linked_files: linked, copied_files: copied}
   end
 
   defp physical_paths!(root, relative, links) do

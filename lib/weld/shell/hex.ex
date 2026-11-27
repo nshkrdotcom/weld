@@ -126,7 +126,20 @@ defmodule Weld.Shell.Hex do
     unless files == observed.entries,
       do: raise(Error, "Hex archive paths, modes, sizes or bytes differ from package inventory")
 
-    empty_dirs = Enum.sort(opts[:empty_dirs] || [])
+    validate_package_directories!(observed, root, paths, opts[:empty_dirs])
+
+    expected = expected_metadata(expected) |> Map.delete("files")
+
+    for {key, value} <- expected do
+      unless observed.metadata[key] == value,
+        do: raise(Error, "Hex package metadata differs at #{key}")
+    end
+
+    :ok
+  end
+
+  defp validate_package_directories!(observed, root, paths, empty_dirs) do
+    empty_dirs = Enum.sort(empty_dirs || [])
 
     unless observed.empty_dirs == empty_dirs,
       do: raise(Error, "Hex archive empty directory membership differs")
@@ -139,15 +152,6 @@ defmodule Weld.Shell.Hex do
       unless allowed and File.dir?(Output.source!(root, directory)),
         do: raise(Error, "Hex archive contains an unplanned publication directory: #{directory}")
     end
-
-    expected = expected_metadata(expected) |> Map.delete("files")
-
-    for {key, value} <- expected do
-      unless observed.metadata[key] == value,
-        do: raise(Error, "Hex package metadata differs at #{key}")
-    end
-
-    :ok
   end
 
   @doc false
@@ -1067,15 +1071,18 @@ defmodule Weld.Shell.Hex do
 
     if value["state"] not in (@states ++ ["absent"]) or
          state_for_record(value["state"]) != part_state or
-         (not is_nil(value["sha256"]) and not Identity.valid?(value["sha256"])) or
-         value["code"] != public_label(value["code"]) or
-         value["source"] != public_label(value["source"]),
+         not valid_outcome_labels?(value),
        do: raise(Error, "invalid typed outcome observation")
 
     location = value["location"]
 
     if location && safe_location(%{location: location}, destination).location != location,
       do: raise(Error, "untrusted staged outcome location")
+  end
+
+  defp valid_outcome_labels?(value) do
+    (is_nil(value["sha256"]) or Identity.valid?(value["sha256"])) and
+      Enum.all?(~w(code source), &(value[&1] == public_label(value[&1])))
   end
 
   defp order_outcomes!([], _previous, ordered), do: ordered

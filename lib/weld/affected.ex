@@ -125,10 +125,9 @@ defmodule Weld.Affected do
       Weld.Core.Inventory.diff(expected, Map.new(observed, &{&1.target, &1}))
       |> Enum.reject(&(&1.state == :identical))
 
-    structural = Enum.uniq(before.structural_inputs ++ after_.structural_inputs)
-    structural_changed? = relative in changed or Enum.any?(changed, &(&1 in structural))
-    contributors = for entry <- expected ++ observed, input <- entry.inputs, do: input.source
-    relevant = Enum.filter(changed, &(&1 in contributors or &1 in structural or &1 == relative))
+    structural = [relative | before.structural_inputs ++ after_.structural_inputs]
+    structural_changed? = Enum.any?(changed, &(&1 in structural))
+    relevant = relevant_changes(changed, structural, expected ++ observed)
     options = Keyword.merge(opts, base: common.base, head: common.head, task: common.task)
     old_report = run!(before, Keyword.put(options, :changed_files, relevant))
     new_report = run!(after_, Keyword.put(options, :changed_files, relevant))
@@ -153,6 +152,12 @@ defmodule Weld.Affected do
         Enum.sort(Enum.uniq(old_report.direct_projects ++ new_report.direct_projects)),
       affected_projects: if(affected?, do: projects, else: [])
     })
+  end
+
+  defp relevant_changes(changed, structural, entries) do
+    contributors = for entry <- entries, input <- entry.inputs, do: input.source
+    paths = MapSet.new(structural ++ contributors)
+    Enum.filter(changed, &MapSet.member?(paths, &1))
   end
 
   defp affected_role("package"), do: :package

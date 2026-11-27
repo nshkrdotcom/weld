@@ -363,51 +363,18 @@ defmodule Weld.Release do
       parent = preflight_branch!(root, ref, old, expected)
       existing_tag = preflight_tag!(root, tag, old, expected)
 
-      if opts[:push],
-        do: preflight_remote!(root, opts[:remote] || "origin", ref, old, tag, existing_tag)
+      tracking = %{
+        ref: ref,
+        old: old,
+        tag: tag,
+        existing_tag: existing_tag,
+        parent: parent,
+        expected: expected,
+        branch: branch
+      }
 
-      Output.failpoint(opts, :track_preflight)
-      {tree, observed} = Git.write_project_tree!(root, Path.join(bundle, "project"), lease.stage)
-
-      unless Identity.digest("project", observed) == metadata["project_id"] and
-               Git.project_id(root, tree) == metadata["project_id"],
-             do: raise(Error, "qualified project or actual Git blobs changed during tracking")
-
-      reusable =
-        is_binary(parent) and ReleaseReceipt.from_commit(root, parent) == {:ok, expected} and
-          Git.project_id(root, parent) == metadata["project_id"]
-
-      commit =
-        if reusable,
-          do: parent,
-          else:
-            Git.write_commit!(
-              root,
-              tree,
-              parent,
-              ReleaseReceipt.format_commit_message(selection, metadata),
-              lease.stage
-            )
-
-      tag_oid =
-        if tag,
-          do:
-            existing_tag ||
-              Git.write_tag!(
-                root,
-                tag,
-                commit,
-                ReleaseReceipt.format_tag_message(selection, metadata, tag),
-                lease.stage
-              )
-
-      updates =
-        [{ref, commit, old}] ++
-          if(tag, do: [{"refs/tags/" <> tag, tag_oid, existing_tag}], else: [])
-
-      Output.failpoint(opts, :track_before_refs)
-      Git.transaction!(root, updates)
-      if opts[:push], do: Git.push_release!(root, opts[:remote] || "origin", branch, tag)
+      {commit, reusable} =
+        track_candidate!(selection, bundle, lease.stage, metadata, tracking, opts)
 
       %{
         artifact: metadata["artifact"],
@@ -422,6 +389,61 @@ defmodule Weld.Release do
         warnings: ReleaseStatus.docs_source_ref_warnings(selection, tag)
       }
     end)
+  end
+
+  defp track_candidate!(selection, bundle, stage, metadata, tracking, opts) do
+    %{repo_root: root} = ReleaseStatus.selector(selection)
+    %{ref: ref, old: old, tag: tag, existing_tag: existing_tag, branch: branch} = tracking
+    remote = opts[:remote] || "origin"
+
+    if opts[:push], do: preflight_remote!(root, remote, ref, old, tag, existing_tag)
+    Output.failpoint(opts, :track_preflight)
+    {tree, observed} = Git.write_project_tree!(root, Path.join(bundle, "project"), stage)
+
+    unless Identity.digest("project", observed) == metadata["project_id"] and
+             Git.project_id(root, tree) == metadata["project_id"],
+           do: raise(Error, "qualified project or actual Git blobs changed during tracking")
+
+    {commit, reused} = candidate_commit!(root, tree, stage, selection, metadata, tracking)
+
+    updates =
+      [{ref, commit, old}] ++
+        candidate_tag_updates!(root, commit, stage, selection, metadata, tracking)
+
+    Output.failpoint(opts, :track_before_refs)
+    Git.transaction!(root, updates)
+    if opts[:push], do: Git.push_release!(root, remote, branch, tag)
+    {commit, reused}
+  end
+
+  defp candidate_commit!(root, tree, stage, selection, metadata, tracking) do
+    %{parent: parent, expected: expected} = tracking
+
+    if is_binary(parent) and ReleaseReceipt.from_commit(root, parent) == {:ok, expected} and
+         Git.project_id(root, parent) == metadata["project_id"] do
+      {parent, true}
+    else
+      message = ReleaseReceipt.format_commit_message(selection, metadata)
+      {Git.write_commit!(root, tree, parent, message, stage), false}
+    end
+  end
+
+  defp candidate_tag_updates!(_root, _commit, _stage, _selection, _metadata, %{tag: nil}), do: []
+
+  defp candidate_tag_updates!(root, commit, stage, selection, metadata, tracking) do
+    %{tag: tag, existing_tag: existing} = tracking
+
+    oid =
+      existing ||
+        Git.write_tag!(
+          root,
+          tag,
+          commit,
+          ReleaseReceipt.format_tag_message(selection, metadata, tag),
+          stage
+        )
+
+    [{"refs/tags/" <> tag, oid, existing}]
   end
 
   defp preflight_branch!(_root, _ref, nil, _expected), do: nil
@@ -472,22 +494,7 @@ defmodule Weld.Release do
       unless metadata["package_id"],
         do: raise(Error, "qualified internal bundle has no Hex payload")
 
-      if operation == "publish" do
-        ensure_publish_fresh!(selection, metadata, opts)
-
-        if opts[:tag] do
-          %{repo_root: root} = ReleaseStatus.selector(selection)
-
-          result =
-            ReleaseStatus.verify_tag(root, opts[:tag],
-              artifact: metadata["artifact"],
-              identity: metadata["bundle_id"]
-            )
-
-          unless result.status == :match,
-            do: raise(Error, "tag does not identify the pinned bundle")
-        end
-      end
+      check_publication_intent!(selection, operation, metadata, opts)
 
       %{repo_root: root, artifact: artifact} = ReleaseStatus.selector(selection)
 
@@ -519,6 +526,28 @@ defmodule Weld.Release do
           reraise error, __STACKTRACE__
       end
     end)
+  end
+
+  defp check_publication_intent!(selection, "publish", metadata, opts) do
+    ensure_publish_fresh!(selection, metadata, opts)
+    check_publication_tag!(selection, metadata, opts[:tag])
+  end
+
+  defp check_publication_intent!(_selection, _operation, _metadata, _opts), do: :ok
+
+  defp check_publication_tag!(_selection, _metadata, nil), do: :ok
+
+  defp check_publication_tag!(selection, metadata, tag) do
+    %{repo_root: root} = ReleaseStatus.selector(selection)
+
+    result =
+      ReleaseStatus.verify_tag(root, tag,
+        artifact: metadata["artifact"],
+        identity: metadata["bundle_id"]
+      )
+
+    unless result.status == :match,
+      do: raise(Error, "tag does not identify the pinned bundle")
   end
 
   defp ensure_publish_fresh!(selection, metadata, opts) do

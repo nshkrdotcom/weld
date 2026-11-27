@@ -619,23 +619,7 @@ defmodule Weld.Plan.Inventory do
     do: {declaration, external}
 
   defp dependency_options_metadata(opts, app, project, root, external) do
-    {opts, external} =
-      case opts[:path] do
-        path when is_binary(path) ->
-          absolute = Path.expand(path, project.abs_path)
-
-          if absolute == root or String.starts_with?(absolute, root <> "/") do
-            opts =
-              if Path.type(path) == :absolute, do: Keyword.put(opts, :path, absolute), else: opts
-
-            {opts, external}
-          else
-            opaque_dependency_option(opts, :path, path, app, project, external)
-          end
-
-        _ ->
-          {opts, external}
-      end
+    {opts, external} = dependency_path_metadata(opts, app, project, root, external)
 
     case opts[:git] do
       git when is_binary(git) ->
@@ -654,6 +638,26 @@ defmodule Weld.Plan.Inventory do
       _ ->
         {opts, external}
     end
+  end
+
+  defp dependency_path_metadata(opts, app, project, root, external) do
+    case opts[:path] do
+      path when is_binary(path) ->
+        absolute = Path.expand(path, project.abs_path)
+
+        if absolute == root or String.starts_with?(absolute, root <> "/") do
+          {keep_absolute_dependency_path(opts, path, absolute), external}
+        else
+          opaque_dependency_option(opts, :path, path, app, project, external)
+        end
+
+      _ ->
+        {opts, external}
+    end
+  end
+
+  defp keep_absolute_dependency_path(opts, path, absolute) do
+    if Path.type(path) == :absolute, do: Keyword.put(opts, :path, absolute), else: opts
   end
 
   defp portable_git_locator(value, root) do
