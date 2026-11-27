@@ -155,15 +155,18 @@ defmodule Weld.Shell.Materializer do
 
     case File.lstat!(path).type do
       :directory ->
-        case File.ls!(path) |> Enum.sort() do
-          [] -> if relative == "", do: [], else: [relative]
-          names -> Enum.flat_map(names, &empty_directories!(root, Path.join(relative, &1)))
-        end
+        subdirectory_empties!(root, relative, File.ls!(path) |> Enum.sort())
 
       _ ->
         []
     end
   end
+
+  defp subdirectory_empties!(_root, "", []), do: []
+  defp subdirectory_empties!(_root, relative, []), do: [relative]
+
+  defp subdirectory_empties!(root, relative, names),
+    do: Enum.flat_map(names, &empty_directories!(root, Path.join(relative, &1)))
 
   defp under?(path, root), do: path == root or String.starts_with?(path, root <> "/")
 end

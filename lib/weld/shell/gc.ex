@@ -51,15 +51,7 @@ defmodule Weld.Shell.GC do
       if dry? do
         Enum.map(candidates, & &1.path)
       else
-        for candidate <- candidates do
-          # The metadata lock excludes a concurrent reservation; compare exact run
-          # bytes again before removal and never follow a replaced path.
-          unless Output.read_run!(candidate.path) == candidate.record,
-            do: raise(Error, "run changed during garbage collection")
-
-          Output.safe_remove!(base, candidate.path)
-          candidate.path
-        end
+        Enum.map(candidates, &remove_run!(base, &1))
       end
 
     %{
@@ -71,6 +63,15 @@ defmodule Weld.Shell.GC do
       immutable: :retained,
       unknown_ownership: leases == :unknown
     }
+  end
+
+  defp remove_run!(base, candidate) do
+    # The metadata lock excludes a concurrent reservation.
+    unless Output.read_run!(candidate.path) == candidate.record,
+      do: raise(Error, "run changed during garbage collection")
+
+    Output.safe_remove!(base, candidate.path)
+    candidate.path
   end
 
   defp held?(%{record: nil}, _), do: true

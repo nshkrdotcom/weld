@@ -242,6 +242,18 @@ defmodule Weld.Workspace do
       )
 
   defp normalized_dep!(app, requirement, opts) do
+    validate_dependency_shape!(app, requirement, opts)
+    validate_dependency_scope_options!(app, opts)
+
+    %{
+      app: app,
+      requirement: requirement,
+      opts: opts,
+      original: Graph.dependency_tuple(app, requirement, opts)
+    }
+  end
+
+  defp validate_dependency_shape!(app, requirement, opts) do
     unless is_atom(app) and app not in [nil, true, false] and
              (is_nil(requirement) or is_binary(requirement)) and Keyword.keyword?(opts),
            do:
@@ -266,10 +278,12 @@ defmodule Weld.Workspace do
           phase: :snapshot,
           message: "invalid dependency requirement for #{app}"
         )
+  end
 
+  defp validate_dependency_scope_options!(app, opts) do
     for key <- [:path, :git, :github],
         Keyword.has_key?(opts, key),
-        not (is_binary(opts[key]) and opts[key] != "" and not String.contains?(opts[key], <<0>>)),
+        not valid_dependency_locator?(opts[key]),
         do:
           raise(Error,
             code: :invalid_project_facts,
@@ -278,23 +292,21 @@ defmodule Weld.Workspace do
           )
 
     for key <- [:only, :targets], Keyword.has_key?(opts, key) do
-      unless List.wrap(opts[key]) != [] and
-               Enum.all?(List.wrap(opts[key]), &(is_atom(&1) and &1 not in [nil, true, false])),
-             do:
-               raise(Error,
-                 code: :invalid_project_facts,
-                 phase: :snapshot,
-                 message: "invalid #{key} dependency scope for #{app}"
-               )
+      unless valid_dependency_scope?(List.wrap(opts[key])),
+        do:
+          raise(Error,
+            code: :invalid_project_facts,
+            phase: :snapshot,
+            message: "invalid #{key} dependency scope for #{app}"
+          )
     end
-
-    %{
-      app: app,
-      requirement: requirement,
-      opts: opts,
-      original: Graph.dependency_tuple(app, requirement, opts)
-    }
   end
+
+  defp valid_dependency_locator?(value),
+    do: is_binary(value) and value != "" and not String.contains?(value, <<0>>)
+
+  defp valid_dependency_scope?(values),
+    do: values != [] and Enum.all?(values, &(is_atom(&1) and &1 not in [nil, true, false]))
 
   # Preserve identical native declarations. For declarations conditional on
   # Mix.env/0, infer only the environments in which that requirement is active.
@@ -308,54 +320,53 @@ defmodule Weld.Workspace do
     end)
     |> Enum.sort_by(&elem(&1, 0))
     |> Enum.flat_map(fn {_key, observations} ->
-      present = observations |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> Enum.sort()
-      declarations = observations |> Enum.map(&elem(&1, 1)) |> Graph.normalize_dependencies()
-
-      signatures =
-        observations
-        |> Enum.map(fn {_env, dep} -> Graph.normalize_dependency_options(dep.opts) end)
-        |> Enum.uniq()
-
-      if present == Enum.sort(Probe.environments()) and length(signatures) == 1 do
-        declarations
-      else
-        scopes =
-          observations
-          |> Enum.flat_map(fn {env, dep} ->
-            declared = List.wrap(dep.opts[:only])
-
-            if Enum.any?(declared, &(&1 not in Probe.environments())),
-              do:
-                environment_error!(
-                  project_id,
-                  env,
-                  :dependencies,
-                  "conditional dependency scopes name an unobserved environment; make the declaration identical across dev/test/prod"
-                )
-
-            if declared == [] or env in declared, do: [env], else: []
-          end)
-          |> Enum.uniq()
-          |> Enum.sort()
-
-        case {declarations, scopes} do
-          {_, []} ->
-            []
-
-          {[dep], scopes} ->
-            opts = Keyword.put(dep.opts, :only, scopes)
-
-            [
-              %{
-                dep
-                | opts: opts,
-                  original: Graph.dependency_tuple(dep.app, dep.requirement, opts)
-              }
-            ]
-        end
-      end
+      configured_dependency(project_id, observations)
     end)
     |> Graph.normalize_dependencies()
+  end
+
+  defp configured_dependency(project_id, observations) do
+    present = observations |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> Enum.sort()
+    declarations = observations |> Enum.map(&elem(&1, 1)) |> Graph.normalize_dependencies()
+
+    signatures =
+      observations
+      |> Enum.map(fn {_env, dep} -> Graph.normalize_dependency_options(dep.opts) end)
+      |> Enum.uniq()
+
+    if present == Enum.sort(Probe.environments()) and length(signatures) == 1 do
+      declarations
+    else
+      scopes =
+        observations
+        |> Enum.flat_map(&observed_scope!(&1, project_id))
+        |> Enum.uniq()
+        |> Enum.sort()
+
+      scoped_declaration(declarations, scopes)
+    end
+  end
+
+  defp observed_scope!({env, dep}, project_id) do
+    declared = List.wrap(dep.opts[:only])
+
+    if Enum.any?(declared, &(&1 not in Probe.environments())),
+      do:
+        environment_error!(
+          project_id,
+          env,
+          :dependencies,
+          "conditional dependency scopes name an unobserved environment; make the declaration identical across dev/test/prod"
+        )
+
+    if declared == [] or env in declared, do: [env], else: []
+  end
+
+  defp scoped_declaration(_declarations, []), do: []
+
+  defp scoped_declaration([dep], scopes) do
+    opts = Keyword.put(dep.opts, :only, scopes)
+    [%{dep | opts: opts, original: Graph.dependency_tuple(dep.app, dep.requirement, opts)}]
   end
 
   defp validate_environment_semantics!(project_id, environments) do

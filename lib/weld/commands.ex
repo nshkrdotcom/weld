@@ -165,20 +165,7 @@ defmodule Weld.Commands do
     artifact_path =
       dependency_path(if(plan, do: plan.artifact_graph, else: workspace.graph), from, to, view)
 
-    path_pairs = actual_path |> Enum.chunk_every(2, 1, :discard) |> MapSet.new(&List.to_tuple/1)
-
-    boundary_edges =
-      if plan do
-        plan.externalized_edges
-        |> Enum.filter(
-          &((MapSet.member?(path_pairs, {&1.from, &1.to}) or
-               (actual_path == [] and &1.from == from and &1.to == to)) and
-              Weld.Graph.View.allowed?(&1.kind, view))
-        )
-        |> Enum.map(&report_edge(plan, &1))
-      else
-        []
-      end
+    boundary_edges = why_boundary_edges(plan, actual_path, from, to, view)
 
     %{
       from: from,
@@ -186,17 +173,35 @@ defmodule Weld.Commands do
       view: view,
       path: actual_path,
       artifact_path: artifact_path,
-      reason:
-        cond do
-          artifact_path == [] and boundary_edges != [] -> :external_boundary
-          actual_path == [] -> :no_dependency_path
-          true -> :reachable
-        end,
-      source_membership:
-        not is_nil(plan) and from in plan.artifact.roots and to in plan.source_member_ids,
+      reason: dependency_path_reason(artifact_path, actual_path, boundary_edges),
+      source_membership: why_source_membership?(plan, from, to),
       externalized_edges: boundary_edges
     }
   end
+
+  defp why_boundary_edges(nil, _path, _from, _to, _view), do: []
+
+  defp why_boundary_edges(plan, path, from, to, view) do
+    pairs =
+      case path do
+        [] -> MapSet.new([{from, to}])
+        ids -> ids |> Enum.chunk_every(2, 1, :discard) |> MapSet.new(&List.to_tuple/1)
+      end
+
+    plan.externalized_edges
+    |> Enum.filter(&MapSet.member?(pairs, {&1.from, &1.to}))
+    |> Enum.filter(&Weld.Graph.View.allowed?(&1.kind, view))
+    |> Enum.map(&report_edge(plan, &1))
+  end
+
+  defp dependency_path_reason([], _actual_path, [_ | _]), do: :external_boundary
+  defp dependency_path_reason(_artifact_path, [], _boundary_edges), do: :no_dependency_path
+  defp dependency_path_reason(_, _, _), do: :reachable
+
+  defp why_source_membership?(nil, _from, _to), do: false
+
+  defp why_source_membership?(plan, from, to),
+    do: from in plan.artifact.roots and to in plan.source_member_ids
 
   defp graph_subject!(source, opts) do
     manifest = load_manifest(source)
