@@ -163,12 +163,19 @@ defmodule Weld.Layout.Live do
     end
   end
 
-  def aliases_source do
-    """
-    ["hex.build": fn _ -> Mix.raise("live projections cannot be packaged; generate a full candidate") end,
-     "hex.publish": fn _ -> Mix.raise("live projections cannot be published; generate a full candidate") end]
-    """
-    |> String.trim()
+  def aliases_source, do: Macro.to_string(aliases_ast())
+
+  defp aliases_ast do
+    quote do
+      [
+        "hex.build": fn _ ->
+          Mix.raise("live projections cannot be packaged; generate a full candidate")
+        end,
+        "hex.publish": fn _ ->
+          Mix.raise("live projections cannot be published; generate a full candidate")
+        end
+      ]
+    end
   end
 
   def native_mix!(content, guard, links) do
@@ -201,14 +208,10 @@ defmodule Weld.Layout.Live do
             end
           end
 
-          reject = fn _ ->
-            Mix.raise("live projections cannot be packaged; generate a full candidate")
-          end
-
           Keyword.put(
             config,
             :aliases,
-            Keyword.merge(config[:aliases] || [], "hex.build": reject, "hex.publish": reject)
+            Keyword.merge(config[:aliases] || [], unquote(aliases_ast()))
           )
         end
       end
