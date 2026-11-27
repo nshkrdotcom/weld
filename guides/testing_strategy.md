@@ -53,19 +53,20 @@ case per four online schedulers, at most six; `--max-cases N` overrides it.
 Use an ordinary untraced run for wall-time measurements; `--trace` normally
 serializes ExUnit and changes the workload.
 
-`scripts/test_ci.exs` retains all 26 logical lane selectors and uses Blitz as its
-only scheduler. The fast and slow source tiers partition the complete test-file
-set into disjoint workers, including synchronous modules; no tags or assertions
-are removed. On a 24-scheduler Linux host with `taskset` and `flock`, the default
-is twelve concurrent workers, four fast shards and eight slow shards. The three component and three qualification fault cases
-also run as independent workers (40 physical lanes total). Each active worker
-owns an independent CPU slot inherited by its fresh child VMs, plus an
-isolated build copied on demand (reflinks where
-available). The outer test VM uses the slot's scheduler budget; production
-subprocess environment scrubbing is unchanged. Hosts without affinity support
-use the bounded portable fallback. `WELD_CI_JOBS` overrides worker concurrency
-within the available budget; group and physical lane names can be retried.
-Inspect the actual plan without running tests with
+`scripts/test_ci.exs` retains all 26 logical selectors. Blitz 0.5.0 is the
+sole resource scheduler: it admits independent jobs using detected CPU and
+memory capacity, with inherited CPU affinity on Linux when available. Weld
+specifies workload estimates rather than a machine-specific worker count.
+Four fast and eight slow shards partition the complete source-file set; the
+component, qualification-fault, release-prepare-fault and source-consumption
+cases also have independent workers. These 46 stable job IDs are independent
+of host size and can be selected individually or by group. Each active job
+gets an isolated build copied on demand (reflinks where available). The two
+source-tier cases per worker are a workload choice, not a second scheduler.
+Integration cases run one at a time per isolated worker. On hosts without
+CPU affinity support, Blitz admission is advisory. Production subprocess
+environment scrubbing and all existing qualification gates are unchanged.
+Inspect selectors without execution with
 `MIX_ENV=test mix run --no-start scripts/test_ci.exs -- --plan`.
 
 Fault coverage is split by responsibility. Real qualification exercises all

@@ -91,11 +91,36 @@ defmodule Weld.ReleaseTest do
     assert_reproducible(repo_root, prepared)
   end
 
-  @tag integration: true, ci_build: "release_faults_prepare", timeout: 1_800_000
-  test "prepare failure boundaries retain the previous exact current bundle" do
-    fixture = prepare_failure_fixture!(:fixture)
-    assert_prepare_failures!(fixture, [:prepare_snapshot, :prepare_qualified, :prepare_copied])
-    %{plan: plan, pointer: pointer, old: old, first: first} = fixture
+  @tag integration: true,
+       ci_build: "release_faults_prepare",
+       ci_case: "release_faults_prepare-snapshot",
+       timeout: 1_800_000
+  test "snapshot failure retains the previous exact current bundle" do
+    assert_prepare_failures!(prepare_failure_fixture!(:fixture), [:prepare_snapshot])
+  end
+
+  @tag integration: true,
+       ci_build: "release_faults_prepare",
+       ci_case: "release_faults_prepare-qualified",
+       timeout: 1_800_000
+  test "qualification failure retains the previous exact current bundle" do
+    assert_prepare_failures!(prepare_failure_fixture!(:fixture), [:prepare_qualified])
+  end
+
+  @tag integration: true,
+       ci_build: "release_faults_prepare",
+       ci_case: "release_faults_prepare-copied",
+       timeout: 1_800_000
+  test "copy failure retains the previous exact current bundle" do
+    assert_prepare_failures!(prepare_failure_fixture!(:fixture), [:prepare_copied])
+  end
+
+  @tag integration: true,
+       ci_build: "release_faults_prepare",
+       ci_case: "release_faults_prepare-g02",
+       timeout: 1_800_000
+  test "G02 frozen input mutation retains the previous exact current bundle" do
+    %{plan: plan, pointer: pointer, old: old, first: first} = prepare_failure_fixture!(:fixture)
 
     IO.puts("Release rollback: G02 frozen input mutation")
 

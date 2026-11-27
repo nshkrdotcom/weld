@@ -96,7 +96,8 @@ matrix when the same run already supplies its results. Qualify actual ecosystem
 consumers when changing their release integration. `mix test` runs the fast source checks; `mix test --include slow`
 adds the slower source cases. `mix ci` runs both tiers and all isolated
 integration lanes, including fault, signed Hex consumer and probe-timeout
-checks. [Testing strategy](guides/testing_strategy.md) and the QC driver
+checks. Blitz 0.5.0 schedules the isolated jobs against available CPU and
+memory resources without Weld-specific worker counts. [Testing strategy](guides/testing_strategy.md) and the QC driver
 section there document exact commands, browser evidence,
 canonical proof, crash/concurrency, representative measurements and the final
 manual synthetic soak. The acceptance and disposition ledgers live in

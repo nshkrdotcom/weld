@@ -14,6 +14,7 @@ defmodule Weld.SourceConsumptionTest do
     %{root: root, scratch: scratch, manifest: Path.join(root, "build_support/weld.exs")}
   end
 
+  @tag ci_case: "source_consumption-live"
   test "direct and live path consumers compile edits, added/deleted modules and authoritative assets",
        ctx do
     %{root: root, manifest: manifest} = ctx
@@ -72,6 +73,7 @@ defmodule Weld.SourceConsumptionTest do
     assert message =~ "live projections cannot be packaged"
   end
 
+  @tag ci_case: "source_consumption-detached"
   test "full, prepared, unpacked Hex and a fresh projection clone run without the source checkout",
        ctx do
     %{root: root, manifest: manifest, scratch: scratch} = ctx
@@ -126,6 +128,7 @@ defmodule Weld.SourceConsumptionTest do
     end
   end
 
+  @tag ci_case: "source_consumption-legacy"
   test "a local Hex archive with a matching version and a legacy API fails the consumer contract",
        ctx do
     %{root: root, scratch: scratch} = ctx
@@ -141,6 +144,7 @@ defmodule Weld.SourceConsumptionTest do
     assert output =~ "Sprout.Runtime.asset"
   end
 
+  @tag ci_case: "source_consumption-git"
   test "Git root and two extension subdirectories resolve per-app commits and deliberate convergence",
        ctx do
     %{root: root, scratch: scratch} = ctx

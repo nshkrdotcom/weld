@@ -28,11 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   registry lane through Blitz. Isolate build copies when workers start, prefer
   filesystem reflinks where available, and support named lane retries without
   weakening the complete `mix ci` gate.
-- Partition both source-test tiers by file, schedule long integration workers
-  first, and default to twelve Blitz workers on a 24-scheduler Linux host.
-  Bound each worker and its descendants with independent CPU affinity slots;
-  retain a portable fallback and all test coverage. Schedule independent
-  component and qualification-fault cases in separate workers.
+- Delegate CI resource admission and inherited CPU affinity to Blitz 0.5.0.
+  Remove Weld's worker caps and CPU-slot machinery. Retain stable source shards,
+  separate independent release-prepare fault and source-consumption cases, and
+  prioritize longer qualification chains while preserving their assertions.
 - Use one full repository validation command and reuse its layout matrix for
   subsequent review. Keep the 0.20.2 candidate trust, lock, exact archive and
   official-publication restrictions unchanged.

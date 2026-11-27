@@ -44,40 +44,15 @@ case_jobs = %{
   "component_prepare" =>
     ~w(component_prepare-dependency component_prepare-lock component_prepare-bundle),
   "qualification_faults" =>
-    ~w(qualification_faults-g02 qualification_faults-gc qualification_faults-include)
+    ~w(qualification_faults-g02 qualification_faults-gc qualification_faults-include),
+  "release_faults_prepare" =>
+    ~w(release_faults_prepare-snapshot release_faults_prepare-qualified release_faults_prepare-copied release_faults_prepare-g02),
+  "source_consumption" =>
+    ~w(source_consumption-live source_consumption-detached source_consumption-legacy source_consumption-git)
 }
 
-# Affinity is inherited by all descendants, including Weld's fresh VMs whose
-# environment isolation deliberately removes ERL_FLAGS. Respect the host's
-# current CPU mask; no production runner or qualification changes are needed.
-cores = System.schedulers_online()
-
-cpus =
-  with true <- match?({:unix, :linux}, :os.type()),
-       true <- System.find_executable("taskset") != nil,
-       true <- System.find_executable("flock") != nil,
-       {status, 0} <- System.cmd("taskset", ["-pc", System.pid()], env: [{"LC_ALL", "C"}]),
-       [_, allowed] <- Regex.run(~r/:\s+([0-9,-]+)\s*$/, status) do
-    allowed
-    |> String.split(",")
-    |> Enum.flat_map(fn item ->
-      case String.split(item, "-") do
-        [cpu] -> [String.to_integer(cpu)]
-        [first, last] -> Enum.to_list(String.to_integer(first)..String.to_integer(last))
-      end
-    end)
-    |> Enum.take(cores)
-  else
-    _ -> []
-  end
-
-# Twelve independent workers on a 24-scheduler Linux host; retain the safe
-# bounded fallback when CPU affinity is unavailable. Overrides remain explicit.
-default_jobs =
-  if cpus == [],
-    do: cores |> div(6) |> max(1) |> min(4),
-    else: length(cpus) |> div(2) |> max(1) |> min(12)
-
+# Work partitioning is independent of hardware. Blitz owns admission, CPU
+# affinity and memory budgets; these stable shard IDs also support retries.
 files = Path.wildcard("test/weld/**/*_test.exs") |> Enum.sort()
 if files == [], do: raise("no source test files found")
 
@@ -122,10 +97,10 @@ end
 planned =
   Enum.flat_map(all_jobs, fn
     {"fast", nil} ->
-      shard.("fast", min(4, default_jobs))
+      shard.("fast", 4)
 
     {"slow", nil} ->
-      shard.("slow", min(8, default_jobs))
+      shard.("slow", 8)
 
     {name, file} ->
       for worker <- Map.get(case_jobs, name, [name]),
@@ -151,34 +126,11 @@ jobs =
     do: planned,
     else: Enum.filter(planned, fn {name, group, _} -> name in requested or group in requested end)
 
-limit = if cpus == [], do: length(planned), else: min(length(planned), length(cpus))
-
-max_jobs =
-  case Integer.parse(System.get_env("WELD_CI_JOBS", Integer.to_string(default_jobs))) do
-    {count, ""} when count > 0 and count <= limit ->
-      min(count, length(jobs))
-
-    _ ->
-      raise "WELD_CI_JOBS must be positive and no larger than the available worker budget (#{limit})"
-  end
-
-source_cases =
-  if cpus == [],
-    do: cores |> div(8) |> max(1) |> min(4),
-    else: length(cpus) |> div(max_jobs) |> max(1) |> min(2)
-
 layout_output = System.get_env("WELD_QC_LAYOUT_OUTPUT")
 selected_layouts = Enum.filter(jobs, &Map.has_key?(layout_jobs, elem(&1, 0)))
 mode = if requested == [], do: "complete", else: "PARTIAL retry"
 
-IO.puts(
-  "Weld CI (#{mode}): #{length(jobs)} isolated workers, #{max_jobs} at a time, " <>
-    "#{source_cases} source cases per worker"
-)
-
-if cpus != [],
-  do: IO.puts("CPU slots: #{length(cpus)} allowed CPUs divided among #{max_jobs} workers"),
-  else: IO.puts("CPU affinity unavailable; using bounded portable fallback")
+IO.puts("Weld CI (#{mode}): #{length(jobs)} isolated jobs; Blitz manages available resources")
 
 if plan_only do
   for {name, group, paths} <- jobs do
@@ -194,23 +146,6 @@ scratch = Path.join(System.tmp_dir!(), "weld-ci-#{suffix}")
 File.mkdir!(scratch)
 
 try do
-  slots =
-    if cpus == [] do
-      ""
-    else
-      dir = Path.join(scratch, "cpu-slots")
-      File.mkdir!(dir)
-
-      cpus
-      |> Enum.with_index()
-      |> Enum.group_by(fn {_cpu, index} -> rem(index, max_jobs) end, &elem(&1, 0))
-      |> Enum.each(fn {index, mask} ->
-        File.write!(Path.join(dir, "#{index}.cpus"), Enum.join(mask, ","))
-      end)
-
-      dir
-    end
-
   matrix_root =
     if selected_layouts != [] do
       target =
@@ -228,10 +163,10 @@ try do
       args =
         cond do
           group == "fast" ->
-            ["--max-cases", Integer.to_string(source_cases) | paths]
+            ["--max-cases", "2" | paths]
 
           group == "slow" ->
-            ["--max-cases", Integer.to_string(source_cases), "--only", "slow" | paths]
+            ["--max-cases", "2", "--only", "slow" | paths]
 
           layout ->
             ["--max-cases", "1", "--only", "ci_build:hex_consumption" | paths]
@@ -245,8 +180,7 @@ try do
 
       env = %{
         "WELD_CI_BUILD_ROOT" => build_root,
-        "ERL_CRASH_DUMP" => Path.join(build_root, "erl_crash.dump"),
-        "ERL_FLAGS" => System.get_env("ERL_FLAGS", "+S 4:4")
+        "ERL_CRASH_DUMP" => Path.join(build_root, "erl_crash.dump")
       }
 
       env =
@@ -259,6 +193,31 @@ try do
           env
         end
 
+      # Estimates describe the workload, never the host. Long chains get
+      # priority; the scheduler reuses reservations as each command completes.
+      resources =
+        cond do
+          group in ~w(release release_faults_pointer package prepare_cli) ->
+            [cpu: 6, memory_mib: 2048, priority: 100]
+
+          group == "slow" and
+              Enum.any?(paths, &String.ends_with?(&1, "/source_project_test.exs")) ->
+            [cpu: 6, memory_mib: 2048, priority: 100]
+
+          group in ~w(slow formatter internal runtime monolith source_docs_output package_config) ->
+            [cpu: 4, memory_mib: 2048, priority: 80]
+
+          group in ~w(component_prepare qualification_faults release_faults_prepare source_consumption) or
+              layout ->
+            [cpu: 2, memory_mib: 2048, priority: 80]
+
+          group in ~w(monolith_tests graph_consumption bootstrap_relocation probe_timeout) ->
+            [cpu: 1, memory_mib: 512, priority: 0]
+
+          true ->
+            [cpu: 2, memory_mib: 1536, priority: 40]
+        end
+
       Blitz.command(
         id: name,
         command: "bash",
@@ -266,17 +225,17 @@ try do
           Path.expand("ci_lane.sh", __DIR__),
           build,
           build_root,
-          slots,
           "mix",
           "test",
           "--no-compile",
           "--warnings-as-errors" | args
         ],
-        env: env
+        env: env,
+        resources: resources
       )
     end)
 
-  Blitz.run!(commands, max_concurrency: max_jobs)
+  Blitz.run!([%{commands: commands}])
 
   if length(selected_layouts) == map_size(layout_jobs) do
     Weld.QC.finish_matrix!(matrix_root)
