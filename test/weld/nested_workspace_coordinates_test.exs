@@ -259,9 +259,14 @@ defmodule Weld.NestedWorkspaceCoordinatesTest do
   end
 
   defp write_facts!(facts) do
-    for {path, %{type: :regular, content: contents}} <- facts.nodes do
-      File.mkdir_p!(Path.dirname(path))
+    for {path, %{type: :directory, mode: mode}} <- facts.nodes do
+      File.mkdir_p!(path)
+      File.chmod!(path, mode)
+    end
+
+    for {path, %{type: :regular, mode: mode, content: contents}} <- facts.nodes do
       File.write!(path, contents)
+      File.chmod!(path, mode)
     end
   end
 end

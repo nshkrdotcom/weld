@@ -37,7 +37,12 @@ defmodule Weld.VerificationIntegrityTest do
       File.write!(manifest, inspect(raw, pretty: true, limit: :infinity))
       File.write!(Path.join(root, path), "source must remain untouched\n")
 
-      assert_raise Error, ~r/output path overlaps/, fn ->
+      diagnostic =
+        if path == "doc",
+          do: ~r/source inventory requires existing regular files and directories: doc/,
+          else: ~r/output path overlaps/
+
+      assert_raise Error, diagnostic, fn ->
         Weld.Commands.project!(manifest, live: true)
       end
 

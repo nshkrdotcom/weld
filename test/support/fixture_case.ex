@@ -55,6 +55,7 @@ defmodule Weld.FixtureCase do
       "<html>" <> Keyword.get(opts, :docs, "Fixture docs") <> "</html>"
     )
 
+    File.chmod!(Path.join(docs, "index.html"), 0o644)
     hex? = Keyword.get(opts, :hex, false)
     compiler = Identity.raw("test-only strict bundle fixture compiler")
     observed = Hash.observation(project)
@@ -289,6 +290,12 @@ defmodule Weld.FixtureCase do
     id = Weld.Release.identity(metadata)
     metadata = Map.put(metadata, "bundle_id", id)
     File.write!(Path.join(stage, "bundle.json"), Identity.canonical(metadata))
+
+    for name <- ~w(bundle.json inventory.json qualification.json package.tar docs.tar.gz),
+        path = Path.join(stage, name),
+        File.regular?(path),
+        do: File.chmod!(path, 0o644)
+
     Weld.ReleaseStatus.validate_bundle_integrity!(stage, id)
     bundle = Output.path(root, ["bundles", "fixture_bundle", id])
     File.mkdir_p!(Path.dirname(bundle))

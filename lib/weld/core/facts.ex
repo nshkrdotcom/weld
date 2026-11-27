@@ -51,6 +51,8 @@ defmodule Weld.Core.Facts do
     path = Path.expand(relative, root)
     reject_parents!(facts, path, root)
     path
+  rescue
+    error in ArgumentError -> raise Error, Exception.message(error)
   end
 
   defp reject_parents!(facts, path, root) do

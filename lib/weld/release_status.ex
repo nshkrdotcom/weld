@@ -540,7 +540,7 @@ defmodule Weld.ReleaseStatus do
   end
 
   defp remote_status(selection, bundle, metadata, opts) do
-    if opts[:remote] and metadata["package_id"],
+    if opts[:remote] && metadata["package_id"],
       do: Hex.status(selection, bundle, metadata, opts),
       else: :not_checked
   rescue

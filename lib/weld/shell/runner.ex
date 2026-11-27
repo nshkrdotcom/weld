@@ -41,8 +41,11 @@ defmodule Weld.Shell.Runner do
         {:env, Enum.map(env, fn {key, value} -> {to_charlist(key), chars(value)} end)}
       ])
 
-    {:os_pid, pid} = Port.info(port, :os_pid)
-    guard = monitor_owner(self(), pid)
+    guard =
+      case Port.info(port, :os_pid) do
+        {:os_pid, pid} -> monitor_owner(self(), pid)
+        nil -> nil
+      end
 
     state = %{
       raw: raw?,
@@ -62,7 +65,7 @@ defmodule Weld.Shell.Runner do
     try do
       collect(port, state)
     after
-      send(guard, :finished)
+      if guard, do: send(guard, :finished)
       if Port.info(port), do: terminate(port)
       if log, do: File.close(log)
     end
@@ -105,17 +108,17 @@ defmodule Weld.Shell.Runner do
   end
 
   defp archives_path do
-    case :code.lib_dir(:hex) do
+    case :code.which(Hex) do
       path when is_list(path) ->
-        path |> to_string() |> Path.dirname() |> Path.dirname()
+        path
+        |> to_string()
+        |> Path.dirname()
+        |> Path.dirname()
+        |> Path.dirname()
+        |> Path.dirname()
 
       _ ->
-        _ = Mix.Hex.start()
-
-        case :code.lib_dir(:hex) do
-          path when is_list(path) -> path |> to_string() |> Path.dirname() |> Path.dirname()
-          _ -> raise Error, "installed Hex archive is required for isolated Mix execution"
-        end
+        raise Error, "installed Hex archive is required for isolated Mix execution"
     end
   end
 

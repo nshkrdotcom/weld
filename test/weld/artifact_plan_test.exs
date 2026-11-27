@@ -89,7 +89,12 @@ defmodule Weld.ArtifactPlanTest do
 
     assert plan.source_root == Path.join(root, "extensions/color")
     assert plan.selected_ids == ["extensions/color"]
-    assert Enum.map(plan.source_inventory, & &1.target) == ["VERSION", "lib/color.ex", "mix.exs"]
+    assert Enum.map(plan.output_inventory, & &1.target) == ["VERSION", "lib/color.ex", "mix.exs"]
+
+    assert Enum.any?(plan.source_inventory, fn entry ->
+             entry.target == "mix.exs" && entry.source == "extensions/color/mix.exs"
+           end)
+
     assert [%{app: :sprout, requirement: "~> 0.1.0"}] = plan.external_deps
     assert [%{from: "extensions/color", to: ".", app: :sprout}] = plan.externalized_edges
 

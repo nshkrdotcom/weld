@@ -1,10 +1,9 @@
 # Weld 0.20.0 acceptance and evidence
 
 This ledger maps the complete Part 2 acceptance contract to the current source.
-It is an implementation/coverage map, **not an executed runtime acceptance
-report**. The editing environment has no Elixir, Erlang or Mix. All ExUnit,
-formatting, compilation, Credo, Dialyzer, ExDoc, CI, native, consumer and browser
-results for this source remain unrun. Runtime QC owns repairs and reruns.
+This is the implementation and coverage map. The original editing environment
+had no Elixir, Erlang or Mix. Runtime QC records execution results separately,
+with the exact source commit and command exit status for each run.
 
 ## Source and test disposition
 
@@ -29,11 +28,17 @@ native signed-registry consumption. Test names are retained where behavior is
 retained; obsolete embedded-report and rebuild-handoff expectations are replaced
 by explicit schema 2 contracts, not by relaxed success conditions.
 
+Runtime QC updated two assertions for schema 2. The native artifact plan checks
+unique target membership through `output_inventory` and separately checks
+`mix.exs` source provenance. The mutable graph destination test expects the
+source-inventory rejection for `doc`, which is excluded from observations, and
+retains the output-overlap assertion for `mix.lock`. Both cases still verify that
+source bytes survive rejection.
+
 ## A01–A40 coverage
 
 All paths in the test column ending in `_test` are under `test/weld/` with the
-`.exs` suffix. Code names are Weld modules unless a script is named. Every row's
-runtime result is **unrun**. A36 additionally requires the actual external
+`.exs` suffix. Code names are Weld modules unless a script is named. Consult the runtime QC index for execution status. A36 additionally requires the actual external
 checkouts/toolchains. A37 has executed static accounting only.
 
 | ID | Required behavior | Implementation | Tests / reproducible evidence source |

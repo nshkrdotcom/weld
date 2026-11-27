@@ -106,7 +106,7 @@ defmodule Weld.Layout.FilePlan do
 
   defp duplicate_target_message(target, operations) do
     migration? =
-      String.starts_with?(target, "priv/") and
+      String.starts_with?(target, "priv/") and "migrations" in Path.split(Path.dirname(target)) and
         Enum.any?(operations, &(&1.target == target and &1.operation == :copy))
 
     cond do

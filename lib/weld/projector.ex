@@ -7,7 +7,7 @@ defmodule Weld.Projector do
 
   def project!(%Plan{} = plan, opts \\ []) do
     Plan.ensure_valid!(plan)
-    kind = if(opts[:live] or opts[:kind] in [:live, "live"], do: :live, else: :full)
+    kind = if(opts[:live] || opts[:kind] in [:live, "live"], do: :live, else: :full)
 
     Output.with_lease(
       plan.manifest.repo_root,
@@ -32,7 +32,7 @@ defmodule Weld.Projector do
     recheck_inputs!(plan, inventory["input_id"])
 
     reusable =
-      not (opts[:no_cache] or opts[:fresh]) and
+      !(opts[:no_cache] || opts[:fresh]) and
         reusable?(plan, kind, target, record, inventory)
 
     if reusable do

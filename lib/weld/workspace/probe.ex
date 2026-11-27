@@ -16,7 +16,9 @@ defmodule Weld.Workspace.Probe do
     |> Task.async_stream(
       fn {id, env} ->
         path = if id == ".", do: root, else: Path.join(root, id)
-        {{id, env}, run!(root, path, id, env, opts)}
+        {:observed, {{id, env}, run!(root, path, id, env, opts)}}
+      rescue
+        error -> {:raised, error, __STACKTRACE__}
       end,
       max_concurrency: 4,
       ordered: true,
@@ -24,8 +26,11 @@ defmodule Weld.Workspace.Probe do
       on_timeout: :kill_task
     )
     |> Enum.map(fn
-      {:ok, value} ->
+      {:ok, {:observed, value}} ->
         value
+
+      {:ok, {:raised, error, stacktrace}} ->
+        reraise error, stacktrace
 
       {:exit, reason} ->
         raise Error,

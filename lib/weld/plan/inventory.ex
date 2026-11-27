@@ -795,7 +795,7 @@ defmodule Weld.Plan.Inventory do
 
     discovery =
       for glob <- plan.workspace.discovery.globs do
-        pattern = Path.join(glob, "mix.exs")
+        pattern = if glob == ".", do: "mix.exs", else: Path.join(glob, "mix.exs")
 
         matches =
           Facts.wildcard(plan.facts, Path.join(plan.manifest.repo_root, pattern))
