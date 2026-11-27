@@ -28,20 +28,30 @@ defmodule Weld.ReleaseStatus do
 
     validate_bundle_fields!(metadata)
 
-    inventory =
-      canonical_file!(Path.join(bundle, "inventory.json"), @inventory_keys, "weld.inventory/2")
-
+    %{inventory: inventory, qualification: qualification} = evidence!(bundle)
     Inventory.validate_portable!(inventory)
-
-    qualification =
-      canonical_file!(
-        Path.join(bundle, "qualification.json"),
-        @qualification_keys,
-        "weld.qualification/2"
-      )
 
     validate_bindings!(metadata, inventory, qualification)
     validate_files!(bundle, metadata)
+    validate_bundle_trees!(bundle, metadata, inventory)
+    validate_frozen_plan!(inventory)
+    validate_lock!(bundle, inventory, qualification)
+    validate_qualification!(qualification, inventory)
+
+    if metadata["package_id"], do: validate_bundle_archives!(bundle, inventory)
+
+    metadata
+  rescue
+    error in [ArgumentError, File.Error, KeyError, MatchError] ->
+      reraise Error,
+              [
+                message:
+                  "bundle failed strict integrity verification: #{bundle}: #{Exception.message(error)}"
+              ],
+              __STACKTRACE__
+  end
+
+  defp validate_bundle_trees!(bundle, metadata, inventory) do
     project = Hash.observation(Path.join(bundle, "project"))
     docs = Hash.observation(Path.join(bundle, "docs"))
 
@@ -59,40 +69,31 @@ defmodule Weld.ReleaseStatus do
 
     validate_modes!(Path.join(bundle, "project"), inventory["frozen_project"])
     validate_modes!(Path.join(bundle, "docs"), inventory["docs_entries"])
-    validate_frozen_plan!(inventory)
-    validate_lock!(bundle, inventory, qualification)
-    validate_qualification!(qualification, inventory)
+  end
 
-    if metadata["package_id"] do
-      package = Hex.package_observation!(Path.join(bundle, "package.tar"))
-      Hex.validate_dependency_metadata!(package.metadata, inventory["dependencies"])
+  defp validate_bundle_archives!(bundle, inventory) do
+    package = Hex.package_observation!(Path.join(bundle, "package.tar"))
+    Hex.validate_dependency_metadata!(package.metadata, inventory["dependencies"])
 
-      unless Enum.all?(package.empty_dirs, &(&1 in inventory["empty_dirs"])) and
-               Enum.all?(package.directories, fn directory ->
-                 directory in package.empty_dirs or
-                   Enum.any?(package.entries, &String.starts_with?(&1["path"], directory <> "/")) or
-                   Enum.any?(package.empty_dirs, &String.starts_with?(&1, directory <> "/"))
-               end),
-             do: raise(Error, "package contains unplanned empty or structural directories")
+    validate_bundle_directories!(package, inventory["empty_dirs"])
 
-      docs_archive = Hex.docs_observation!(Path.join(bundle, "docs.tar.gz"))
+    docs_archive = Hex.docs_observation!(Path.join(bundle, "docs.tar.gz"))
 
-      unless package.entries == inventory["package_entries"] and
-               package.metadata == inventory["package_metadata"] and
-               docs_archive.entries == inventory["docs_entries"] and
-               docs_archive.empty_dirs == inventory["docs_empty_dirs"],
-             do: raise(Error, "archive contents disagree with exact bundle inventory")
-    end
+    unless package.entries == inventory["package_entries"] and
+             package.metadata == inventory["package_metadata"] and
+             docs_archive.entries == inventory["docs_entries"] and
+             docs_archive.empty_dirs == inventory["docs_empty_dirs"],
+           do: raise(Error, "archive contents disagree with exact bundle inventory")
+  end
 
-    metadata
-  rescue
-    error in [ArgumentError, File.Error, KeyError, MatchError] ->
-      reraise Error,
-              [
-                message:
-                  "bundle failed strict integrity verification: #{bundle}: #{Exception.message(error)}"
-              ],
-              __STACKTRACE__
+  defp validate_bundle_directories!(package, planned) do
+    unless Enum.all?(package.empty_dirs, &(&1 in planned)) and
+             Enum.all?(package.directories, fn directory ->
+               directory in package.empty_dirs or
+                 Enum.any?(package.entries, &String.starts_with?(&1["path"], directory <> "/")) or
+                 Enum.any?(package.empty_dirs, &String.starts_with?(&1, directory <> "/"))
+             end),
+           do: raise(Error, "package contains unplanned empty or structural directories")
   end
 
   def evidence!(bundle) do
@@ -293,19 +294,21 @@ defmodule Weld.ReleaseStatus do
                raise(Error, "frozen project differs from compiler inventory: #{entry["target"]}")
     end
 
-    if inventory["package_entries"] do
-      expected =
-        inventory["entries"]
-        |> Enum.filter(& &1["package"])
-        |> Enum.map(& &1["target"])
-        |> Enum.sort()
+    if inventory["package_entries"], do: validate_frozen_package!(inventory, frozen)
+  end
 
-      observed = Enum.map(inventory["package_entries"], & &1["path"])
+  defp validate_frozen_package!(inventory, frozen) do
+    expected =
+      inventory["entries"]
+      |> Enum.filter(& &1["package"])
+      |> Enum.map(& &1["target"])
+      |> Enum.sort()
 
-      unless expected == observed and
-               Enum.all?(inventory["package_entries"], &(frozen[&1["path"]] == &1)),
-             do: raise(Error, "package membership differs from compiler publication view")
-    end
+    observed = Enum.map(inventory["package_entries"], & &1["path"])
+
+    unless expected == observed and
+             Enum.all?(inventory["package_entries"], &(frozen[&1["path"]] == &1)),
+           do: raise(Error, "package membership differs from compiler publication view")
   end
 
   defp validate_lock!(bundle, inventory, qualification) do
@@ -591,18 +594,19 @@ defmodule Weld.ReleaseStatus do
   end
 
   defp next_command(artifact, id, metadata, reasons, publication) do
+    states = [publication.package, publication.docs]
+
     cond do
-      publication.package in ["unknown", "submitting", "staged"] or
-          publication.docs in ["unknown", "submitting", "staged"] ->
+      Enum.any?(states, &(&1 in ["unknown", "submitting", "staged"])) ->
         "mix weld reconcile --artifact #{artifact} --identity #{id}"
 
-      publication.package == "conflict" or publication.docs == "conflict" ->
+      "conflict" in states ->
         nil
 
       reasons != [] ->
         "mix weld prepare --artifact #{artifact}"
 
-      publication.package == "confirmed" and publication.docs == "confirmed" ->
+      states == ["confirmed", "confirmed"] ->
         "mix weld archive --artifact #{artifact} --identity #{id}"
 
       metadata["package_id"] ->

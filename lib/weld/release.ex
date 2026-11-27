@@ -91,30 +91,41 @@ defmodule Weld.Release do
         {:miss, [:no_prepared_bundle]}
 
       true ->
-        {id, bundle} = ReleaseStatus.resolve_path!(plan)
-        # A sealed bundle is proof, not a disposable cache. Corruption is fatal.
-        metadata = ReleaseStatus.validate_bundle_integrity!(bundle, id)
-        evidence = ReleaseStatus.evidence!(bundle)
-        proof = evidence.qualification
-
-        case Verifier.reuse_facts(plan, context) do
-          {:ok, facts} ->
-            matching =
-              metadata["source"]["commit"] == revision and
-                metadata["plan_id"] == inventory["plan_id"] and
-                metadata["input_id"] == inventory["input_id"] and
-                metadata["compiler_id"] == inventory["compiler_id"] and
-                evidence.inventory["qualification_policy"] == inventory["qualification_policy"] and
-                is_binary(proof["lock_sha256"]) and proof["toolchain"] == facts.toolchain and
-                proof["trust"] == facts.trust and proof["context_digest"] == facts.context_digest and
-                reusable_lock?(plan, proof["lock_sha256"])
-
-            if matching, do: {:ok, bundle, metadata}, else: {:miss, [:proof_inputs_changed]}
-
-          {:ineligible, reasons} ->
-            {:miss, List.wrap(reasons)}
-        end
+        validate_reuse_candidate(plan, revision, context, inventory)
     end
+  end
+
+  defp validate_reuse_candidate(plan, revision, context, inventory) do
+    {id, bundle} = ReleaseStatus.resolve_path!(plan)
+    # Sealed proof corruption is fatal.
+    metadata = ReleaseStatus.validate_bundle_integrity!(bundle, id)
+    evidence = ReleaseStatus.evidence!(bundle)
+
+    case Verifier.reuse_facts(plan, context) do
+      {:ok, facts} ->
+        if reuse_inputs_match?(metadata, evidence.inventory, inventory, revision) and
+             reuse_observations_match?(plan, evidence.qualification, facts),
+           do: {:ok, bundle, metadata},
+           else: {:miss, [:proof_inputs_changed]}
+
+      {:ineligible, reasons} ->
+        {:miss, List.wrap(reasons)}
+    end
+  end
+
+  defp reuse_inputs_match?(metadata, sealed_inventory, inventory, revision) do
+    metadata["source"]["commit"] == revision and
+      Map.take(metadata, ~w(plan_id input_id compiler_id)) ==
+        Map.take(inventory, ~w(plan_id input_id compiler_id)) and
+      sealed_inventory["qualification_policy"] == inventory["qualification_policy"]
+  end
+
+  defp reuse_observations_match?(plan, proof, facts) do
+    lock = proof["lock_sha256"]
+
+    is_binary(lock) and proof["toolchain"] == facts.toolchain and
+      proof["trust"] == facts.trust and proof["context_digest"] == facts.context_digest and
+      reusable_lock?(plan, lock)
   end
 
   defp reusable_lock?(plan, expected) do

@@ -91,37 +91,33 @@ defmodule Weld.Affected do
         })
 
       is_nil(old) or is_nil(new) ->
-        plan = old || new
-
-        Map.merge(common, %{
-          artifact: id,
-          affected?: true,
-          unknown?: is_nil(plan),
-          reasons: [
-            cond do
-              is_nil(old) and is_nil(new) -> :artifact_unavailable
-              is_nil(old) -> :artifact_added
-              true -> :artifact_removed
-            end
-          ],
-          direct_projects: [],
-          affected_projects: if(plan, do: plan.selected_ids, else: [])
-        })
+        artifact_membership_change(id, old, new, common)
 
       true ->
         compare_plans(id, old, new, relative, changed, common, opts)
     end
   end
 
-  defp compare_plans(id, before, after_, relative, changed, common, opts) do
-    role =
-      case common.task do
-        "package" -> :package
-        "docs" -> :docs
-        "project" -> :project
-        _ -> :verify
+  defp artifact_membership_change(id, old, new, common) do
+    {plan, reason} =
+      case {old, new} do
+        {nil, nil} -> {nil, :artifact_unavailable}
+        {nil, added} -> {added, :artifact_added}
+        {removed, nil} -> {removed, :artifact_removed}
       end
 
+    Map.merge(common, %{
+      artifact: id,
+      affected?: true,
+      unknown?: is_nil(plan),
+      reasons: [reason],
+      direct_projects: [],
+      affected_projects: if(plan, do: plan.selected_ids, else: [])
+    })
+  end
+
+  defp compare_plans(id, before, after_, relative, changed, common, opts) do
+    role = affected_role(common.task)
     expected = Weld.Core.Inventory.view(before.output_inventory, role)
     observed = Weld.Core.Inventory.view(after_.output_inventory, role)
 
@@ -139,30 +135,10 @@ defmodule Weld.Affected do
     projects = Enum.sort(Enum.uniq(old_report.affected_projects ++ new_report.affected_projects))
     revision_changed? = common.base != common.head
 
-    opaque? =
-      Enum.any?([before, after_], fn plan ->
-        Enum.any?(
-          Inventory.portable(plan)["inputs"],
-          &(&1["kind"] == "external" and &1["fact"]["opaque"])
-        )
-      end)
-
-    affected? =
-      opaque? or delta != [] or structural_changed? or
-        (common.task == "release" and revision_changed?)
-
-    projects =
-      if opaque?,
-        do:
-          Enum.sort(
-            Enum.uniq(
-              before.selected_ids ++
-                before.verification_ids ++
-                before.inventory_member_ids ++
-                after_.selected_ids ++ after_.verification_ids ++ after_.inventory_member_ids
-            )
-          ),
-        else: projects
+    opaque? = Enum.any?([before, after_], &opaque_inputs?/1)
+    release_changed? = common.task == "release" and revision_changed?
+    affected? = opaque? or delta != [] or structural_changed? or release_changed?
+    projects = if opaque?, do: possible_contributors(before, after_), else: projects
 
     Map.merge(common, %{
       artifact: id,
@@ -172,16 +148,34 @@ defmodule Weld.Affected do
       source_revision_changed: revision_changed?,
       structural_changed?: structural_changed?,
       entries: delta,
-      reasons:
-        if(opaque?, do: [:opaque_inputs], else: []) ++
-          if(common.task == "release" and revision_changed?,
-            do: [:source_revision_changed],
-            else: []
-          ),
+      reasons: affected_reasons(opaque?, release_changed?),
       direct_projects:
         Enum.sort(Enum.uniq(old_report.direct_projects ++ new_report.direct_projects)),
       affected_projects: if(affected?, do: projects, else: [])
     })
+  end
+
+  defp affected_role("package"), do: :package
+  defp affected_role("docs"), do: :docs
+  defp affected_role("project"), do: :project
+  defp affected_role(_), do: :verify
+
+  defp opaque_inputs?(plan) do
+    Enum.any?(Inventory.portable(plan)["inputs"], fn input ->
+      input["kind"] == "external" and input["fact"]["opaque"]
+    end)
+  end
+
+  defp possible_contributors(before, after_) do
+    [before, after_]
+    |> Enum.flat_map(&(&1.selected_ids ++ &1.verification_ids ++ &1.inventory_member_ids))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp affected_reasons(opaque?, release_changed?) do
+    for {reason, true} <- [opaque_inputs: opaque?, source_revision_changed: release_changed?],
+        do: reason
   end
 
   defp resolve_revision!(root, ref) do
