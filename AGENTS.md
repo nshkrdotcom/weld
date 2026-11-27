@@ -31,6 +31,9 @@ published projects.
 Runtime application code under `lib/**` must not call direct OS env APIs.
 Runtime env reads belong in `config/runtime.exs` or a `Config.Provider`.
 The shell takes declared context and explicitly configured tool/transport facts.
+The only direct OS reads in Weld's shell runner select the explicit signed
+candidate registry URL and public-key path; application runtime configuration
+remains subject to the rule above.
 No credentials belong in portable records, logs, command examples or fixtures.
 
 ## Working rules
@@ -97,17 +100,15 @@ without duplicating authoritative package metadata.
 
 For documentation-only changes run `git diff --check` and
 `mix docs --warnings-as-errors`; spot-check changed commands and links.
-For runtime, dependency, task or build changes, run the complete sequence:
+For runtime, dependency, task or build changes, run focused affected tests during
+repair, then the complete repository gate once:
 
 ```bash
-mix format --check-formatted
-mix compile --warnings-as-errors
-MIX_ENV=test mix test
-MIX_ENV=test mix credo --strict
-mix dialyzer
-mix docs --warnings-as-errors
 mix ci
 ```
+
+It includes format, compile, all test lanes, strict Credo, Dialyzer and docs;
+do not repeat those commands merely to precede CI.
 
 `mix test` excludes `:slow` and `:integration`; use `mix test --only slow`
 for the slower source cases or `mix test --include slow` for all source cases.
@@ -117,9 +118,11 @@ mutate Mix task/project state, OS environment or cwd synchronous.
 `mix ci` remains the repository acceptance gate. It runs the fast and slow
 source tiers plus every existing isolated integration lane and the previously
 unassigned probe-timeout case. `scripts/test_ci.exs` isolates build paths and
-bounds lane and ExUnit concurrency. Set `WELD_CI_JOBS=2` on constrained hosts
-or increase deliberately after measuring resource use. A fast pass cannot
-replace any release gate.
+partitions both source tiers and assigns Linux CPU slots to Blitz workers and
+their descendants. Set `WELD_CI_JOBS=2` on constrained hosts; 24 schedulers
+with affinity support default to twelve workers. Use `-- --plan` with the
+standalone runner to inspect selectors without executing them. A fast pass
+cannot replace any release gate.
 
 Also run the architectural and delivery contract checks:
 
@@ -130,11 +133,12 @@ mix xref graph --format cycles --label compile-connected --fail-above 0
 python scripts/qc/static_check.py
 python scripts/git_ref_contract.py
 bash scripts/qc/loopback_transport.sh
-mix run --no-start scripts/qc/qualify_layouts.exs -- --output /tmp/weld-qc-layouts
 mix run --no-start scripts/qc/prepare_reuse.exs -- --output /tmp/weld-qc-reuse
 ```
 
-Use fresh output directories. See `guides/testing_strategy.md` and
+For the four-layout matrix, set `WELD_QC_LAYOUT_OUTPUT` to a new directory when
+running `mix ci`; the separate driver is only needed when those results are
+missing or affected. Use fresh output directories. See `guides/testing_strategy.md` and
 `scripts/qc/README.md` for native/compiler/Hex/browser prerequisites and the
 approved sandbox conformance procedure. The reference toolchain is Elixir
 1.20.5, OTP 29.1.2, Hex 2.7.0 and the resolved Hex Core 0.21.1 lock entry. Run the

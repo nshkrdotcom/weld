@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.3] - 2026-11-26
+
+### Changed
+
+- Index declared input roles and output provenance once per portable inventory,
+  deduplicate watched file observations, and avoid repeated topology scans for
+  file membership and empty directories. Preserve canonical ordering, origin
+  roles, file modes and identity domains.
+- Recheck selected source trees using ancestor-set membership rather than
+  comparing every observed path with every selected root. Keep complete byte,
+  mode, absence and rule-membership observations.
+- Reuse the bounded fresh-VM probe executor for independent staged metadata and
+  native validation. Initialize and validate explicit signed candidate-registry
+  configuration before starting parallel metadata probes.
+- Exercise the production frozen-project guard directly for individual input
+  mutations and retain a real G02 failure path. Keep real prepare-boundary
+  qualification and canonical-bundle tests for all sealing boundaries, including
+  a real prior/candidate pointer-replacement rollback, without repeating full
+  qualification for every transaction step.
+- Schedule four independent signed archive layout lanes and a dedicated candidate
+  registry lane through Blitz. Isolate build copies when workers start, prefer
+  filesystem reflinks where available, and support named lane retries without
+  weakening the complete `mix ci` gate.
+- Partition both source-test tiers by file, schedule long integration workers
+  first, and default to twelve Blitz workers on a 24-scheduler Linux host.
+  Bound each worker and its descendants with independent CPU affinity slots;
+  retain a portable fallback and all test coverage. Schedule independent
+  component and qualification-fault cases in separate workers.
+- Use one full repository validation command and reuse its layout matrix for
+  subsequent review. Keep the 0.20.2 candidate trust, lock, exact archive and
+  official-publication restrictions unchanged.
+
 ## [0.20.2] - 2026-11-26
 
 ### Fixed
@@ -744,6 +776,9 @@ clean checkouts.
 
 Initial release.
 
+[0.20.3]: https://github.com/nshkrdotcom/weld/compare/v0.20.2...v0.20.3
+[0.20.2]: https://github.com/nshkrdotcom/weld/compare/v0.20.1...v0.20.2
+[0.20.1]: https://github.com/nshkrdotcom/weld/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/nshkrdotcom/weld/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/nshkrdotcom/weld/compare/v0.18.1...v0.19.0
 [0.18.1]: https://github.com/nshkrdotcom/weld/compare/v0.18.0...v0.18.1
@@ -777,5 +812,3 @@ Initial release.
 [0.3.0]: https://github.com/nshkrdotcom/weld/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/nshkrdotcom/weld/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nshkrdotcom/weld/releases/tag/v0.1.0
-[0.20.1]: https://github.com/nshkrdotcom/weld/compare/v0.20.0...v0.20.1
-[0.20.2]: https://github.com/nshkrdotcom/weld/compare/v0.20.1...v0.20.2

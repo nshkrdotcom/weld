@@ -5,6 +5,7 @@ defmodule Weld.CandidateRegistryTest do
   alias Weld.Core.Identity
   alias Weld.{Error, FixtureCase, Hash, Release, ReleaseInputs, SmokeApp}
   alias Weld.Shell.Runner
+  alias Weld.Workspace.Probe
 
   @url "WELD_HEX_REGISTRY_URL"
   @key "WELD_HEX_REGISTRY_PUBLIC_KEY"
@@ -28,7 +29,7 @@ defmodule Weld.CandidateRegistryTest do
     assert_raise Error, ~r/127.0.0.1/, fn -> Runner.candidate_registry!() end
   end
 
-  @tag timeout: 120_000
+  @tag integration: true, ci_build: "candidate_registry", timeout: 120_000
   test "fresh Mix homes and the exact archive consumer resolve the same signed unpublished input" do
     root = FixtureCase.unique_tmp_dir("candidate-registry")
     public = Path.join(root, "registry")
@@ -82,6 +83,16 @@ defmodule Weld.CandidateRegistryTest do
     mix!(consumer, Path.join(root, "first-cache"), ["deps.get"])
     mix!(consumer, Path.join(root, "second-cache"), ["deps.get", "--check-locked"])
     assert_exact_dependency!(consumer, archive)
+
+    cache = Path.join(root, "metadata-cache")
+    jobs = for env <- Probe.environments(), do: {env, Runner.mix_env(consumer, cache, env)}
+
+    observations =
+      Probe.observe_independent!(jobs, fn {env, variables} ->
+        Probe.project!(consumer, env, env: variables)
+      end)
+
+    assert Enum.map(observations, & &1.environment) == Probe.environments()
   end
 
   defp verify_detached_archive!(root, upstream, downstream) do

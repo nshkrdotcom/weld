@@ -18,17 +18,25 @@ defmodule Weld.Workspace.Probe do
     jobs = for id <- Enum.sort(project_ids), env <- @environments, do: {id, env}
 
     jobs
-    |> Task.async_stream(
-      fn {id, env} ->
-        path = if id == ".", do: root, else: Path.join(root, id)
+    |> observe_independent!(fn {id, env} ->
+      path = if id == ".", do: root, else: Path.join(root, id)
+      {{id, env}, run!(root, path, id, env, opts)}
+    end)
+    |> Map.new()
+  end
 
+  @doc false
+  def observe_independent!(jobs, observer) do
+    jobs
+    |> Task.async_stream(
+      fn job ->
         try do
-          {:observed, {{id, env}, run!(root, path, id, env, opts)}}
+          {:observed, observer.(job)}
         rescue
           error -> {:raised, error, __STACKTRACE__}
         end
       end,
-      max_concurrency: 4,
+      max_concurrency: min(4, System.schedulers_online()),
       ordered: true,
       timeout: 40_000,
       on_timeout: :kill_task
@@ -46,7 +54,6 @@ defmodule Weld.Workspace.Probe do
           phase: :snapshot,
           message: "isolated Mix metadata probe stopped: #{inspect(reason, limit: 5)}"
     end)
-    |> Map.new()
   end
 
   def project!(path, env, opts \\ []) when env in @environments do

@@ -68,6 +68,7 @@ defmodule Weld.ComponentTestsTest do
   end
 
   @tag integration: true, ci_build: "component_prepare", timeout: 600_000
+  @tag ci_case: "component_prepare-dependency"
   test "selected suites use a configured test dependency without adopting its private suite",
        ctx do
     owner = Path.join(ctx.root, "components/runtime")
@@ -167,6 +168,7 @@ defmodule Weld.ComponentTestsTest do
   end
 
   @tag integration: true, ci_build: "component_prepare", timeout: 600_000
+  @tag ci_case: "component_prepare-lock"
   test "component baseline dependency resolution never writes source locks", ctx do
     mixfile = Path.join(ctx.root, "components/pure/mix.exs")
     original = File.read!(mixfile)
@@ -186,6 +188,7 @@ defmodule Weld.ComponentTestsTest do
   end
 
   @tag integration: true, ci_build: "component_prepare", timeout: 600_000
+  @tag ci_case: "component_prepare-bundle"
   test "prepared candidates retain component tests and finalized lock identity", ctx do
     FixtureCase.init_git!(ctx.root)
     prepared = Weld.Commands.release_prepare!(ctx.manifest)

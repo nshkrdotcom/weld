@@ -64,14 +64,12 @@ defmodule Weld.Shell.Snapshot do
       |> Enum.uniq()
       |> Enum.sort()
       |> Enum.reject(&ignored_path?/1)
-      |> Enum.reduce([], &add_uncovered_root/2)
-      |> Enum.reverse()
+      |> Enum.map(&validate_relative_root!/1)
+      |> uncovered_roots()
       |> Enum.map(&source_path!(facts, checkout_root, &1))
 
-    retained =
-      Map.reject(facts.nodes, fn {path, _} ->
-        Enum.any?(absolute, &(path == &1 or String.starts_with?(path, &1 <> "/")))
-      end)
+    selected = MapSet.new(absolute)
+    retained = Map.reject(facts.nodes, fn {path, _} -> covered_by?(path, selected) end)
 
     retained_bytes =
       Enum.reduce(retained, 0, fn {_path, node}, total -> total + Map.get(node, :size, 0) end)
@@ -97,10 +95,29 @@ defmodule Weld.Shell.Snapshot do
 
   defp ignored_path?(path), do: Enum.any?(Path.split(path), &(&1 in @ignored))
 
-  defp add_uncovered_root(path, selected) do
-    if Enum.any?(selected, &(path == &1 or &1 == "." or String.starts_with?(path, &1 <> "/"))),
-      do: selected,
-      else: [path | selected]
+  defp validate_relative_root!("."), do: "."
+
+  defp validate_relative_root!(path) do
+    Inventory.validate_path!(path)
+  rescue
+    ArgumentError ->
+      reraise Error, [message: "unsafe source path: #{inspect(path)}"], __STACKTRACE__
+  end
+
+  # Exact slash-delimited ancestors, not string prefixes (lib and library
+  # are distinct). Keep canonical traversal order and never follow links.
+  defp uncovered_roots(paths) do
+    selected = MapSet.new(paths)
+    Enum.reject(paths, &ancestor_selected?(&1, selected))
+  end
+
+  defp ancestor_selected?(path, selected) do
+    parent = Path.dirname(path)
+    parent != path and covered_by?(parent, selected)
+  end
+
+  defp covered_by?(path, selected) do
+    MapSet.member?(selected, path) or ancestor_selected?(path, selected)
   end
 
   defp refresh_root!(path, {nodes, count, bytes} = observation) do

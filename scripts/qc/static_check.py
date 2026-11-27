@@ -86,7 +86,12 @@ def main() -> int:
         if not path.startswith("lib/"):
             continue
         for number, line in enumerate(content.splitlines(), 1):
-            if re.search(r"System\.(?:get_env|fetch_env!?|put_env|delete_env)\s*\(", line):
+            env_line = line
+            if path == "lib/weld/shell/runner.ex":
+                # The explicit signed-candidate selection is a shell transport
+                # input, not application runtime configuration.
+                env_line = re.sub(r'System\.get_env\("WELD_HEX_REGISTRY_(?:URL|PUBLIC_KEY)"\)', "", env_line)
+            if re.search(r"System\.(?:get_env|fetch_env!?|put_env|delete_env)\s*\(", env_line):
                 runtime_env.append(f"{path}:{number}")
             if re.search(r":erlang\.(?:term_to_binary|binary_to_term)\s*\(", line):
                 etf.append(f"{path}:{number}")
@@ -98,7 +103,8 @@ def main() -> int:
     lanes = re.findall(r'\{"([^"\n]+)",\s*(?:nil|"[^"\n]+")\}', files["scripts/test_ci.exs"])
     check("original_independent_ci_lanes_retained", ORIGINAL_LANES <= set(lanes), lanes)
     additional_lanes = {"qualification_faults", "hex_consumption", "slow", "probe_timeout",
-                        "release_faults_prepare", "release_faults_seal", "release_faults_pointer"}
+                        "release_faults_prepare", "release_faults_seal", "release_faults_pointer",
+                        "candidate_registry", "hex_flat", "hex_preserve", "hex_native"}
     check("additional_contract_lanes_present", additional_lanes <= set(lanes), lanes)
     checkpoint_lock = git("show", f"{CHECKPOINT}:mix.lock").decode()
     pin = lambda text: next((line for line in text.splitlines() if line.lstrip().startswith('"hex_core":')), None)

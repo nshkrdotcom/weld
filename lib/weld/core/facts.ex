@@ -68,11 +68,16 @@ defmodule Weld.Core.Facts do
   end
 
   def reject_tree_links!(facts, root) do
-    for {path, kind} <- topology(facts, root),
+    validate_topology!(topology(facts, root))
+    root
+  end
+
+  defp validate_topology!(nodes) do
+    for {path, kind} <- nodes,
         kind not in [:regular, :directory, :missing],
         do: raise(Error, "unsafe observed source: #{path}")
 
-    root
+    nodes
   end
 
   def ls!(facts, root) do
@@ -99,14 +104,18 @@ defmodule Weld.Core.Facts do
   end
 
   def list_files(facts, root) do
-    reject_tree_links!(facts, root)
-    for {path, :regular} <- topology(facts, root), do: path
+    nodes = facts |> topology(root) |> validate_topology!()
+    for {path, :regular} <- nodes, do: path
   end
 
   def empty_dirs(facts, root) do
-    for {path, :directory} <- topology(facts, root),
+    root = Path.expand(root, facts.root)
+    nodes = topology(facts, root)
+    parents = MapSet.new(nodes, fn {path, _kind} -> Path.dirname(path) end)
+
+    for {path, :directory} <- nodes,
         path != root,
-        ls!(facts, path) == [],
+        not MapSet.member?(parents, path),
         do: Path.relative_to(path, root)
   end
 

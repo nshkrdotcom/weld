@@ -3,7 +3,7 @@
 Weld produces ordinary Mix artifacts from explicitly declared source projects. Install it only in the maintainer environment:
 
 ```elixir
-{:weld, "~> 0.20.2", only: [:dev, :test], runtime: false}
+{:weld, "~> 0.20.3", only: [:dev, :test], runtime: false}
 ```
 
 The version constraint is for the published release; when qualifying unreleased source, use the supplied checkout through your normal local tool development workflow. Generated consumers do not need Weld.

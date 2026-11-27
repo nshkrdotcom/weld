@@ -9,7 +9,7 @@ publication each establish a different fact.
 
 Use a clean committed checkout, an explicit schema 2 manifest, initialized
 managed state and the pinned toolchain recorded in your QC evidence. Weld's own
-version is 0.20.2; its package still builds normally from the root Mix project.
+version is 0.20.3; its package still builds normally from the root Mix project.
 Record runtime acceptance for the exact committed revision before release.
 
 ```bash

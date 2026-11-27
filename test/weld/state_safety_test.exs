@@ -1,7 +1,7 @@
 defmodule Weld.StateSafetyTest do
   use ExUnit.Case, async: false
   alias Weld.Core.Identity
-  alias Weld.{Error, FixtureCase, Output}
+  alias Weld.{Error, FixtureCase, Output, ReleaseStatus}
   alias Weld.Shell.GC
 
   @moduletag timeout: 60_000
@@ -119,6 +119,49 @@ defmodule Weld.StateSafetyTest do
 
         assert File.read!(pointer) == old
       end)
+    end
+  end
+
+  test "every seal boundary retains the exact prior canonical bundle and pointer" do
+    root = FixtureCase.copy_fixture("library_bundle")
+    FixtureCase.init_git!(root)
+    manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
+    pointer = Output.path(root, ["current", "fixture_bundle"])
+    prior = FixtureCase.write_tracking_fixture!(root, manifest, hex: true)
+    old = File.read!(pointer)
+
+    candidate =
+      FixtureCase.write_tracking_fixture!(root, manifest, hex: true, docs: "candidate docs")
+
+    new = File.read!(pointer)
+    refute prior.identity == candidate.identity
+    saved = Path.join(FixtureCase.unique_tmp_dir("seal-candidate"), "bundle")
+    File.cp_r!(candidate.bundle_path, saved)
+    Output.write_atomic!(pointer, old)
+
+    validate = fn path -> ReleaseStatus.validate_bundle_integrity!(path, candidate.identity) end
+
+    for boundary <- [:reserved, :bundle_inserted, :before_pointer, :pointer_replaced, :committed] do
+      File.rm_rf!(candidate.bundle_path)
+
+      Output.with_lease(root, "prepare", "fixture_bundle", "prepare", [], fn lease ->
+        stage = Path.join(lease.stage, "bundle")
+        File.cp_r!(saved, stage)
+
+        assert_raise Error, "injected failure at #{boundary}", fn ->
+          Output.seal!(root, stage, candidate.bundle_path, pointer, new, validate,
+            lease: lease,
+            failpoint: boundary
+          )
+        end
+      end)
+
+      assert File.read!(pointer) == old
+
+      assert ReleaseStatus.validate_bundle_integrity!(prior.bundle_path, prior.identity) ==
+               prior.metadata
+
+      if File.exists?(candidate.bundle_path), do: validate.(candidate.bundle_path)
     end
   end
 

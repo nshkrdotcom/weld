@@ -13,15 +13,15 @@ Weld is an artifact compiler for Elixir workspaces. It resolves explicitly decla
 
 ## Install
 
-These examples target Weld 0.20.2. Resolve the Hex dependency after publication.
+These examples target Weld 0.20.3. Resolve the Hex dependency after publication.
 
 ```elixir
-{:weld, "~> 0.20.2", only: [:dev, :test], runtime: false}
+{:weld, "~> 0.20.3", only: [:dev, :test], runtime: false}
 ```
 
 ## Start here
 
-The 0.20 series introduced a breaking release in 0.20.0. Weld 0.20.2 retains that contract, including the 0.20.1 public Hex dependency and invalid-plan fixes, and supports explicitly selected signed candidate registries during isolated qualification. Use schema 2 manifests and the single `mix weld` command. Prior manifest schemas, dotted commands, and prior state formats are not supported.
+The 0.20 series introduced a breaking release in 0.20.0. Weld 0.20.3 retains that contract, including the 0.20.1 public Hex dependency and invalid-plan fixes and the 0.20.2 signed candidate-registry support, while reducing redundant inventory and qualification work. Use schema 2 manifests and the single `mix weld` command. Prior manifest schemas, dotted commands, and prior state formats are not supported.
 
 ```bash
 mix weld setup
@@ -57,7 +57,7 @@ See [getting started](guides/getting_started.md), the [manifest reference](guide
 | Publication | Uploads use frozen bytes with independent package/docs outcomes. Reconciliation queries remote evidence after uncertain sends; stage and dry run do not publish. |
 
 No automatic state migration or old-task compatibility is provided. Read the
-[changelog](CHANGELOG.md) for the full change since 0.19.0, including the 0.20.2 fixes, and the
+[changelog](CHANGELOG.md) for the full change since 0.19.0, including the 0.20.3 efficiency changes, and the
 [workflow](guides/workflow.md) for setup, refresh, failure recovery and GC.
 
 ## Pinned release operations
@@ -90,9 +90,10 @@ trust and detached-consumption contracts.
 
 ## Maintainer quality gates
 
-Run the full [validation sequence](guides/testing_strategy.md#required-repository-gates), `mix ci`, the detached
-three-layout/native consumer matrix and actual ecosystem consumers before
-release. `mix test` runs the fast source checks; `mix test --include slow`
+Run `mix ci` once for the [repository validation gates](guides/testing_strategy.md#required-repository-gates).
+It includes the detached four-layout/native consumer matrix; do not repeat that
+matrix when the same run already supplies its results. Qualify actual ecosystem
+consumers when changing their release integration. `mix test` runs the fast source checks; `mix test --include slow`
 adds the slower source cases. `mix ci` runs both tiers and all isolated
 integration lanes, including fault, signed Hex consumer and probe-timeout
 checks. [Testing strategy](guides/testing_strategy.md) and the QC driver

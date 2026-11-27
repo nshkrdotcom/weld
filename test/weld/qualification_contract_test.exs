@@ -1,7 +1,7 @@
 defmodule Weld.QualificationContractTest do
   use ExUnit.Case, async: true
   alias Weld.Core.Identity
-  alias Weld.{Error, FixtureCase, Plan}
+  alias Weld.{Error, FixtureCase, Hash, Plan}
   alias Weld.Shell.GC
   alias Weld.Verifier
 
@@ -62,43 +62,63 @@ defmodule Weld.QualificationContractTest do
     end
   end
 
-  @tag integration: true, ci_build: "qualification_faults", timeout: 1_800_000
   test "the shared post-freeze guard rejects bytes, modes, lock and membership mutations" do
-    for mutation <- [:bytes, :mode, :permissions, :lock, :extra] do
-      root = FixtureCase.copy_fixture("library_bundle")
-      Weld.Output.setup!(root)
-      plan = Plan.build!(Path.join(root, "packaging/weld/fixture_bundle.exs"))
+    for mutation <- [:bytes, :mode, :permissions, :lock, :extra, :delete, :empty_dir] do
+      project = FixtureCase.unique_tmp_dir("frozen-project")
+      File.write!(Path.join(project, "mix.exs"), "# frozen source\n")
+      File.write!(Path.join(project, "mix.lock"), "%{}\n")
+      File.chmod!(Path.join(project, "mix.exs"), 0o644)
+      File.chmod!(Path.join(project, "mix.lock"), 0o644)
+      observed = Hash.observation(project)
+      frozen = %{entries: observed["entries"], empty_dirs: observed["empty_dirs"]}
+      lock = Hash.sha256_file(Path.join(project, "mix.lock"))
+      excluded = ["doc", "fixture_bundle-0.1.0.tar"]
 
-      callback = fn
-        "G02", project ->
-          case mutation do
-            :bytes -> File.write!(Path.join(project, "mix.exs"), "# tampered", [:append])
-            :mode -> File.chmod!(Path.join(project, "mix.exs"), 0o755)
-            :permissions -> File.chmod!(Path.join(project, "mix.exs"), 0o600)
-            :lock -> File.write!(Path.join(project, "mix.lock"), "%{}\n")
-            :extra -> File.write!(Path.join(project, "unplanned.ex"), "# unplanned\n")
-          end
+      assert :ok = Verifier.assert_frozen_project!(project, excluded, frozen, lock, "G02")
 
-        _, _ ->
-          :ok
+      case mutation do
+        :bytes -> File.write!(Path.join(project, "mix.exs"), "# tampered", [:append])
+        :mode -> File.chmod!(Path.join(project, "mix.exs"), 0o755)
+        :permissions -> File.chmod!(Path.join(project, "mix.exs"), 0o600)
+        :lock -> File.write!(Path.join(project, "mix.lock"), "%{changed: true}\n")
+        :extra -> File.write!(Path.join(project, "unplanned.ex"), "# unplanned\n")
+        :delete -> File.rm!(Path.join(project, "mix.exs"))
+        :empty_dir -> File.mkdir!(Path.join(project, "unplanned"))
       end
 
       assert_raise Error, ~r/frozen project|lock/, fn ->
-        Verifier.verify!(plan, after_gate: callback)
+        Verifier.assert_frozen_project!(project, excluded, frozen, lock, "G02")
       end
-
-      [gate_file] = Path.wildcard(Path.join(root, ".weld/v2/runs/verify/*/*/gates.json"))
-      failed = Jason.decode!(File.read!(gate_file))["gates"]
-
-      assert Enum.map(failed, & &1["id"]) ==
-               Enum.map(1..12, &("G" <> String.pad_leading(to_string(&1), 2, "0")))
-
-      assert Enum.at(failed, 1)["status"] == "fail"
-      assert Enum.at(failed, 2)["facts"]["blocked_by"] == "G02"
     end
   end
 
+  @tag integration: true, ci_build: "qualification_faults", timeout: 180_000
+  @tag ci_case: "qualification_faults-g02"
+  test "a real G02 mutation records failure and blocks all downstream gates" do
+    root = FixtureCase.copy_fixture("library_bundle")
+    plan = Plan.build!(Path.join(root, "packaging/weld/fixture_bundle.exs"))
+
+    callback = fn
+      "G02", project -> File.write!(Path.join(project, "mix.lock"), "\n# changed\n", [:append])
+      _, _ -> :ok
+    end
+
+    assert_raise Error, ~r/frozen project|lock/, fn ->
+      Verifier.verify!(plan, after_gate: callback)
+    end
+
+    [gate_file] = Path.wildcard(Path.join(root, ".weld/v2/runs/verify/*/*/gates.json"))
+    failed = Jason.decode!(File.read!(gate_file))["gates"]
+
+    assert Enum.map(failed, & &1["id"]) ==
+             Enum.map(1..12, &("G" <> String.pad_leading(to_string(&1), 2, "0")))
+
+    assert Enum.at(failed, 1)["status"] == "fail"
+    assert Enum.at(failed, 2)["facts"]["blocked_by"] == "G02"
+  end
+
   @tag integration: true, ci_build: "qualification_faults", timeout: 1_800_000
+  @tag ci_case: "qualification_faults-gc"
   test "GC cannot delete the qualified verifier run before prepare seals it" do
     root = FixtureCase.copy_fixture("library_bundle")
     FixtureCase.init_git!(root)
@@ -135,6 +155,7 @@ defmodule Weld.QualificationContractTest do
   end
 
   @tag integration: true, ci_build: "qualification_faults", timeout: 180_000
+  @tag ci_case: "qualification_faults-include"
   test "Erlang include options do not bind the G02 digest to the qualification directory" do
     root = FixtureCase.copy_fixture("library_bundle")
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")

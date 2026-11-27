@@ -550,27 +550,46 @@ defmodule Weld.Verifier do
     unless Runner.candidate_registry!() == state.opts[:candidate_registry],
       do: raise(Error, "#{gate}: candidate registry selection changed during qualification")
 
-    actual = observe_project!(state.project, ["doc", archive_name(state.plan)])
-
-    unless actual == state.frozen,
-      do:
-        raise(Error, "#{gate}: frozen project bytes, modes, lock or complete membership changed")
-
-    unless optional_sha(Path.join(state.project, "mix.lock")) == state.lock_sha,
-      do: raise(Error, "#{gate}: resolved lock changed during qualification")
+    assert_frozen_project!(
+      state.project,
+      ["doc", archive_name(state.plan)],
+      state.frozen,
+      state.lock_sha,
+      gate
+    )
 
     :ok = Projector.recheck_inputs!(state.plan, state.source_id)
     write_gates!(state.root, gates)
+  end
+
+  @doc false
+  def assert_frozen_project!(project, excluded, frozen, lock_sha, gate) do
+    unless observe_project!(project, excluded) == frozen,
+      do:
+        raise(Error, "#{gate}: frozen project bytes, modes, lock or complete membership changed")
+
+    unless optional_sha(Path.join(project, "mix.lock")) == lock_sha,
+      do: raise(Error, "#{gate}: resolved lock changed during qualification")
+
+    :ok
   end
 
   defp archive_name(plan),
     do: "#{plan.artifact.package.name}-#{plan.artifact.package.version}.tar"
 
   defp probe!(project, root) do
-    Map.new(Probe.environments(), fn env ->
-      {env,
-       Probe.project!(project, env, env: Runner.mix_env(project, Path.join(root, "cache"), env))}
+    # Initialize/validate the shared isolated registry configuration in the
+    # caller before starting independent read-only metadata VMs. In particular,
+    # candidate registry setup must never race on its exclusive PEM/config.
+    jobs =
+      for env <- Probe.environments(),
+          do: {env, Runner.mix_env(project, Path.join(root, "cache"), env)}
+
+    jobs
+    |> Probe.observe_independent!(fn {env, variables} ->
+      {env, Probe.project!(project, env, env: variables)}
     end)
+    |> Map.new()
   end
 
   defp run_mix!(project, root, env, args, label) do

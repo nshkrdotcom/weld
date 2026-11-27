@@ -31,6 +31,38 @@ defmodule Weld.InventoryContractTest do
     assert input["fact"]["sha256"] == Identity.raw("1.0.0")
   end
 
+  test "overlapping declarations merge roles across generated origins without duplicate files" do
+    plan = LiteralPlan.build()
+    manifest = "build_support/weld.exs"
+
+    watches =
+      for {path, role} <- [{manifest, :native}, {manifest, :compile}] do
+        declaration = [path: path, type: :file, required: true, roles: [role]]
+
+        Inputs.observe!(plan.facts, plan.facts.root, declaration)
+        |> Map.merge(%{owner: ".", declaration: declaration})
+      end
+
+    value = Plan.Inventory.portable(%{plan | input_watches: watches})
+    assert [input] = Enum.filter(value["inputs"], &(&1["id"] == "file:" <> manifest))
+    assert "native" in input["roles"]
+    assert "compile" in input["roles"]
+
+    related = Enum.filter(value["entries"], &(input["id"] in &1["origins"]))
+    assert related != []
+
+    for entry <- related do
+      assert "native" in entry["roles"]
+      assert "compile" in entry["roles"]
+
+      for origin <- entry["origins"] do
+        record = Enum.find(value["inputs"], &(&1["id"] == origin))
+        assert record
+        assert Enum.all?(entry["roles"], &(&1 in record["roles"]))
+      end
+    end
+  end
+
   test "canonical external path overrides retain source semantics without portable absolute locators" do
     path = "/outside-the-checkout/vendor/source"
     plan = external_dependency_plan(path: path)

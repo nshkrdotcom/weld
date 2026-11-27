@@ -382,25 +382,23 @@ defmodule Weld.Plan.Inventory do
 
   @doc "The single portable inventory authority used by plan, verification and release."
   def portable(plan) do
-    root = plan.manifest.repo_root
     {metadata, external_inputs} = normalized_metadata(plan)
-    references = Enum.flat_map(plan.output_inventory, & &1.inputs)
-
-    paths =
-      (Enum.map(references, & &1.source) ++
-         plan.structural_inputs ++
-         [Path.relative_to(plan.manifest.manifest_path, root)])
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    files = Enum.map(paths, &input_record(plan, &1, references))
+    index = input_index(plan)
     trees = automatic_watches(plan) ++ declared_watches(plan)
 
-    tree_files =
+    tree_paths =
       for tree <- trees,
           match <- tree["fact"]["matches"] || [],
           match["type"] == "file",
-          do: input_record(plan, match["path"], references)
+          do: match["path"]
+
+    files =
+      (Map.keys(index.references) ++
+         plan.structural_inputs ++
+         [index.manifest_path] ++ tree_paths)
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.map(&input_record(plan, &1, index))
 
     compiler = %{
       "id" => "external:compiler",
@@ -426,7 +424,7 @@ defmodule Weld.Plan.Inventory do
         %{
           "id" => "generated:" <> entry.target,
           "kind" => "generated",
-          "roles" => entry_roles(plan, entry),
+          "roles" => Map.fetch!(index.entry_roles, entry.target),
           "owners" => owners_for(entry),
           "fact" => %{
             "recipe" => "weld.layout/" <> layout_name(plan) <> "/" <> entry.target,
@@ -437,7 +435,7 @@ defmodule Weld.Plan.Inventory do
       end
 
     inputs =
-      (files ++ tree_files ++ trees ++ [compiler] ++ external_inputs ++ generated)
+      (files ++ trees ++ [compiler] ++ external_inputs ++ generated)
       |> Enum.group_by(& &1["id"])
       |> Enum.map(fn {_id, values} ->
         first = hd(values)
@@ -482,7 +480,8 @@ defmodule Weld.Plan.Inventory do
             plan,
             entry,
             Map.fetch!(full_operations, entry.target),
-            Map.fetch!(live_operations, entry.target)
+            Map.fetch!(live_operations, entry.target),
+            Map.fetch!(index.entry_roles, entry.target)
           )
         end),
       "layout" => layout_details(plan),
@@ -714,24 +713,49 @@ defmodule Weld.Plan.Inventory do
     {Keyword.put(opts, key, %{"external_input" => id}), Map.put(external, id, input)}
   end
 
-  defp input_record(plan, path, references) do
-    CoreInventory.validate_path!(path)
-    absolute = Facts.source!(plan.facts, plan.manifest.repo_root, path)
+  # Build provenance and declared-role indexes once per portable observation.
+  # Generated entries contribute all their roles to each of their source inputs,
+  # including the roles declared for other origins of the same entry.
+  defp input_index(plan) do
+    declared = declared_roles_index(plan)
 
-    related =
-      Enum.filter(plan.output_inventory, fn entry ->
-        Enum.any?(entry.inputs, &(&1.source == path))
+    entry_roles =
+      Map.new(plan.output_inventory, fn entry ->
+        {entry.target, entry_roles(entry, declared)}
       end)
 
+    references =
+      for entry <- plan.output_inventory, input <- entry.inputs, reduce: %{} do
+        acc ->
+          roles = Map.fetch!(entry_roles, entry.target)
+
+          Map.update(acc, input.source, {roles, [input.owner]}, fn {previous, owners} ->
+            {roles ++ previous, [input.owner | owners]}
+          end)
+      end
+
+    %{
+      declared: declared,
+      entry_roles: entry_roles,
+      references: references,
+      structural: MapSet.new(plan.structural_inputs),
+      manifest_path: Path.relative_to(plan.manifest.manifest_path, plan.manifest.repo_root)
+    }
+  end
+
+  defp input_record(plan, path, index) do
+    CoreInventory.validate_path!(path)
+    absolute = Facts.source!(plan.facts, plan.manifest.repo_root, path)
+    related = Map.get(index.references, path)
+    {related_roles, related_owners} = related || {[], []}
+
     role_set =
-      related
-      |> Enum.flat_map(&entry_roles(plan, &1))
-      |> Kernel.++(declared_roles(plan, path))
+      (related_roles ++ Map.get(index.declared, path, []))
       |> Kernel.++(if(Path.basename(path) == "mix.lock", do: ["lock"], else: []))
       |> Kernel.++(
         if(
-          path in plan.structural_inputs or related == [] or
-            path == Path.relative_to(plan.manifest.manifest_path, plan.manifest.repo_root),
+          MapSet.member?(index.structural, path) or is_nil(related) or
+            path == index.manifest_path,
           do: ["structure"],
           else: []
         )
@@ -740,10 +764,7 @@ defmodule Weld.Plan.Inventory do
       |> Enum.sort()
 
     owned =
-      references
-      |> Enum.filter(&(&1.source == path))
-      |> Enum.map(& &1.owner)
-      |> Kernel.++(List.wrap(owner(plan.workspace, absolute)))
+      (related_owners ++ List.wrap(owner(plan.workspace, absolute)))
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
       |> Enum.sort()
@@ -894,7 +915,7 @@ defmodule Weld.Plan.Inventory do
 
   defp operations_by_target(operations), do: Map.new(operations, &{&1.target, &1})
 
-  defp portable_entry(plan, entry, full, live) do
+  defp portable_entry(plan, entry, full, live, roles) do
     origins = Enum.map(entry.inputs, &origin_ref(plan, &1.source))
 
     origins =
@@ -903,7 +924,7 @@ defmodule Weld.Plan.Inventory do
     %{
       "target" => entry.target,
       "kind" => "file",
-      "roles" => entry_roles(plan, entry),
+      "roles" => roles,
       "owners" => owners_for(entry),
       "origins" => Enum.sort(Enum.uniq(origins)),
       "full" => variant(plan, full, :full),
@@ -972,20 +993,23 @@ defmodule Weld.Plan.Inventory do
     prefix <> path
   end
 
-  defp entry_roles(plan, entry) do
-    (Enum.flat_map(entry.inputs, &declared_roles(plan, &1.source)) ++ roles(entry.kind))
+  defp entry_roles(entry, declared) do
+    (Enum.flat_map(entry.inputs, &Map.get(declared, &1.source, [])) ++ roles(entry.kind))
     |> Enum.uniq()
     |> Enum.sort()
   end
 
-  defp declared_roles(plan, path) do
+  defp declared_roles_index(plan) do
     for watch <- plan.input_watches,
         input <- watch.entries,
-        relative =
-          if(watch.owner == ".", do: input.target, else: Path.join(watch.owner, input.target)),
-        relative == path,
         role <- List.wrap(watch.declaration[:roles]),
-        do: Atom.to_string(role)
+        reduce: %{} do
+      index ->
+        relative =
+          if watch.owner == ".", do: input.target, else: Path.join(watch.owner, input.target)
+
+        Map.update(index, relative, [Atom.to_string(role)], &[Atom.to_string(role) | &1])
+    end
   end
 
   defp owners_for(entry),

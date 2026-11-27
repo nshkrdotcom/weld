@@ -35,6 +35,21 @@ defmodule Weld.Core.FactsTest do
              ["/unavailable/checkout/lib/a.ex"]
   end
 
+  test "empty directory indexing distinguishes nested directories and prefix siblings" do
+    root = facts().root
+
+    observed =
+      Enum.reduce(["empty/nested", "empty/nested/leaf", "library"], facts(), fn path, acc ->
+        put_in(acc, [:nodes, Path.join(root, path)], %{type: :directory, mode: 0o755})
+      end)
+
+    assert Facts.empty_dirs(observed, root) == ["empty/nested/leaf", "library"]
+    assert Facts.list_files(observed, Path.join(root, "lib")) == [Path.join(root, "lib/a.ex")]
+
+    unsafe = put_in(observed, [:nodes, Path.join(root, "empty/link")], %{type: :symlink})
+    assert_raise Weld.Error, ~r/unsafe observed source/, fn -> Facts.list_files(unsafe, root) end
+  end
+
   test "relative directory listing uses the explicit fact root" do
     assert Facts.ls!(facts(), "lib") == ["a.ex"]
     assert Facts.ls!(facts(), "empty") == []

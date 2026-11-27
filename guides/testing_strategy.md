@@ -2,12 +2,12 @@
 
 The source suite and generated artifact suite are independent gates. A plan is
 not a build result, a package build is not an installed-consumer result, and
-static docs checks do not establish browser rendering. Weld 0.20.2 pairs
+static docs checks do not establish browser rendering. Weld 0.20.3 pairs
 isolated ExUnit lanes with reproducible standalone QC drivers across layouts,
 native payloads, signed Hex registries and browser rendering.
 
 For the candidate-registry boundary specifically, run
-`mix test test/weld/candidate_registry_test.exs`. This exercises fresh Mix homes,
+`mix test --only ci_build:candidate_registry test/weld/candidate_registry_test.exs`. This exercises fresh Mix homes,
 ordinary signed resolution, the exact detached archive consumer, wrong-key
 refusal and the candidate publication guard without a production upload.
 
@@ -16,18 +16,13 @@ refusal and the candidate publication guard without a production upload.
 Run from a clean committed checkout on the pinned qualification toolchain:
 
 ```bash
-mix format --check-formatted
-mix compile --warnings-as-errors
-MIX_ENV=test mix test
-MIX_ENV=test mix credo --strict
-mix dialyzer
-mix docs --warnings-as-errors
 mix ci
 ```
 
 For documentation-only changes use `git diff --check` and docs with warnings as
-errors. Behavioral changes require the full sequence. If formatting, compilation
-or any test fails, repair source and rerun that gate and the dependent gates.
+errors. Behavioral changes require `mix ci`, which already runs formatting, compilation,
+all test lanes, strict Credo, Dialyzer and docs. During development run only the
+affected tests; repair failures and rerun the failed gate and dependent gates.
 Never report an unexecuted check as passing.
 
 The reference checkpoint toolchain was Elixir 1.20.5, OTP 29.1.2, Hex 2.7.0 and
@@ -58,31 +53,44 @@ case per four online schedulers, at most six; `--max-cases N` overrides it.
 Use an ordinary untraced run for wall-time measurements; `--trace` normally
 serializes ExUnit and changes the workload.
 
-`scripts/test_ci.exs` retains all existing lanes, including the slow source
-and probe-timeout lanes, and splits the release rollback cases into three
-independent lanes. Each rollback lane starts with its own real qualified
-bundle and retains the original failure and prior-pointer assertions. All nine
-failpoints and the G02 mutation case remain exercised. Long lanes are queued
-first to reduce the serial tail. There are 22 isolated lanes, each with
-separate build output and warnings as errors. On a 24-scheduler host, the
-default is four simultaneous CI lanes and three ExUnit cases per broad source
-lane. Individual integration lanes retain serial execution. Nested fixture
-builds and metadata VMs make unrestricted fanout counterproductive; set
-`WELD_CI_JOBS=2` to reduce load, or tune after measuring on the actual host.
-Blitz streams labeled results. Fast and slow source passes never stand in for
-integration acceptance.
+`scripts/test_ci.exs` retains all 26 logical lane selectors and uses Blitz as its
+only scheduler. The fast and slow source tiers partition the complete test-file
+set into disjoint workers, including synchronous modules; no tags or assertions
+are removed. On a 24-scheduler Linux host with `taskset` and `flock`, the default
+is twelve concurrent workers, four fast shards and eight slow shards. The three component and three qualification fault cases
+also run as independent workers (40 physical lanes total). Each active worker
+owns an independent CPU slot inherited by its fresh child VMs, plus an
+isolated build copied on demand (reflinks where
+available). The outer test VM uses the slot's scheduler budget; production
+subprocess environment scrubbing is unchanged. Hosts without affinity support
+use the bounded portable fallback. `WELD_CI_JOBS` overrides worker concurrency
+within the available budget; group and physical lane names can be retried.
+Inspect the actual plan without running tests with
+`MIX_ENV=test mix run --no-start scripts/test_ci.exs -- --plan`.
 
-For release QC, retain the actual matrix results from the `hex_consumption`
-lane instead of running the identical matrix a second time:
+Fault coverage is split by responsibility. Real qualification exercises all
+four prepare-owned boundaries and a G02 mutation; the pointer-replacement case
+uses a real prior bundle and a newly qualified candidate. All five seal-owned
+boundaries additionally run against canonical test-only bundles in the source
+suite. Byte, permission, executable-mode, lock and membership mutations exercise
+the exact production frozen-project guard directly; a real G02 failure verifies
+gate reporting and blocking. No production gate or trust check is bypassed.
+
+Retain matrix results for browser review when needed without a second run:
 
 ```bash
 WELD_QC_LAYOUT_OUTPUT=/var/tmp/weld-qc-layouts-NEW mix ci
 ```
 
-Use a new directory with an existing parent. The lane invokes the same
-`Weld.QC.matrix!/1` harness as `scripts/qc/qualify_layouts.exs`, retaining its
-archives, docs, logs and report for inspection and browser checks. Ordinary
-CI without this explicit output retains the original temporary cleanup policy.
+Use a new directory with an existing parent. The four layout lanes share only
+that report parent, not work/cache roots. They use the same scenario driver as
+`qualify_layouts.exs`; the complete CI run assembles `matrix.json` in the original
+layout order. Without an explicit output the temporary results are cleaned up.
+For targeted retries, name only the affected lanes (this is not full CI):
+
+```bash
+MIX_ENV=test mix run --no-start scripts/test_ci.exs -- fast candidate_registry
+```
 
 | Lane | Scope |
 | --- | --- |
@@ -91,8 +99,8 @@ CI without this explicit output retains the original temporary cleanup policy.
 | source_consumption | Detached source/path/Git consumption |
 | release | Preparation, immutable evidence and independent reproducibility |
 | release_faults_prepare | Snapshot, qualification, copy and G02 mutation rollback |
-| release_faults_seal | Seal, reserve and bundle insertion rollback |
-| release_faults_pointer | Before-pointer, pointer replacement and commit rollback |
+| release_faults_seal | Real prepare-sealed rollback |
+| release_faults_pointer | Real prior and candidate pointer-replacement rollback |
 | formatter | Actual generated formatting |
 | internal | Internal dependency projection |
 | package | Generated package qualification |
@@ -105,8 +113,12 @@ CI without this explicit output retains the original temporary cleanup policy.
 | component_prepare | Component baseline and artifact tests |
 | graph_consumption | Namespaced/live dependency consumption |
 | bootstrap_relocation | Installed bootstrap after source relocation |
-| qualification_faults | Frozen-input mutation and mandatory gate failures |
-| hex_consumption | Signed registry consumption, including native payload |
+| qualification_faults | Real G02 mutation, failed-gate retention and other integration contracts |
+| hex_consumption | Components signed registry consumption |
+| hex_flat | Flat signed registry consumption |
+| hex_preserve | Preserve signed registry consumption |
+| hex_native | Native signed registry consumption and offline rebuild |
+| candidate_registry | Signed unpublished dependency selection and detached consumer |
 | probe_timeout | Stuck metadata subprocess termination and cleanup |
 
 ## Architecture and canonical proof

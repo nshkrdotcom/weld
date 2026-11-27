@@ -31,7 +31,9 @@ defmodule Weld.Shell.Native do
     source_root = plan.source_root
     projects = plan.layout.native_projects
 
-    for project <- projects, env <- Probe.environments() do
+    jobs = for project <- projects, env <- Probe.environments(), do: {project, env}
+
+    Probe.observe_independent!(jobs, fn {project, env} ->
       relative = Path.relative_to(project.abs_path, source_root)
       expected = {project.app, project.version, project.package_name}
       dependencies = Enum.map(Map.fetch!(project.deps_by_env, env), & &1.original)
@@ -138,7 +140,7 @@ defmodule Weld.Shell.Native do
         {_output, 0} -> :ok
         {output, _} -> raise Error, "staged source project failed validation:\n#{output}"
       end
-    end
+    end)
 
     :ok
   end
