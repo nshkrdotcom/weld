@@ -2,6 +2,7 @@ defmodule Weld.ReleaseInputs do
   @moduledoc "Public qualification context and trust observations shared with explicit proof reuse."
   alias Weld.Core.Identity
   alias Weld.Plan
+  alias Weld.Shell.Runner
 
   @unsafe ~w(unsafe_https unsafe_registry no_verify_repo_origin)a
 
@@ -30,7 +31,7 @@ defmodule Weld.ReleaseInputs do
       "native_inputs" => Map.new(Application.get_env(:weld, :native_env, []))
     }
 
-    trust = trust()
+    trust = registry_trust()
     declared = Enum.sort(plan.artifact.verify.context)
     public_context = Application.get_env(:weld, :qualification_context, %{})
 
@@ -96,10 +97,8 @@ defmodule Weld.ReleaseInputs do
     end
   end
 
-  # The actual subprocesses use a fresh Hex home and the default authenticated
-  # signature policy. Never copy user credentials/config into frozen evidence.
-  # Configured unsafe/mirror state cannot authorize reuse of that proof.
-  defp trust do
+  @doc false
+  def registry_trust do
     get_state = :erlang.make_fun(Module.concat(Hex, State), :get_all, 0)
 
     state =
@@ -109,12 +108,25 @@ defmodule Weld.ReleaseInputs do
         {name, value} -> {name, value}
       end)
 
-    config = :hex_core.default_config()
-
     secure =
       not Enum.any?(@unsafe, &state[&1]) and is_nil(state[:mirror_url]) and
         is_nil(state[:trusted_mirror_url])
 
+    case Runner.candidate_registry!() do
+      nil -> default_trust(secure)
+      registry -> candidate_trust(secure, registry)
+    end
+  rescue
+    _ ->
+      %{
+        "verified" => false,
+        "reason" => "trust_observation_unavailable",
+        "policy" => "unavailable"
+      }
+  end
+
+  defp default_trust(secure) do
+    config = :hex_core.default_config()
     ca = ca_digest()
     verified = secure and is_binary(ca)
 
@@ -135,13 +147,21 @@ defmodule Weld.ReleaseInputs do
       "ca_sha256" => ca,
       "policy" => "isolated-default-hex/2"
     }
-  rescue
-    _ ->
-      %{
-        "verified" => false,
-        "reason" => "trust_observation_unavailable",
-        "policy" => "unavailable"
-      }
+  end
+
+  defp candidate_trust(secure, registry) do
+    %{
+      "verified" => secure,
+      "reason" => if(secure, do: nil, else: "unsafe_registry_settings"),
+      "repository" => "hexpm",
+      "endpoint" => "loopback",
+      "signature_verification" => true,
+      "origin_verification" => true,
+      "tls_peer_verification" => false,
+      "public_key_sha256" => Identity.raw(registry.public_key),
+      "ca_sha256" => nil,
+      "policy" => "isolated-signed-candidate-hex/1"
+    }
   end
 
   defp ca_digest do

@@ -1,6 +1,6 @@
 # CLI reference
 
-Weld 0.20.1 has one public task: `mix weld COMMAND`. Run `mix weld`, `mix weld help`, or `mix weld help COMMAND` for help generated from the same registry that validates requests. Help does not discover projects or initialize state.
+Weld 0.20.2 has one public task: `mix weld COMMAND`. Run `mix weld`, `mix weld help`, or `mix weld help COMMAND` for help generated from the same registry that validates requests. Help does not discover projects or initialize state.
 
 ## Discovery and selection
 

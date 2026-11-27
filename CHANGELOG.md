@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.2] - 2026-11-26
+
+### Fixed
+
+- Allow explicitly selected signed loopback Hex candidate registries to supply
+  unpublished upstream dependencies in every isolated qualification environment,
+  including source baselines, preflight and exact detached archive consumption.
+  Keep signature and repository-origin verification enabled without copying
+  caller credentials or changing public dependency declarations.
+- Bind candidate registry trust to its public signing-key digest and resolved
+  lock, refuse changes to the selection during qualification, and require fresh
+  official qualification before an actual publication from a candidate bundle.
+- Clear inherited Hex mirror URL aliases, repository keys and API overrides
+  from isolated subprocesses.
+
 ## [0.20.1] - 2026-11-26
 
 ### Fixed
@@ -763,3 +778,4 @@ Initial release.
 [0.2.0]: https://github.com/nshkrdotcom/weld/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nshkrdotcom/weld/releases/tag/v0.1.0
 [0.20.1]: https://github.com/nshkrdotcom/weld/compare/v0.20.0...v0.20.1
+[0.20.2]: https://github.com/nshkrdotcom/weld/compare/v0.20.1...v0.20.2

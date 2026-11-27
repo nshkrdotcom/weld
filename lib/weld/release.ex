@@ -565,11 +565,22 @@ defmodule Weld.Release do
     blocking = reasons -- allowed
     evidence = ReleaseStatus.evidence!(bundle_path(selection, metadata["bundle_id"]))
 
-    if evidence.qualification["trust"]["reason"] == "unsafe_registry_settings",
-      do: raise(Error, "unsafe registry trust policy blocks publication")
+    check_registry_publication!(evidence.qualification["trust"], opts)
 
     unless blocking == [],
       do: raise(Error, "pinned bundle freshness blocks publication: #{Enum.join(blocking, ", ")}")
+  end
+
+  defp check_registry_publication!(trust, opts) do
+    if trust["reason"] == "unsafe_registry_settings",
+      do: raise(Error, "unsafe registry trust policy blocks publication")
+
+    if trust["policy"] == "isolated-signed-candidate-hex/1" and opts[:dry_run] != true,
+      do:
+        raise(
+          Error,
+          "candidate registry qualification requires a fresh official prepare before publication"
+        )
   end
 
   defp with_bundle(selection, operation, opts, fun) do

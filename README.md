@@ -13,15 +13,15 @@ Weld is an artifact compiler for Elixir workspaces. It resolves explicitly decla
 
 ## Install
 
-These examples target Weld 0.20.1. Resolve the Hex dependency after publication.
+These examples target Weld 0.20.2. Resolve the Hex dependency after publication.
 
 ```elixir
-{:weld, "~> 0.20.1", only: [:dev, :test], runtime: false}
+{:weld, "~> 0.20.2", only: [:dev, :test], runtime: false}
 ```
 
 ## Start here
 
-The 0.20 series introduced a breaking release in 0.20.0. Weld 0.20.1 retains that contract and fixes public Hex dependency normalization and invalid-plan diagnostics. Use schema 2 manifests and the single `mix weld` command. Prior manifest schemas, dotted commands, and prior state formats are not supported.
+The 0.20 series introduced a breaking release in 0.20.0. Weld 0.20.2 retains that contract, including the 0.20.1 public Hex dependency and invalid-plan fixes, and supports explicitly selected signed candidate registries during isolated qualification. Use schema 2 manifests and the single `mix weld` command. Prior manifest schemas, dotted commands, and prior state formats are not supported.
 
 ```bash
 mix weld setup
@@ -51,13 +51,13 @@ See [getting started](guides/getting_started.md), the [manifest reference](guide
 | Planning | One pure compiler consumes shared observations and produces exact targets, provenance, role membership, missing-input watches, normalized `{:i, charlist}` Erlang include descriptors and full/live variants. |
 | Generated projects | Components and flat share Mix/OTP/config renderers with manifest-only `package.links`; flat preserves `Application.app_dir/2` on the surviving `package.otp_app` while rejecting absorbed component app identities; preserve keeps native callbacks and Hex `Makefile*` defaults. Installed bootstrap, assets and native inputs remain usable without the source checkout. |
 | Development views | Ordinary code may stay linked in live views. Mutable runtime/config/native inputs are copied, structural changes require refresh, and cache hits validate the complete expected output. |
-| Qualification | G01–G12 resolve and freeze the standalone lock, compare real source/artifact test identities, inspect exact package/docs archives and install the package through ordinary signed Hex consumption. |
+| Qualification | G01–G12 resolve and freeze the standalone lock, compare real source/artifact test identities, inspect exact package/docs archives and install the package through ordinary signed Hex consumption. An explicit signed loopback registry can supply unpublished dependencies without altering published dependency declarations. |
 | Release evidence | Canonical domain-separated identities, strict immutable bundle records and full identity pins replace embedded reports and permissive legacy receipts. |
 | State and Git | Explicit setup, owned state, resource leases, short metadata transitions and recovery protect source and previous pointers. Annotated receipts, ref CAS and atomic push protect tracked projections. |
 | Publication | Uploads use frozen bytes with independent package/docs outcomes. Reconciliation queries remote evidence after uncertain sends; stage and dry run do not publish. |
 
 No automatic state migration or old-task compatibility is provided. Read the
-[changelog](CHANGELOG.md) for the full change since 0.19.0, including the 0.20.1 fixes, and the
+[changelog](CHANGELOG.md) for the full change since 0.19.0, including the 0.20.2 fixes, and the
 [workflow](guides/workflow.md) for setup, refresh, failure recovery and GC.
 
 ## Pinned release operations

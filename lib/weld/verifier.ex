@@ -129,6 +129,7 @@ defmodule Weld.Verifier do
 
   defp verify_run!(plan, run_root, opts) do
     plan = Plan.ensure_valid!(plan)
+    opts = Keyword.put(opts, :candidate_registry, Runner.candidate_registry!())
     specs = Map.new(gate_specs(plan), &{&1.id, &1})
 
     {state, projection, metadata, gates, operations} =
@@ -545,6 +546,10 @@ defmodule Weld.Verifier do
 
   defp boundary!(state, gate, gates) do
     if callback = state.opts[:after_gate], do: callback.(gate, state.project)
+
+    unless Runner.candidate_registry!() == state.opts[:candidate_registry],
+      do: raise(Error, "#{gate}: candidate registry selection changed during qualification")
+
     actual = observe_project!(state.project, ["doc", archive_name(state.plan)])
 
     unless actual == state.frozen,

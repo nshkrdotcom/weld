@@ -2,9 +2,14 @@
 
 The source suite and generated artifact suite are independent gates. A plan is
 not a build result, a package build is not an installed-consumer result, and
-static docs checks do not establish browser rendering. Weld 0.20.1 pairs
+static docs checks do not establish browser rendering. Weld 0.20.2 pairs
 isolated ExUnit lanes with reproducible standalone QC drivers across layouts,
 native payloads, signed Hex registries and browser rendering.
+
+For the candidate-registry boundary specifically, run
+`mix test test/weld/candidate_registry_test.exs`. This exercises fresh Mix homes,
+ordinary signed resolution, the exact detached archive consumer, wrong-key
+refusal and the candidate publication guard without a production upload.
 
 ## Required repository gates
 

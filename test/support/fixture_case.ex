@@ -164,7 +164,8 @@ defmodule Weld.FixtureCase do
       "gates" => gates,
       "lock_sha256" => nil,
       "toolchain" => %{"compiler_id" => compiler, "fixture" => true},
-      "trust" => %{"verified" => true, "policy" => "synthetic-test-fixture/2"},
+      "trust" =>
+        Keyword.get(opts, :trust, %{"verified" => true, "policy" => "synthetic-test-fixture/2"}),
       "context_digest" => nil,
       "source" => source
     }

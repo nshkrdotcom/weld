@@ -24,7 +24,7 @@ Batch qualification is not coordinated publishing. Prepare each required base/pr
 | Projection Git | `{:sdk, git: "https://example.test/sdk.git", tag: "sdk-v1.0.0"}` | Annotated Weld receipt, exact projected tree/modes and correct immutable ref. |
 | Hex | `{:sdk, "~> 1.0"}` | Exact package archive, expected metadata/dependencies, trustworthy registry/checksum and detached installation. |
 
-Use the real producer package/app names and version requirements. For aliased Hex names, retain the native `hex:` option. Do not change the consumer to a local extraction path and call that proof of Hex installation: the exact qualified tar must be served through the controlled registry and consumed through normal Hex resolution.
+Use the real producer package/app names and version requirements. For aliased Hex names, retain the native `hex:` option. Do not change the consumer to a local extraction path and call that proof of Hex installation: the exact qualified tar must be served through the controlled registry and consumed through normal Hex resolution. For Weld qualification before upstream publication, use the explicit signed candidate registry described in [Release process](release_process.md#qualifying-unpublished-hex-dependencies). This preserves ordinary Hex declarations while carrying the public trust configuration into each isolated verifier home.
 
 A provider with native code must include the source, headers, build recipes, pinned downloads/checksums and runtime assets needed in a clean environment. Qualify its native build and actual runtime load after removing original checkout access. Optional features must be exercised explicitly; qualifying only the base library does not qualify each provider.
 

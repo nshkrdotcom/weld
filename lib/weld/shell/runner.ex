@@ -9,7 +9,9 @@ defmodule Weld.Shell.Runner do
   @overrides ~w(MIX_EXS MIX_LOCKFILE MIX_ENV MIX_TARGET MIX_BUILD_PATH MIX_BUILD_ROOT
     MIX_DEPS_PATH MIX_HOME MIX_ARCHIVES HEX_HOME HEX_API_KEY HEX_API_TOKEN HEX_TOKEN
     HEX_UNSAFE_HTTPS HEX_UNSAFE_REGISTRY HEX_NO_VERIFY_REPO_ORIGIN HEX_MIRROR
-    HEX_TRUSTED_MIRROR HEX_CACERTS_PATH HEX_OFFLINE WELD_CI_BUILD_ROOT ERL_LIBS
+    HEX_MIRROR_URL HEX_TRUSTED_MIRROR HEX_TRUSTED_MIRROR_URL HEX_REPOS_KEY HEX_OTP
+    HEX_API_URL HEX_API HEX_CACERTS_PATH HEX_OFFLINE WELD_HEX_REGISTRY_URL
+    WELD_HEX_REGISTRY_PUBLIC_KEY WELD_CI_BUILD_ROOT ERL_LIBS
     ELIXIR_ERL_OPTIONS ERL_AFLAGS ERL_FLAGS ERL_ZFLAGS AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
     AWS_SESSION_TOKEN GITHUB_TOKEN GH_TOKEN NPM_TOKEN OPENAI_API_KEY CI_JOB_TOKEN CC CXX AR CFLAGS CXXFLAGS
     CPPFLAGS LDFLAGS MAKEFLAGS RUSTFLAGS RUSTUP_TOOLCHAIN CARGO_HOME RUSTUP_HOME)
@@ -84,21 +86,119 @@ defmodule Weld.Shell.Runner do
     end
   end
 
-  @doc "Return deliberately selected Mix paths; callers may add declared public inputs."
+  @doc "Return isolated Mix paths, configuring an explicitly selected signed candidate registry."
   def mix_env(project, cache, env, extra \\ []) do
-    [
-      {"MIX_ENV", to_string(env)},
-      {"MIX_TARGET", "host"},
-      {"MIX_BUILD_ROOT", Path.join(cache, "build")},
-      {"MIX_DEPS_PATH", Path.join(cache, "deps")},
-      {"MIX_HOME", Path.join(cache, "mix-home")},
-      {"HEX_HOME", Path.join(cache, "hex-home")},
-      {"HOME", Path.join(cache, "home")},
-      {"XDG_CONFIG_HOME", Path.join(cache, "config-home")},
-      {"XDG_CACHE_HOME", Path.join(cache, "system-cache")},
-      {"MIX_ARCHIVES", archives_path()},
-      {"MIX_EXS", Path.join(project, "mix.exs")}
-    ] ++ native_env!() ++ extra
+    paths =
+      [
+        {"MIX_ENV", to_string(env)},
+        {"MIX_TARGET", "host"},
+        {"MIX_BUILD_ROOT", Path.join(cache, "build")},
+        {"MIX_DEPS_PATH", Path.join(cache, "deps")},
+        {"MIX_HOME", Path.join(cache, "mix-home")},
+        {"HEX_HOME", Path.join(cache, "hex-home")},
+        {"HOME", Path.join(cache, "home")},
+        {"XDG_CONFIG_HOME", Path.join(cache, "config-home")},
+        {"XDG_CACHE_HOME", Path.join(cache, "system-cache")},
+        {"MIX_ARCHIVES", archives_path()},
+        {"MIX_EXS", Path.join(project, "mix.exs")}
+      ] ++ native_env!() ++ extra
+
+    case candidate_registry!() do
+      nil -> paths
+      registry -> candidate_env!(cache, paths, registry)
+    end
+  end
+
+  @doc false
+  def candidate_registry! do
+    case {System.get_env("WELD_HEX_REGISTRY_URL"), System.get_env("WELD_HEX_REGISTRY_PUBLIC_KEY")} do
+      {nil, nil} ->
+        nil
+
+      {url, path} when is_binary(url) and is_binary(path) ->
+        validate_registry_url!(url)
+        %{url: url, public_key: registry_public_key!(path)}
+
+      _ ->
+        raise Error,
+              "candidate registry requires both WELD_HEX_REGISTRY_URL and WELD_HEX_REGISTRY_PUBLIC_KEY"
+    end
+  end
+
+  defp validate_registry_url!(url) do
+    case Regex.run(~r/\Ahttp:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})\z/, url) do
+      [_, port] ->
+        if String.to_integer(port) > 65_535, do: raise(Error, "invalid candidate registry port")
+
+      _ ->
+        raise Error, "candidate registry must be http://127.0.0.1:PORT"
+    end
+  end
+
+  defp registry_public_key!(path) do
+    with :absolute <- Path.type(path),
+         {:ok, %{type: :regular, size: size}} when size <= 16_384 <- File.stat(path),
+         {:ok, pem} <- File.read(path),
+         [{type, _, :not_encrypted} = entry] when type in [:RSAPublicKey, :SubjectPublicKeyInfo] <-
+           :public_key.pem_decode(pem),
+         {:RSAPublicKey, _, _} <- :public_key.pem_entry_decode(entry) do
+      :public_key.pem_encode([entry])
+    else
+      _ ->
+        raise Error, "candidate registry requires an absolute path to a valid RSA public PEM key"
+    end
+  rescue
+    _ ->
+      reraise Error,
+              "candidate registry requires an absolute path to a valid RSA public PEM key",
+              __STACKTRACE__
+  end
+
+  defp candidate_env!(cache, paths, registry) do
+    env =
+      paths ++
+        [
+          {"HEX_UNSAFE_HTTPS", "0"},
+          {"HEX_UNSAFE_REGISTRY", "0"},
+          {"HEX_NO_VERIFY_REPO_ORIGIN", "0"},
+          {"NO_PROXY", "127.0.0.1"},
+          {"no_proxy", "127.0.0.1"}
+        ]
+
+    config = Path.join([cache, "hex-home", "hex.config"])
+
+    unless File.exists?(config), do: initialize_registry!(cache, env, registry)
+    validate_registry_config!(config, registry)
+    env
+  end
+
+  defp initialize_registry!(cache, env, registry) do
+    File.mkdir_p!(cache)
+    key = Path.join(cache, "candidate-public-key.pem")
+    File.write!(key, registry.public_key, [:exclusive])
+
+    {output, status} =
+      run!("mix", ["hex.repo", "set", "hexpm", "--url", registry.url, "--public-key", key],
+        cd: cache,
+        seconds: 30,
+        env: List.keydelete(env, "MIX_EXS", 0)
+      )
+
+    unless status == 0,
+      do: raise(Error, "candidate registry setup failed (exit #{status})\n#{output}")
+  end
+
+  defp validate_registry_config!(config, %{url: url, public_key: public_key}) do
+    with {:ok, terms} <- :file.consult(to_charlist(config)),
+         %{"hexpm" => %{url: ^url, public_key: ^public_key} = repo} <- terms[:"$repos"],
+         nil <- repo[:auth_key],
+         nil <- repo[:oauth_token] do
+      :ok
+    else
+      _ ->
+        raise Error,
+              "isolated candidate registry configuration differs from selected public inputs"
+    end
   end
 
   defp native_env! do

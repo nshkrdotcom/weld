@@ -1,4 +1,4 @@
-# Weld 0.20.1 acceptance and evidence
+# Weld 0.20.2 acceptance and evidence
 
 This ledger maps the complete Part 2 acceptance contract to the current source.
 Runtime QC records the exact source commit, toolchain and command exit status
@@ -8,10 +8,12 @@ for each executed gate.
 
 The comparison baseline is `7897ba6457d3ba725ee3a843bc863f2c38e90411`; the
 completion checkpoint is `0ff6f9ef7a66048abaf00f4f24e5464ca2d90c37`. Those
-0.20.0 results are historical. Version 0.20.1 (2026-11-26) retains the
-complete acceptance contract and adds regressions for equivalent public Hex
-declarations and invalid-plan diagnostics. Historical checkpoint passes do not
-qualify the current source.
+0.20.0 results are historical. Version 0.20.2 (2026-11-26) retains the
+complete acceptance contract, the 0.20.1 regressions for equivalent public Hex
+declarations and invalid-plan diagnostics, and adds focused coverage of signed
+candidate registry isolation, exact archive consumption, wrong-key refusal and
+publication restrictions. Historical checkpoint passes do not qualify the
+current source.
 
 - `baseline-test-paths.tsv` records all 161 retained baseline test paths.
 - `baseline-test-disposition.tsv` maps all 171 baseline lexical declarations to
@@ -114,7 +116,8 @@ never a successful gate or a permitted skip.
 
 The portable qualification proof binds the source revision, compiler, plan,
 project/package/docs IDs, raw archive hashes, resolved lock, explicit public
-context, toolchain and registry trust. Timings, local paths, transport tuning,
+context, toolchain and registry trust, including the public signing-key digest when a candidate registry
+is selected. Timings, local paths, transport tuning,
 logs and mutable pointers are operational records outside portable identity.
 
 ## Reproducible checks and explicit limitations

@@ -9,7 +9,7 @@ publication each establish a different fact.
 
 Use a clean committed checkout, an explicit schema 2 manifest, initialized
 managed state and the pinned toolchain recorded in your QC evidence. Weld's own
-version is 0.20.1; its package still builds normally from the root Mix project.
+version is 0.20.2; its package still builds normally from the root Mix project.
 Record runtime acceptance for the exact committed revision before release.
 
 ```bash
@@ -25,6 +25,35 @@ resolved lock, runs the mandatory qualification pipeline, then seals and validat
 all evidence before moving current. Failure or detected source drift preserves
 the previous valid pointer. Distinct artifacts can qualify independently; there
 is no automatic multi-repository publisher.
+
+## Qualifying unpublished Hex dependencies
+
+By default all isolated Mix commands use the official Hex repository. To
+qualify an artifact that depends on unpublished packages, serve an explicitly
+signed registry named `hexpm` on IPv4 loopback. Supply all candidate and
+third-party archives needed by the dev/test/runtime dependency closure,
+including docs and build dependencies. Verify the upstream archive checksums
+before constructing the registry. Keep the signing private key outside the
+served directory; give Weld only its public PEM key.
+
+```bash
+WELD_HEX_REGISTRY_URL=http://127.0.0.1:8765 \
+WELD_HEX_REGISTRY_PUBLIC_KEY=/absolute/path/to/registry/public_key \
+  mix weld prepare --artifact engine --fresh
+```
+
+Both variables are required together. No caller Hex config, credentials or
+unsafe verification flags are copied. Weld initializes each isolated Hex home
+with the selected `hexpm` URL and key, including the independent source baseline,
+preflight and detached exact-archive consumer. The latter still installs the
+artifact itself from its own signed registry. The dependency declarations and
+lock repository name remain ordinary `hexpm`; they are not path overrides.
+
+The qualification records the candidate trust policy, public key digest and
+resolved lock, not the ephemeral server port, key path or private key. Candidate
+proof supports review, staging, archive and publication dry run, but not an
+actual Weld publication. Once upstream dependencies are available officially,
+unset both variables and prepare again against official Hex before publishing.
 
 ## Bundle contents and strict proof
 
