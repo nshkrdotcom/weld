@@ -49,6 +49,7 @@ defmodule Weld.FixtureCase do
     File.mkdir!(project)
     File.mkdir!(docs)
     File.cp!(Path.join(root, "README.md"), Path.join(project, "README.md"))
+    File.chmod!(Path.join(project, "README.md"), 0o644)
 
     File.write!(
       Path.join(docs, "index.html"),

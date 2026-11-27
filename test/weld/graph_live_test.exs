@@ -54,7 +54,7 @@ defmodule Weld.GraphLiveTest do
     File.write!(manifest, File.read!(manifest) <> "\n# layout changed\n")
     assert {message, status} = evaluate(live.build_path)
     assert status != 0
-    assert message =~ "mix weld project --artifact fixture_bundle --kind live"
+    assert message =~ "mix weld project --artifact 'fixture_bundle' --kind live"
     assert message =~ manifest
     refreshed = Weld.Commands.project!(manifest, live: true)
     assert {_, 0} = evaluate(refreshed.build_path)
@@ -98,7 +98,8 @@ defmodule Weld.GraphLiveTest do
 
         {message, status} = elixir(live.build_path, script)
         assert status != 0
-        assert message =~ "live projections cannot be packaged"
+        action = if task == "hex.build", do: "packaged", else: "published"
+        assert message =~ "live projections cannot be #{action}"
       end
     end
   end

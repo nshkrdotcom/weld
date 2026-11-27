@@ -138,8 +138,11 @@ defmodule Weld.Output do
         :ok
 
       {:error, :eexist} ->
-        reject_link!(lock)
-        unless File.dir?(lock), do: raise(Error, "unmanaged mutation lock: #{lock}")
+        case File.lstat(lock) do
+          {:ok, %{type: :directory}} -> :ok
+          {:error, :enoent} -> :ok
+          _ -> raise Error, "unmanaged mutation lock: #{lock}"
+        end
 
         if System.monotonic_time(:millisecond) >= deadline do
           raise Error, "Weld metadata lock busy; inspect recover report: #{lock}"

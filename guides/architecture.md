@@ -82,8 +82,10 @@ record. Every generated variant refers to its recipe, version and input IDs.
 
 Input roles are nonexclusive: `compile`, `runtime`, `native`, `test`, `docs`,
 `metadata`, `lock`, `generation`, `structure`, `verification`. File facts bind
-path, bytes, size and mode. Absence facts bind missing inputs. Tree/glob facts
-bind membership, types and modes, including missing/default directories.
+path, bytes, size and executable mode. Portable regular file modes are 0644
+or 0755. Absence facts bind missing inputs. Tree/glob facts bind membership,
+types, normalized file modes and directory modes, including missing/default
+directories.
 External facts bind declared public context or are explicitly opaque. Generated
 facts bind recipe inputs. Typed declarations retain their complete role set.
 

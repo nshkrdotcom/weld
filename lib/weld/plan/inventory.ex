@@ -746,7 +746,7 @@ defmodule Weld.Plan.Inventory do
             "sha256" => node.sha256,
             "size" => node.size,
             "executable" => Bitwise.band(node.mode, 0o111) != 0,
-            "mode" => node.mode
+            "mode" => normalized_file_mode(node.mode)
           }
         }
 
@@ -844,6 +844,8 @@ defmodule Weld.Plan.Inventory do
     end
   end
 
+  defp normalized_file_mode(mode), do: if(Bitwise.band(mode, 0o111) == 0, do: 0o644, else: 0o755)
+
   defp tree_record(plan, root, pattern, owner, topology) do
     kind = if pattern, do: "glob", else: "tree"
 
@@ -854,7 +856,11 @@ defmodule Weld.Plan.Inventory do
         %{
           "path" => Path.relative_to(path, plan.manifest.repo_root),
           "type" => if(type == :regular, do: "file", else: "directory"),
-          "mode" => Facts.stat!(plan.facts, path).mode
+          "mode" =>
+            case Facts.stat!(plan.facts, path) do
+              %{type: :regular, mode: mode} -> normalized_file_mode(mode)
+              %{type: :directory, mode: mode} -> mode
+            end
         }
       end
 

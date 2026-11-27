@@ -463,7 +463,7 @@ defmodule Weld.Core.Manifest do
           do:
             fail!(:invalid_manifest, at <> ".groups_for_extras", "group labels must be nonempty")
 
-        paths = paths!(paths, at <> ".groups_for_extras." <> label, false)
+        paths!(paths, at <> ".groups_for_extras." <> label, false)
         nonempty!(paths, at <> ".groups_for_extras." <> label)
         {label, paths}
       end)

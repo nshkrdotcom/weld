@@ -224,7 +224,7 @@ defmodule Weld.SourceProjectTest do
     {message, code} = mix(live.build_path, ["shade"])
     assert code != 0
     assert message =~ manifest
-    assert message =~ "--artifact workshop_palette --kind live"
+    assert message =~ "--artifact 'workshop_palette' --kind live"
 
     File.write!(
       manifest,

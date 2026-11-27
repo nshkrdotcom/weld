@@ -34,7 +34,7 @@ defmodule Weld.SourceConsumptionTest do
     File.write!(Path.join(root, "priv/theme.txt"), "olive")
     {message, status} = mix(consumer, ["run", "check.exs"])
     assert status != 0
-    assert message =~ "mix weld project --artifact sprout --kind live"
+    assert message =~ "mix weld project --artifact 'sprout' --kind live"
     refute File.read!(Path.join(live, "priv/theme.txt")) == "olive"
     Weld.Commands.project!(manifest, live: true)
     extra = Path.join(root, "components/pure/lib/addition.ex")
@@ -57,7 +57,7 @@ defmodule Weld.SourceConsumptionTest do
     File.write!(manifest, File.read!(manifest) <> "\n# structural edit\n")
     {message, status} = mix(consumer, ["run", "check.exs"])
     assert status != 0
-    assert message =~ "mix weld project --artifact sprout --kind live"
+    assert message =~ "mix weld project --artifact 'sprout' --kind live"
     Weld.Commands.project!(manifest, live: true)
     expr!(consumer, "\"olive\" = Sprout.Runtime.asset()")
     {message, status} = mix(live, ["hex.build"])

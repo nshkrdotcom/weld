@@ -28,7 +28,8 @@ native signed-registry consumption. Test names are retained where behavior is
 retained; obsolete embedded-report and rebuild-handoff expectations are replaced
 by explicit schema 2 contracts, not by relaxed success conditions.
 
-Runtime QC updated two assertions for schema 2. The native artifact plan checks
+Runtime QC updated assertions for schema 2. Live guard tests require the quoted
+refresh command and the rejection specific to each Hex command. The native artifact plan checks
 unique target membership through `output_inventory` and separately checks
 `mix.exs` source provenance. The mutable graph destination test expects the
 source-inventory rejection for `doc`, which is excluded from observations, and
