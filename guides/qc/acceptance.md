@@ -38,8 +38,9 @@ source bytes survive rejection.
 ## A01–A40 coverage
 
 All paths in the test column ending in `_test` are under `test/weld/` with the
-`.exs` suffix. Code names are Weld modules unless a script is named. Consult the runtime QC index for execution status. A36 additionally requires the actual external
-checkouts/toolchains. A37 has executed static accounting only.
+`.exs` suffix. Code names are Weld modules unless a script is named. Consult the runtime QC index for execution status. A36 additionally requires the
+actual external checkouts and toolchains. A37 requires runtime measurements in
+addition to static accounting.
 
 | ID | Required behavior | Implementation | Tests / reproducible evidence source |
 | --- | --- | --- | --- |

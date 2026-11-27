@@ -81,7 +81,7 @@ defmodule Weld.HexPublicationFaultTest do
              {202, %{"location" => destination <> "/api/staged/one"}, %{"status" => "staged"}}}
 
           :docs ->
-            Agent.update(remote, &put_in(&1.bytes.docs, bytes))
+            Agent.update(remote, &put_in(&1, [:bytes, :docs], bytes))
             {:ok, {201, %{}, %{}}}
         end
       end)
@@ -115,7 +115,7 @@ defmodule Weld.HexPublicationFaultTest do
     assert %{state: "staged"} =
              Hex.reconcile!(selector, bundle.bundle_path, bundle.metadata, transport: read_only)
 
-    Agent.update(remote, &put_in(&1.bytes.package, File.read!(bundle.tarball_path)))
+    Agent.update(remote, &put_in(&1, [:bytes, :package], File.read!(bundle.tarball_path)))
 
     assert %{state: "not_sent"} =
              Hex.reconcile!(selector, bundle.bundle_path, bundle.metadata, transport: read_only)
