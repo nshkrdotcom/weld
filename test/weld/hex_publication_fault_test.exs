@@ -1,8 +1,8 @@
 defmodule Weld.HexPublicationFaultTest do
   use ExUnit.Case, async: false
   alias Weld.Core.Identity
-  alias Weld.Shell.Hex
   alias Weld.{Error, FixtureCase, HTTPFixture}
+  alias Weld.Shell.Hex
 
   test "a known pre-send failure is retryable and does not submit docs" do
     {selector, bundle} = fixture!()

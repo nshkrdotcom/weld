@@ -1,8 +1,7 @@
 defmodule Weld.Core.Inputs do
   @moduledoc false
-  alias Weld.Core.Inventory
+  alias Weld.Core.{Facts, Inventory}
   alias Weld.Error
-  alias Weld.Core.Facts
   alias Weld.Layout.FilePlan
 
   # Observe typed declarations once. The pattern itself remains in the watch

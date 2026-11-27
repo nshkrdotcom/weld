@@ -1,7 +1,9 @@
 defmodule Weld.MonolithPlanTest do
   use ExUnit.Case, async: false
 
-  alias Weld.{Error, FixtureCase, Plan, Projector}
+  alias Weld.{Error, FixtureCase, Plan}
+  alias Weld.Plan.Inventory
+  alias Weld.Projector
 
   setup do
     root = FixtureCase.copy_fixture("monolith_bundle")
@@ -46,7 +48,7 @@ defmodule Weld.MonolithPlanTest do
     for live <- [false, true] do
       result = Projector.project!(plan, live: live)
       assert Enum.sort(result.verification_files) == Enum.sort(targets(plan))
-      inventory = Weld.Plan.Inventory.portable(plan)
+      inventory = Inventory.portable(plan)
       assert Enum.map(inventory["entries"], & &1["target"]) == Enum.sort(targets(plan))
       assert inventory["layout"]["name"] == "flat"
       refute File.exists?(Path.join(result.build_path, "projection.lock.json"))

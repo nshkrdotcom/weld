@@ -1,6 +1,8 @@
 defmodule Weld.WorkspaceSnapshotV2Test do
   use ExUnit.Case, async: false
-  alias Weld.{CLI, Error, FixtureCase, Manifest, Workspace}
+  alias Weld.CLI
+  alias Weld.Core.Selection
+  alias Weld.{Error, FixtureCase, Manifest, Workspace}
 
   setup do
     %{tmp_dir: Weld.FixtureCase.unique_tmp_dir("weld_workspace_snapshot")}
@@ -70,13 +72,13 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     assert [%{app: :development_dep}] = project.deps_by_env.test
 
     assert [%{app: :production_dep, opts: opts}] =
-             Weld.Core.Selection.merge_external_deps(loaded.graph, ["left"], :package).external_deps
+             Selection.merge_external_deps(loaded.graph, ["left"], :package).external_deps
 
     assert opts[:only] == [:prod]
     assert Enum.find(project.deps, &(&1.app == :development_dep)).opts[:only] == [:dev, :test]
 
     assert Enum.map(
-             Weld.Core.Selection.merge_external_deps(loaded.graph, ["left"], :test).external_deps,
+             Selection.merge_external_deps(loaded.graph, ["left"], :test).external_deps,
              & &1.app
            ) == [:development_dep, :production_dep]
   end
@@ -162,7 +164,7 @@ defmodule Weld.WorkspaceSnapshotV2Test do
 
     File.write!(
       helper,
-      "File.write!(Path.join(__DIR__, \"../VERSION\"), \"1.2.4\")\n" <> File.read!(helper)
+      ~s|File.write!(Path.join(__DIR__, "../VERSION"), "1.2.4")\n| <> File.read!(helper)
     )
 
     assert_raise Error, ~r/inputs_changed/, fn ->

@@ -1,8 +1,8 @@
 defmodule Weld.Workspace.Discovery do
   @moduledoc "Discovers only projects explicitly declared by the v2 manifest."
 
-  alias Weld.{Error, Manifest}
   alias Weld.Core.Facts
+  alias Weld.{Error, Manifest}
   alias Weld.Shell.Snapshot
   @ignored ~w(.git .weld _build deps dist tmp doc)
   @type result :: %{

@@ -41,8 +41,8 @@ defmodule Weld.FixtureCase do
   # builds real canonical evidence and real Hex archives, never production proof.
   def write_tracking_fixture!(root, manifest, opts \\ []) do
     alias Weld.Core.Identity
-    alias Weld.Plan.Inventory
     alias Weld.{Git, Hash, Output}
+    alias Weld.Plan.Inventory
     stage = Output.temporary!(root, "staging")
     project = Path.join(stage, "project")
     docs = Path.join(stage, "docs")

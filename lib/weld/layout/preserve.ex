@@ -1,7 +1,7 @@
 defmodule Weld.Layout.Preserve do
   @moduledoc "Native Mix policy compiled to the same operations as components and flat."
+  alias Weld.Core.{Facts, Inputs, Modules}
   alias Weld.Error
-  alias Weld.Core.{Facts, Modules}
   alias Weld.Layout.{FilePlan, Live}
   alias Weld.Plan.Inventory
   @reserved ~w(weld.provenance.json projection.lock.json .mix_sources.json doc)
@@ -31,7 +31,7 @@ defmodule Weld.Layout.Preserve do
 
     outputs = Inventory.preserve_inventory(plan)
 
-    for entry <- Weld.Core.Inputs.mapped(plan) do
+    for entry <- Inputs.mapped(plan) do
       unless Enum.any?(outputs, &(&1.target == entry.target and &1.publish == entry.publish)),
         do:
           raise(

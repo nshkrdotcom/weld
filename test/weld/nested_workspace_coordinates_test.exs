@@ -5,17 +5,9 @@ defmodule Weld.NestedWorkspaceCoordinatesTest do
     %{tmp_dir: Weld.FixtureCase.unique_tmp_dir("weld_nested_coordinates")}
   end
 
-  alias Weld.{
-    Affected,
-    Error,
-    FixtureCase,
-    Graph,
-    LiteralPlan,
-    Manifest,
-    Plan,
-    Projector,
-    Workspace
-  }
+  alias Weld.Affected
+  alias Weld.Core.Inputs
+  alias Weld.{Error, FixtureCase, Graph, LiteralPlan, Manifest, Plan, Projector, Workspace}
 
   alias Weld.Core.{Compiler, Identity}
   alias Weld.Plan.Inventory
@@ -193,7 +185,7 @@ defmodule Weld.NestedWorkspaceCoordinatesTest do
       refute Map.has_key?(facts.nodes, Path.join(checkout, name))
 
       assert_raise Error, ~r/missing declared input/, fn ->
-        Weld.Core.Inputs.observe!(facts, checkout,
+        Inputs.observe!(facts, checkout,
           path: name <> "/helper.txt",
           type: :file,
           required: true

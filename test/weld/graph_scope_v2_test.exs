@@ -1,7 +1,8 @@
 defmodule Weld.GraphScopeV2Test do
   use ExUnit.Case, async: true
-  alias Weld.{Graph, Graph.Edge}
   alias Weld.Core.Selection
+  alias Weld.Graph
+  alias Weld.Graph.{Edge, View}
 
   test "compatible environment scopes union without entering the package view" do
     deps = [dependency(:dev, "~> 1.0"), dependency(:test, "~> 1.0")]
@@ -65,7 +66,7 @@ defmodule Weld.GraphScopeV2Test do
              )
 
     assert union.kind == [:docs, :test]
-    refute Weld.Graph.View.allowed?(union.kind, :package)
+    refute View.allowed?(union.kind, :package)
   end
 
   test "unscoped requirements dominate scoped duplicates while different requirements conflict" do

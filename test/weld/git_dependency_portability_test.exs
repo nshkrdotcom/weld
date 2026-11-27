@@ -2,8 +2,8 @@ defmodule Weld.GitDependencyPortabilityTest do
   use ExUnit.Case, async: true
   @moduletag :pure
 
-  alias Weld.{Graph, LiteralPlan, Plan}
   alias Weld.Core.Compiler
+  alias Weld.{Graph, LiteralPlan, Plan}
 
   test "local Git locators remain distinct from remote URLs and scp syntax" do
     for source <- [

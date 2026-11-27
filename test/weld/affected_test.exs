@@ -2,6 +2,7 @@ defmodule Weld.AffectedTest do
   use ExUnit.Case, async: false
 
   alias Weld.FixtureCase
+  alias Weld.Plan.Inventory
 
   test "maps a changed dependency project to its reverse dependents" do
     repo_root = FixtureCase.copy_fixture("library_bundle")
@@ -48,7 +49,7 @@ defmodule Weld.AffectedTest do
     assert plan.workspace.projects["runtime/local"].application_by_env.dev[:env] == [ratio: 0.5]
 
     assert_raise Weld.Error, ~r/unsupported portable metadata value/, fn ->
-      Weld.Plan.Inventory.portable(plan)
+      Inventory.portable(plan)
     end
 
     report =

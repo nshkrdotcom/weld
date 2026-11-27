@@ -2,12 +2,11 @@ defmodule Weld.Layout.Components do
   @moduledoc false
 
   alias Weld.Config.Generator
-  alias Weld.{Error, SourceFormatter}
-  alias Weld.Core.{Facts, Modules, Selection}
-  alias Weld.Layout.{FilePlan, Render, Support}
+  alias Weld.Core.{Facts, Inputs, Modules, Selection}
+  alias Weld.Error
+  alias Weld.Layout.{FilePlan, Live, Render, Support}
   alias Weld.Plan.Inventory
-  alias Weld.Layout.Live
-  alias Weld.Core.Inputs
+  alias Weld.SourceFormatter
 
   # The component layout produces the same operations as flat layout before
   # the materializer creates the output. Generation is never rerun in the stage.

@@ -1,9 +1,10 @@
 defmodule Weld.Plan.Inventory do
   @moduledoc false
 
-  alias Weld.Core.Inventory, as: CoreInventory
-  alias Weld.Error
   alias Weld.Core.{Facts, Identity}
+  alias Weld.Core.Inventory, as: CoreInventory
+  alias Weld.Core.Selection
+  alias Weld.Error
   alias Weld.Layout.FilePlan
   alias Weld.Workspace.Project
 
@@ -466,7 +467,7 @@ defmodule Weld.Plan.Inventory do
           )
       },
       "dependencies" =>
-        wire(Weld.Core.Selection.external_deps_for_view(plan, :package), plan.manifest.repo_root),
+        wire(Selection.external_deps_for_view(plan, :package), plan.manifest.repo_root),
       "inputs" => inputs,
       "watches" =>
         inputs
@@ -1035,20 +1036,41 @@ defmodule Weld.Plan.Inventory do
     unique_sorted!(inventory["inputs"], "id")
     unique_sorted!(inventory["entries"], "target")
 
+    validate_selection!(inventory["selection"])
+    validate_policy!(inventory["qualification_policy"])
+
+    unless is_map(inventory["layout"]) and
+             inventory["layout"]["name"] in ~w(components flat preserve) and
+             Map.keys(inventory["layout"]) --
+               ~w(name file_remaps source_mappings migration_layout migration_remaps helper_transformations repo_infos test_support_projects empty_dirs) ==
+               [],
+           do: raise(Error, "invalid layout record")
+
+    validate_inventory_references!(inventory)
+    validate_frozen_records!(inventory)
+
+    unless input_id(inventory) == inventory["input_id"] and
+             plan_id(inventory) == inventory["plan_id"],
+           do: raise(Error, "inventory identity mismatch")
+
+    inventory
+  end
+
+  defp validate_selection!(selection) do
     closed!(
-      inventory["selection"],
+      selection,
       ~w(dependency_members compiled_owners verification_only inventory_only excluded reasons)
     )
 
     for key <- ~w(dependency_members compiled_owners verification_only inventory_only excluded),
-        do: sets!(inventory["selection"][key])
+        do: sets!(selection[key])
+  end
 
+  defp validate_policy!(policy) do
     closed!(
-      inventory["qualification_policy"],
+      policy,
       ~w(artifact_tests component_tests hex_build hex_publish_check smoke context)
     )
-
-    policy = inventory["qualification_policy"]
 
     for key <- ~w(component_tests hex_build hex_publish_check),
         not is_boolean(policy[key]),
@@ -1061,14 +1083,9 @@ defmodule Weld.Plan.Inventory do
       closed!(policy["smoke"], ["entry_file"])
       CoreInventory.validate_path!(policy["smoke"]["entry_file"])
     end
+  end
 
-    unless is_map(inventory["layout"]) and
-             inventory["layout"]["name"] in ~w(components flat preserve) and
-             Map.keys(inventory["layout"]) --
-               ~w(name file_remaps source_mappings migration_layout migration_remaps helper_transformations repo_infos test_support_projects empty_dirs) ==
-               [],
-           do: raise(Error, "invalid layout record")
-
+  defp validate_inventory_references!(inventory) do
     inputs = Map.new(inventory["inputs"], &{&1["id"], &1})
     for input <- inventory["inputs"], do: validate_input!(input, inputs)
     for {id, %{"kind" => "generated"}} <- inputs, do: generated_acyclic!(id, inputs, [])
@@ -1080,6 +1097,9 @@ defmodule Weld.Plan.Inventory do
 
     for entry <- inventory["entries"], do: validate_entry!(entry, inputs)
     _ = CoreInventory.validate!(Enum.map(inventory["entries"], &%{target: &1["target"]}))
+  end
+
+  defp validate_frozen_records!(inventory) do
     closed!(inventory["lock_slot"], ~w(path policy))
 
     unless inventory["lock_slot"]["path"] == "mix.lock" and
@@ -1089,12 +1109,6 @@ defmodule Weld.Plan.Inventory do
     for key <- ~w(frozen_project docs_entries), do: validate_file_records!(inventory[key])
     if inventory["package_entries"], do: validate_file_records!(inventory["package_entries"])
     for key <- ~w(empty_dirs docs_empty_dirs), do: paths!(inventory[key])
-
-    unless input_id(inventory) == inventory["input_id"] and
-             plan_id(inventory) == inventory["plan_id"],
-           do: raise(Error, "inventory identity mismatch")
-
-    inventory
   end
 
   defp validate_input!(input, inputs) do
@@ -1102,83 +1116,96 @@ defmodule Weld.Plan.Inventory do
     sets!(input["roles"])
     sets!(input["owners"])
     unless Enum.all?(input["roles"], &(&1 in @roles)), do: raise(Error, "invalid input role")
+    kind = input["kind"]
     fact = input["fact"]
+    id = input["id"]
 
-    expected_id =
-      case input["kind"] do
-        kind when kind in ~w(file absence) -> kind <> ":" <> to_string(fact["path"])
-        "tree" -> "tree:" <> to_string(fact["root"])
-        "glob" -> "glob:" <> to_string(fact["root"]) <> ":" <> to_string(fact["pattern"])
-        "external" -> "external:" <> to_string(fact["name"])
-        "generated" -> input["id"]
-        _ -> nil
-      end
-
-    unless is_binary(input["id"]) and input["id"] == expected_id,
+    unless is_binary(id) and id == input_identifier(kind, fact, id),
       do: raise(Error, "input identifier does not match its fact")
 
-    case input["kind"] do
-      "file" ->
-        closed!(fact, ~w(path sha256 size executable mode))
-        file!(Map.drop(fact, ["mode"]))
-        mode!(fact["mode"])
+    validate_input_fact!(kind, fact, id, inputs)
+  end
 
-        unless fact["executable"] == (Bitwise.band(fact["mode"], 0o111) != 0),
-          do: raise(Error, "input mode mismatch")
+  defp input_identifier(kind, fact, _id) when kind in ~w(file absence),
+    do: kind <> ":" <> to_string(fact["path"])
 
-      "absence" ->
-        closed!(fact, ["path"])
-        CoreInventory.validate_path!(fact["path"])
+  defp input_identifier("tree", fact, _id), do: "tree:" <> to_string(fact["root"])
 
-      kind when kind in ~w(tree glob) ->
-        closed!(fact, ~w(root pattern excludes matches))
-        if fact["root"] != ".", do: CoreInventory.validate_path!(fact["root"])
+  defp input_identifier("glob", fact, _id),
+    do: "glob:" <> to_string(fact["root"]) <> ":" <> to_string(fact["pattern"])
 
-        unless (kind == "tree" and is_nil(fact["pattern"])) or
-                 (kind == "glob" and is_binary(fact["pattern"])),
-               do: raise(Error, "invalid watch pattern")
+  defp input_identifier("external", fact, _id), do: "external:" <> to_string(fact["name"])
+  defp input_identifier("generated", _fact, id), do: id
+  defp input_identifier(_, _, _), do: nil
 
-        if fact["pattern"], do: CoreInventory.validate_path!(fact["pattern"])
-        sets!(fact["excludes"])
-        unique_sorted!(fact["matches"], "path")
+  defp validate_input_fact!("file", fact, _id, _inputs) do
+    closed!(fact, ~w(path sha256 size executable mode))
+    file!(Map.drop(fact, ["mode"]))
+    mode!(fact["mode"])
 
-        for match <- fact["matches"] do
-          closed!(match, ~w(path type mode))
-          CoreInventory.validate_path!(match["path"])
-          mode!(match["mode"])
-          unless match["type"] in ~w(file directory), do: raise(Error, "invalid watch kind")
+    unless fact["executable"] == (Bitwise.band(fact["mode"], 0o111) != 0),
+      do: raise(Error, "input mode mismatch")
+  end
 
-          if match["type"] == "file" and not Map.has_key?(inputs, "file:" <> match["path"]),
-            do: raise(Error, "missing watched file fact")
-        end
+  defp validate_input_fact!("absence", fact, _id, _inputs) do
+    closed!(fact, ["path"])
+    CoreInventory.validate_path!(fact["path"])
+  end
 
-      "external" ->
-        closed!(fact, ~w(name value_digest opaque))
+  defp validate_input_fact!(kind, fact, _id, inputs) when kind in ~w(tree glob) do
+    closed!(fact, ~w(root pattern excludes matches))
+    if fact["root"] != ".", do: CoreInventory.validate_path!(fact["root"])
+    validate_watch_pattern!(kind, fact["pattern"])
+    sets!(fact["excludes"])
+    unique_sorted!(fact["matches"], "path")
+    Enum.each(fact["matches"], &validate_watch_match!(&1, inputs))
+  end
 
-        unless is_boolean(fact["opaque"]) and is_binary(fact["name"]),
-          do: raise(Error, "invalid external fact")
+  defp validate_input_fact!("external", fact, _id, _inputs) do
+    closed!(fact, ~w(name value_digest opaque))
 
-        if fact["value_digest"],
-          do: digest!(fact["value_digest"]),
-          else: unless(fact["opaque"], do: raise(Error, "missing external identity"))
+    unless is_boolean(fact["opaque"]) and is_binary(fact["name"]),
+      do: raise(Error, "invalid external fact")
 
-      "generated" ->
-        unless String.starts_with?(input["id"], "generated:"),
-          do: raise(Error, "invalid generation identifier")
-
-        CoreInventory.validate_path!(String.replace_prefix(input["id"], "generated:", ""))
-        closed!(fact, ~w(recipe version inputs))
-        sets!(fact["inputs"])
-
-        unless is_binary(fact["recipe"]) and fact["recipe"] != "" and is_integer(fact["version"]) and
-                 fact["version"] > 0,
-               do: raise(Error, "invalid generation recipe")
-
-        for ref <- fact["inputs"], do: reference!(inputs, ref)
-
-      _ ->
-        raise Error, "unknown input kind"
+    cond do
+      fact["value_digest"] -> digest!(fact["value_digest"])
+      fact["opaque"] -> :ok
+      true -> raise Error, "missing external identity"
     end
+  end
+
+  defp validate_input_fact!("generated", fact, id, inputs) do
+    unless String.starts_with?(id, "generated:"),
+      do: raise(Error, "invalid generation identifier")
+
+    CoreInventory.validate_path!(String.replace_prefix(id, "generated:", ""))
+    closed!(fact, ~w(recipe version inputs))
+    sets!(fact["inputs"])
+
+    unless is_binary(fact["recipe"]) and fact["recipe"] != "" and
+             is_integer(fact["version"]) and fact["version"] > 0,
+           do: raise(Error, "invalid generation recipe")
+
+    Enum.each(fact["inputs"], &reference!(inputs, &1))
+  end
+
+  defp validate_input_fact!(_, _, _, _), do: raise(Error, "unknown input kind")
+
+  defp validate_watch_pattern!("tree", nil), do: :ok
+
+  defp validate_watch_pattern!("glob", pattern) when is_binary(pattern),
+    do: CoreInventory.validate_path!(pattern)
+
+  defp validate_watch_pattern!(_, _), do: raise(Error, "invalid watch pattern")
+
+  defp validate_watch_match!(match, inputs) do
+    closed!(match, ~w(path type mode))
+    CoreInventory.validate_path!(match["path"])
+    mode!(match["mode"])
+    unless match["type"] in ~w(file directory), do: raise(Error, "invalid watch kind")
+
+    if match["type"] == "file" and not Map.has_key?(inputs, "file:" <> match["path"]),
+      do: raise(Error, "missing watched file fact")
   end
 
   defp validate_entry!(entry, inputs) do
@@ -1199,53 +1226,60 @@ defmodule Weld.Plan.Inventory do
 
     for ref <- entry["origins"], do: reference!(inputs, ref)
 
-    for kind <- ~w(full live) do
-      value = entry[kind]
-      closed!(value, ~w(strategy source content_sha256 size executable group))
-      digest!(value["content_sha256"])
-      size!(value["size"])
+    Enum.each(~w(full live), &validate_variant!(entry, &1, inputs))
+  end
 
-      unless is_boolean(value["executable"]) and value["strategy"] in ~w(copy write dedup link),
-        do: raise(Error, "invalid output variant")
+  defp validate_variant!(entry, kind, inputs) do
+    value = entry[kind]
+    closed!(value, ~w(strategy source content_sha256 size executable group))
+    digest!(value["content_sha256"])
+    size!(value["size"])
 
-      if kind == "full" and value["strategy"] == "link",
-        do: raise(Error, "full output cannot link")
+    unless is_boolean(value["executable"]) and value["strategy"] in ~w(copy write dedup link),
+      do: raise(Error, "invalid output variant")
 
-      if value["strategy"] == "write" do
-        unless is_nil(value["source"]), do: raise(Error, "write source must be null")
+    if kind == "full" and value["strategy"] == "link",
+      do: raise(Error, "full output cannot link")
 
-        unless ("generated:" <> entry["target"]) in entry["origins"],
-          do: raise(Error, "write has no generation provenance")
-      else
-        reference!(inputs, value["source"])
-        source = inputs[value["source"]]
+    validate_variant_source!(value["strategy"], value, entry, inputs)
+    validate_variant_group!(value["group"], value["strategy"])
+  end
 
-        unless source["kind"] == "file" and source["fact"]["sha256"] == value["content_sha256"] and
-                 source["fact"]["size"] == value["size"] and
-                 source["fact"]["executable"] == value["executable"],
-               do: raise(Error, "output source mismatch")
-      end
+  defp validate_variant_source!("write", value, entry, _inputs) do
+    unless is_nil(value["source"]), do: raise(Error, "write source must be null")
 
-      if value["strategy"] == "dedup" do
-        originals = Enum.map(entry["origins"], &Map.fetch!(inputs, &1))
+    unless ("generated:" <> entry["target"]) in entry["origins"],
+      do: raise(Error, "write has no generation provenance")
+  end
 
-        unless length(originals) > 1 and
-                 Enum.all?(originals, fn origin ->
-                   origin["kind"] == "file" and
-                     origin["fact"]["sha256"] == value["content_sha256"] and
-                     origin["fact"]["size"] == value["size"] and
-                     origin["fact"]["executable"] == value["executable"]
-                 end),
-               do: raise(Error, "deduplicated origins differ")
-      end
+  defp validate_variant_source!(strategy, value, entry, inputs) do
+    reference!(inputs, value["source"])
 
-      if value["group"] do
-        closed!(value["group"], ~w(source_root target_root))
-        for path <- Map.values(value["group"]), do: CoreInventory.validate_path!(path)
-        unless value["strategy"] == "link", do: raise(Error, "invalid directory link group")
-      end
+    unless input_describes_variant?(inputs[value["source"]], value),
+      do: raise(Error, "output source mismatch")
+
+    if strategy == "dedup" do
+      originals = Enum.map(entry["origins"], &Map.fetch!(inputs, &1))
+
+      unless length(originals) > 1 and Enum.all?(originals, &input_describes_variant?(&1, value)),
+        do: raise(Error, "deduplicated origins differ")
     end
   end
+
+  defp input_describes_variant?(%{"kind" => "file", "fact" => file}, value) do
+    {file["sha256"], file["size"], file["executable"]} ==
+      {value["content_sha256"], value["size"], value["executable"]}
+  end
+
+  defp input_describes_variant?(_, _), do: false
+
+  defp validate_variant_group!(group, strategy) when group not in [false, nil] do
+    closed!(group, ~w(source_root target_root))
+    Enum.each(Map.values(group), &CoreInventory.validate_path!/1)
+    unless strategy == "link", do: raise(Error, "invalid directory link group")
+  end
+
+  defp validate_variant_group!(_, _), do: :ok
 
   defp generated_acyclic!(id, inputs, ancestors) do
     if id in ancestors, do: raise(Error, "cyclic generation provenance")

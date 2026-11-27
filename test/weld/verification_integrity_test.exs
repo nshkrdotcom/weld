@@ -1,13 +1,14 @@
 defmodule Weld.VerificationIntegrityTest do
   use ExUnit.Case, async: false
 
+  alias Weld.Core.Identity
   alias Weld.{Error, FixtureCase, Hash}
 
   test "frozen project identity binds lock, complete membership and executable bits" do
     root = FixtureCase.unique_tmp_dir("verification_identity")
     file = Path.join(root, "fixture.txt")
     File.write!(file, "before\n")
-    identity = fn -> Weld.Core.Identity.digest("project", Hash.observation(root)) end
+    identity = fn -> Identity.digest("project", Hash.observation(root)) end
     before = identity.()
     File.write!(Path.join(root, "mix.lock"), "%{}\n")
     refute before == identity.()

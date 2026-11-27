@@ -1,6 +1,8 @@
 defmodule Weld.QualificationContractTest do
   use ExUnit.Case, async: false
-  alias Weld.{Error, FixtureCase, Plan, Verifier}
+  alias Weld.{Error, FixtureCase, Plan}
+  alias Weld.Shell.GC
+  alias Weld.Verifier
 
   test "every gate has an explicit spec and mandatory gates cannot be skipped" do
     plan = Plan.build!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
@@ -114,7 +116,7 @@ defmodule Weld.QualificationContractTest do
                end)
 
         collected =
-          Task.async(fn -> Weld.Shell.GC.prune(root, keep: 0, dry_run: false) end)
+          Task.async(fn -> GC.prune(root, keep: 0, dry_run: false) end)
           |> Task.await(30_000)
 
         assert run in collected.active

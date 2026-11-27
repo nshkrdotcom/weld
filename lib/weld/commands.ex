@@ -1,14 +1,9 @@
 defmodule Weld.Commands do
   @moduledoc false
 
-  alias Weld.Affected
-  alias Weld.Graph
-  alias Weld.Manifest
-  alias Weld.Plan
-  alias Weld.Projector
-  alias Weld.Release
-  alias Weld.ReleaseStatus
-  alias Weld.Verifier
+  alias Weld.{Affected, Graph, Manifest, Plan}
+  alias Weld.Plan.Inventory
+  alias Weld.{Projector, Release, ReleaseStatus, Verifier}
 
   @spec inspect!(Path.t(), keyword()) :: map()
   def inspect!(manifest_path, opts \\ []) do
@@ -17,7 +12,7 @@ defmodule Weld.Commands do
 
   @doc false
   def inspect_plan(plan) do
-    inventory = Weld.Plan.Inventory.portable(plan)
+    inventory = Inventory.portable(plan)
 
     %{
       artifact_id: plan.artifact.id,

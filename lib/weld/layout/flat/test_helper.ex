@@ -1,8 +1,8 @@
 defmodule Weld.Layout.Flat.TestHelper do
   @moduledoc false
 
-  alias Weld.Error
   alias Weld.Core.Facts
+  alias Weld.Error
   alias Weld.Layout.FilePlan
 
   def plan!(projects) do

@@ -3,14 +3,10 @@ defmodule Weld.Workspace do
   Discovers and loads a monorepo workspace into a graph-native representation.
   """
 
-  alias Weld.Error
-  alias Weld.Graph
-  alias Weld.Manifest
-  alias Weld.Output
+  alias Weld.Core.Facts
+  alias Weld.{Error, Graph, Manifest, Output}
   alias Weld.Shell.Snapshot
-  alias Weld.Workspace.Discovery
-  alias Weld.Workspace.Project
-  alias Weld.Workspace.Probe
+  alias Weld.Workspace.{Discovery, Probe, Project}
 
   @enforce_keys [:manifest, :discovery, :projects, :graph]
   defstruct @enforce_keys ++ [facts: nil]
@@ -497,7 +493,7 @@ defmodule Weld.Workspace do
 
   defp existing_copy_dirs(facts, abs_path) do
     ["lib", "src", "c_src", "include", "priv"]
-    |> Enum.filter(&Weld.Core.Facts.dir?(facts, Path.join(abs_path, &1)))
+    |> Enum.filter(&Facts.dir?(facts, Path.join(abs_path, &1)))
   end
 
   defp classify_relative_owner(workspace, relative) do

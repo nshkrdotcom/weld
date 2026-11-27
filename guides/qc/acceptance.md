@@ -34,7 +34,8 @@ unique target membership through `output_inventory` and separately checks
 `mix.exs` source provenance. The mutable graph destination test expects the
 source-inventory rejection for `doc`, which is excluded from observations, and
 retains the output-overlap assertion for `mix.lock`. Both cases still verify that
-source bytes survive rejection.
+source bytes survive rejection. Run lookup tests check the run directory and
+the location of its staged project.
 
 ## A01–A40 coverage
 

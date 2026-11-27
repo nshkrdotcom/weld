@@ -257,6 +257,14 @@ defmodule Weld.CLI do
     if opts[:view] && not Map.has_key?(@views, opts[:view]),
       do: raise(Error, "unsupported graph view")
 
+    validate_identity!(opts)
+    validate_reuse!(opts)
+    validate_mutation!(opts)
+    validate_kind!(command, opts)
+    unless opts[:help], do: require_options!(command, opts)
+  end
+
+  defp validate_identity!(opts) do
     if opts[:identity] do
       unless Regex.match?(~r/\A[0-9a-f]{64}\z/, opts[:identity]),
         do: raise(Error, "identity must be 64 lower-hex characters")
@@ -264,13 +272,17 @@ defmodule Weld.CLI do
       if opts[:current] == true or opts[:all] == true,
         do: raise(Error, "identity requires one artifact and is exclusive with --current")
     end
+  end
 
+  defp validate_reuse!(opts) do
     if opts[:fresh] && opts[:reuse],
       do: raise(Error, "--fresh and --reuse are mutually exclusive")
 
     if opts[:reuse] && opts[:context] && opts[:reuse] != opts[:context],
       do: raise(Error, "reuse context mismatch")
+  end
 
+  defp validate_mutation!(opts) do
     if opts[:apply] && opts[:dry_run],
       do: raise(Error, "--apply and --dry-run are mutually exclusive")
 
@@ -278,7 +290,9 @@ defmodule Weld.CLI do
 
     if opts[:tag] && opts[:tag_release],
       do: raise(Error, "--tag and --tag-release are mutually exclusive")
+  end
 
+  defp validate_kind!(command, opts) do
     allowed =
       case command do
         "project" -> ~w(full live)
@@ -295,30 +309,31 @@ defmodule Weld.CLI do
        do: raise(Error, "identity is only valid for a bundle, docs or archive path")
 
     if opts[:run] && opts[:kind] != "run", do: raise(Error, "--run is only valid with --kind run")
+  end
 
-    unless opts[:help] do
-      if command in ~w(track stage publish archive) and is_nil(opts[:identity]) and
-           opts[:current] != true,
-         do: raise(Error, "pass --identity ID or --current explicitly")
+  defp require_options!("affected", opts) do
+    if is_nil(opts[:base]) or is_nil(opts[:head]) or
+         opts[:task] not in ~w(verify package docs project release),
+       do:
+         raise(
+           Error,
+           "affected requires --base, --head and --task verify|package|docs|project|release"
+         )
+  end
 
-      if command == "reconcile" and is_nil(opts[:identity]),
-        do: raise(Error, "reconcile requires --identity ID")
+  defp require_options!(command, opts) do
+    if command in ~w(track stage publish archive) and is_nil(opts[:identity]) and
+         opts[:current] != true,
+       do: raise(Error, "pass --identity ID or --current explicitly")
 
-      if command == "archive" and opts[:all] == true and opts[:current] != true,
-        do: raise(Error, "archive --all requires --current")
+    if command == "reconcile" and is_nil(opts[:identity]),
+      do: raise(Error, "reconcile requires --identity ID")
 
-      if command == "path" and opts[:kind] == "run" and is_nil(opts[:run]),
-        do: raise(Error, "--kind run requires --run ID")
+    if command == "archive" and opts[:all] == true and opts[:current] != true,
+      do: raise(Error, "archive --all requires --current")
 
-      if command == "affected" and
-           (is_nil(opts[:base]) or is_nil(opts[:head]) or
-              opts[:task] not in ~w(verify package docs project release)),
-         do:
-           raise(
-             Error,
-             "affected requires --base, --head and --task verify|package|docs|project|release"
-           )
-    end
+    if command == "path" and opts[:kind] == "run" and is_nil(opts[:run]),
+      do: raise(Error, "--kind run requires --run ID")
   end
 
   defp segment!(value, key) do

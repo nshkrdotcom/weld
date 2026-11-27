@@ -1,8 +1,8 @@
 defmodule Weld.Config.Generator do
   @moduledoc false
 
+  alias Weld.Core.{Facts, Inventory}
   alias Weld.Error
-  alias Weld.Core.Facts
   alias Weld.Layout.FilePlan
   alias Weld.SourceFormatter
 
@@ -348,7 +348,7 @@ defmodule Weld.Config.Generator do
   defp sanitize_config_ast(ast, strip_imports?, facts, source, source_root) do
     Macro.prewalk(ast, fn
       {:import_config, _, [relative]} = node when is_binary(relative) ->
-        Weld.Core.Inventory.validate_path!(relative)
+        Inventory.validate_path!(relative)
         absolute = Path.expand(relative, Path.dirname(source))
 
         unless String.starts_with?(absolute, source_root <> "/") and

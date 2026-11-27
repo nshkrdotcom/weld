@@ -1,8 +1,8 @@
 defmodule Weld.HexTransportContractTest do
   use ExUnit.Case, async: false
   alias Weld.Core.Identity
-  alias Weld.Shell.Hex
   alias Weld.{Error, HTTPFixture}
+  alias Weld.Shell.Hex
 
   test "pinned Hex Core and docs HTTP routes transmit the original body buffers" do
     Application.ensure_all_started(:inets)

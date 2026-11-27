@@ -5,7 +5,7 @@ defmodule Weld.ReleaseReceipt do
   values; a receipt does not claim publication or local archive availability.
   """
 
-  alias Weld.Core.Identity
+  alias Weld.Core.{Identity, Inventory}
   alias Weld.{Error, Git}
 
   @schema "weld.receipt/2"
@@ -105,7 +105,7 @@ defmodule Weld.ReleaseReceipt do
       raise Error, "invalid source provenance"
     end
 
-    Weld.Core.Inventory.validate_path!(source["manifest_path"])
+    Inventory.validate_path!(source["manifest_path"])
     source
   end
 

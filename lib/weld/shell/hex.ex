@@ -4,8 +4,8 @@ defmodule Weld.Shell.Hex do
   Publication outcomes are append-only. Uncertain writes require reconciliation.
   """
   alias Weld.Core.{Identity, Inventory}
-  alias Weld.Shell.Files
   alias Weld.{Error, Hash, Output}
+  alias Weld.Shell.Files
 
   @outer ~w(CHECKSUM VERSION contents.tar.gz metadata.config)
   @archive_limit 16 * 1024 * 1024
@@ -316,81 +316,86 @@ defmodule Weld.Shell.Hex do
   defp validate_raw_value!(_), do: raise(Error, "unsupported raw Hex metadata value")
 
   defp archive_observation!(plain, contents) do
-    with {:ok, headers} <- :erl_tar.table({:binary, plain}, [:verbose]) do
-      names = Enum.map(headers, &header_name!/1)
+    case :erl_tar.table({:binary, plain}, [:verbose]) do
+      {:ok, headers} ->
+        names = Enum.map(headers, &header_name!/1)
 
-      unless length(Enum.uniq(names)) == length(names),
-        do: raise(Error, "duplicate archive member")
+        unless length(Enum.uniq(names)) == length(names),
+          do: raise(Error, "duplicate archive member")
 
-      content_names = Enum.map(contents, fn {name, _} -> to_string(name) end)
+        content_names = Enum.map(contents, fn {name, _} -> to_string(name) end)
 
-      unless length(Enum.uniq(content_names)) == length(content_names),
-        do: raise(Error, "duplicate archive content")
+        unless length(Enum.uniq(content_names)) == length(content_names),
+          do: raise(Error, "duplicate archive content")
 
-      content = Map.new(contents, fn {name, bytes} -> {to_string(name), bytes} end)
+        content = Map.new(contents, fn {name, bytes} -> {to_string(name), bytes} end)
 
-      {entries, directories} =
-        Enum.reduce(headers, {[], []}, fn header, {files, dirs} ->
-          {name, type, size, _time, mode, _uid, _gid} = header
-          path = header_name!(header)
+        {entries, directories} =
+          Enum.reduce(headers, {[], []}, fn header, {files, dirs} ->
+            {name, type, size, _time, mode, _uid, _gid} = header
+            path = header_name!(header)
 
-          case type do
-            :regular ->
-              bytes = Map.get(content, to_string(name))
+            case type do
+              :regular ->
+                bytes = Map.get(content, to_string(name))
 
-              unless is_binary(bytes) and byte_size(bytes) == size and
-                       Bitwise.band(mode, 0o7777) in [0o644, 0o755],
-                     do:
-                       raise(Error, "archive member has invalid size or normalized mode: #{path}")
+                unless is_binary(bytes) and byte_size(bytes) == size and
+                         Bitwise.band(mode, 0o7777) in [0o644, 0o755],
+                       do:
+                         raise(
+                           Error,
+                           "archive member has invalid size or normalized mode: #{path}"
+                         )
 
-              entry = %{
-                "path" => path,
-                "sha256" => Identity.raw(bytes),
-                "size" => size,
-                "executable" => Bitwise.band(mode, 0o111) != 0
-              }
+                entry = %{
+                  "path" => path,
+                  "sha256" => Identity.raw(bytes),
+                  "size" => size,
+                  "executable" => Bitwise.band(mode, 0o111) != 0
+                }
 
-              {[entry | files], dirs}
+                {[entry | files], dirs}
 
-            :directory ->
-              unless size == 0 and Bitwise.band(mode, 0o7777) == 0o755,
-                do: raise(Error, "archive directory has invalid mode or size: #{path}")
+              :directory ->
+                unless size == 0 and Bitwise.band(mode, 0o7777) == 0o755,
+                  do: raise(Error, "archive directory has invalid mode or size: #{path}")
 
-              {files, [path | dirs]}
+                {files, [path | dirs]}
 
-            _ ->
-              raise Error, "archive contains a link or unsupported entry: #{path}"
-          end
-        end)
+              _ ->
+                raise Error, "archive contains a link or unsupported entry: #{path}"
+            end
+          end)
 
-      unless Enum.sort(content_names) == Enum.sort(Enum.map(entries, & &1["path"])),
-        do: raise(Error, "archive table and extracted content disagree")
+        unless Enum.sort(content_names) == Enum.sort(Enum.map(entries, & &1["path"])),
+          do: raise(Error, "archive table and extracted content disagree")
 
-      _ =
-        Inventory.validate!(
-          Enum.map(entries, fn entry -> Map.put(entry, :target, entry["path"]) end)
-        )
+        _ =
+          Inventory.validate!(
+            Enum.map(entries, fn entry -> Map.put(entry, :target, entry["path"]) end)
+          )
 
-      files = MapSet.new(Enum.map(entries, & &1["path"]))
+        files = MapSet.new(Enum.map(entries, & &1["path"]))
 
-      for directory <- directories do
-        if MapSet.member?(files, directory) or
-             Enum.any?(files, &String.starts_with?(directory, &1 <> "/")),
-           do: raise(Error, "archive file/directory collision")
-      end
+        for directory <- directories do
+          if MapSet.member?(files, directory) or
+               Enum.any?(files, &String.starts_with?(directory, &1 <> "/")),
+             do: raise(Error, "archive file/directory collision")
+        end
 
-      empty =
-        Enum.reject(directories, fn directory ->
-          Enum.any?(names, &String.starts_with?(&1, directory <> "/"))
-        end)
+        empty =
+          Enum.reject(directories, fn directory ->
+            Enum.any?(names, &String.starts_with?(&1, directory <> "/"))
+          end)
 
-      %{
-        entries: Enum.sort_by(entries, & &1["path"]),
-        empty_dirs: Enum.sort(empty),
-        directories: Enum.sort(directories)
-      }
-    else
-      _ -> raise Error, "malformed archive headers or checksum"
+        %{
+          entries: Enum.sort_by(entries, & &1["path"]),
+          empty_dirs: Enum.sort(empty),
+          directories: Enum.sort(directories)
+        }
+
+      _ ->
+        raise Error, "malformed archive headers or checksum"
     end
   rescue
     error in ArgumentError -> reraise Error, [message: Exception.message(error)], __STACKTRACE__

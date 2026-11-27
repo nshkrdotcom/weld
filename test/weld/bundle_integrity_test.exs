@@ -1,7 +1,9 @@
 defmodule Weld.BundleIntegrityTest do
   use ExUnit.Case, async: false
-  alias Weld.{Error, FixtureCase, Git, Hash, Output, Release, ReleaseReceipt, ReleaseStatus}
   alias Weld.Core.Identity
+  alias Weld.{Error, FixtureCase, Git, Hash, Output}
+  alias Weld.Plan.Inventory
+  alias Weld.{Release, ReleaseReceipt, ReleaseStatus}
 
   setup do
     root = FixtureCase.copy_fixture("library_bundle")
@@ -355,8 +357,8 @@ defmodule Weld.BundleIntegrityTest do
     {metadata, inventory, proof} =
       change.(bundle.metadata, evidence.inventory, evidence.qualification)
 
-    inventory = Map.put(inventory, "input_id", Weld.Plan.Inventory.input_id(inventory))
-    inventory = Map.put(inventory, "plan_id", Weld.Plan.Inventory.plan_id(inventory))
+    inventory = Map.put(inventory, "input_id", Inventory.input_id(inventory))
+    inventory = Map.put(inventory, "plan_id", Inventory.plan_id(inventory))
     metadata = Map.merge(metadata, Map.take(inventory, ["input_id", "plan_id"]))
     proof = Map.put(proof, "plan_id", inventory["plan_id"])
     proof = Map.delete(proof, "qualification_id")

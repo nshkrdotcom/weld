@@ -1,7 +1,7 @@
 defmodule Weld.Core.FactsTest do
   use ExUnit.Case, async: true
 
-  alias Weld.Core.{Facts, Identity}
+  alias Weld.Core.{Facts, Identity, Inputs, Inventory}
 
   defp facts do
     %{
@@ -46,19 +46,19 @@ defmodule Weld.Core.FactsTest do
           [path: "lib", type: :file, required: false]
         ] do
       assert_raise Weld.Error, ~r/type mismatch/, fn ->
-        Weld.Core.Inputs.observe!(facts(), facts().root, declaration)
+        Inputs.observe!(facts(), facts().root, declaration)
       end
     end
 
     assert %{entries: []} =
-             Weld.Core.Inputs.observe!(facts(), facts().root,
+             Inputs.observe!(facts(), facts().root,
                path: "missing",
                type: :file,
                required: false
              )
 
     assert %{entries: []} =
-             Weld.Core.Inputs.observe!(facts(), facts().root,
+             Inputs.observe!(facts(), facts().root,
                path: "empty",
                type: :tree,
                required: true
@@ -90,7 +90,7 @@ defmodule Weld.Core.FactsTest do
     end
 
     assert_raise ArgumentError, fn ->
-      Weld.Core.Inventory.validate!([%{target: "lib/A.ex"}, %{target: "lib/a.ex"}])
+      Inventory.validate!([%{target: "lib/A.ex"}, %{target: "lib/a.ex"}])
     end
   end
 end

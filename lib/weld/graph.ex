@@ -4,8 +4,8 @@ defmodule Weld.Graph do
   """
 
   alias __MODULE__, as: Graph
-  alias Weld.Graph.Edge
-  alias Weld.Graph.View
+  alias Weld.Core.Facts
+  alias Weld.Graph.{Edge, View}
   alias Weld.Violation
   alias Weld.Workspace.Project
 
@@ -250,7 +250,7 @@ defmodule Weld.Graph do
             )
         end
 
-      Weld.Core.Facts.regular?(project.facts, Path.join(dep_path, "mix.exs")) ->
+      Facts.regular?(project.facts, Path.join(dep_path, "mix.exs")) ->
         Graph.add_violation(
           graph,
           Violation.new(

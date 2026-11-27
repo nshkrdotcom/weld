@@ -1,6 +1,8 @@
 defmodule Weld.HTTPFixture do
   @moduledoc false
 
+  alias Weld.Core.Identity
+
   def start(handler) do
     {:ok, listener} =
       :gen_tcp.listen(0, [
@@ -79,7 +81,7 @@ defmodule Weld.HTTPFixture do
           path: path,
           headers: headers,
           body: body,
-          sha256: Weld.Core.Identity.raw(body)
+          sha256: Identity.raw(body)
         }
 
       [_] ->

@@ -1,7 +1,7 @@
 defmodule Weld.Shell.Diff do
   @moduledoc false
 
-  alias Weld.Core.Inventory
+  alias Weld.Core.{Identity, Inventory}
   alias Weld.{Error, Hash, Output}
 
   @operational ~w(_build deps doc)
@@ -19,7 +19,7 @@ defmodule Weld.Shell.Diff do
         if op && op.content,
           do: %{
             entry
-            | sha256: Weld.Core.Identity.raw(op.content),
+            | sha256: Identity.raw(op.content),
               size: byte_size(op.content),
               executable: false
           },

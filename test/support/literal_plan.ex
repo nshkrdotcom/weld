@@ -1,7 +1,7 @@
 defmodule Weld.LiteralPlan do
   @moduledoc false
-  alias Weld.{Graph, Manifest, Plan, Workspace}
   alias Weld.Core.{Compiler, Identity}
+  alias Weld.{Graph, Manifest, Plan, Workspace}
   alias Weld.Workspace.Project
 
   # No file is opened: even Mix source bytes are supplied literal observations.

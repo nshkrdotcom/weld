@@ -1,6 +1,7 @@
 defmodule Weld.ComponentTestsTest do
   use ExUnit.Case, async: false
 
+  alias Weld.Core.Identity
   alias Weld.FixtureCase
 
   setup do
@@ -202,7 +203,7 @@ defmodule Weld.ComponentTestsTest do
     evidence = Weld.ReleaseStatus.evidence!(prepared.bundle_path)
 
     assert metadata["project_id"] ==
-             Weld.Core.Identity.digest("project", Weld.Hash.observation(prepared.project_path))
+             Identity.digest("project", Weld.Hash.observation(prepared.project_path))
 
     assert evidence.qualification["project_id"] == metadata["project_id"]
 

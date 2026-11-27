@@ -1,8 +1,9 @@
 defmodule Weld.Shell.Native do
   @moduledoc false
-  alias Weld.Error
   alias Weld.Core.Facts
+  alias Weld.Error
   alias Weld.Shell.Runner
+  alias Weld.Workspace.Probe
   # Load the staged Mix file in a fresh VM. A process already running inside
   # the source project may have loaded its helpers or its project module.
   def validate!(plan, stage, kind \\ :full) do
@@ -30,7 +31,7 @@ defmodule Weld.Shell.Native do
     source_root = plan.source_root
     projects = plan.layout.native_projects
 
-    for project <- projects, env <- Weld.Workspace.Probe.environments() do
+    for project <- projects, env <- Probe.environments() do
       relative = Path.relative_to(project.abs_path, source_root)
       expected = {project.app, project.version, project.package_name}
       dependencies = Enum.map(Map.fetch!(project.deps_by_env, env), & &1.original)

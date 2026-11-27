@@ -3,10 +3,10 @@ defmodule Weld.Plan do
   Resolves one artifact view from the manifest and workspace graph.
   """
 
-  alias Weld.Graph
-  alias Weld.Manifest
-  alias Weld.Violation
-  alias Weld.Workspace
+  alias Weld.Core.Compiler
+  alias Weld.{Graph, Manifest}
+  alias Weld.Shell.Snapshot
+  alias Weld.{Violation, Workspace}
   alias Weld.Workspace.Project
 
   @enforce_keys [
@@ -93,13 +93,13 @@ defmodule Weld.Plan do
     artifact =
       manifest |> Manifest.artifact!(opts[:artifact]) |> Manifest.bind_native(workspace.projects)
 
-    facts = workspace.facts || Weld.Shell.Snapshot.collect!(manifest, opts)
+    facts = workspace.facts || Snapshot.collect!(manifest, opts)
 
     projects =
       Map.new(workspace.projects, fn {id, project} -> {id, Map.put(project, :facts, facts)} end)
 
     workspace = %{workspace | facts: facts, projects: projects}
-    compiled = Weld.Core.Compiler.compile!(manifest, workspace, artifact, opts)
+    compiled = Compiler.compile!(manifest, workspace, artifact, opts)
     struct!(__MODULE__, compiled)
   end
 

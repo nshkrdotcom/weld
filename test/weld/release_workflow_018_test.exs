@@ -1,8 +1,8 @@
 defmodule Weld.ReleaseWorkflow018Test do
   use ExUnit.Case, async: false
 
-  alias Weld.{Error, FixtureCase, Git, Hash, Output, Release, ReleaseReceipt, ReleaseStatus}
   alias Weld.Core.Identity
+  alias Weld.{Error, FixtureCase, Git, Hash, Output, Release, ReleaseReceipt, ReleaseStatus}
 
   test "receipt parser refuses duplicated fields, malformed trailers and missing digests" do
     {_, _, bundle} = publication_fixture!()
@@ -283,7 +283,8 @@ defmodule Weld.ReleaseWorkflow018Test do
       Weld.CLI.parse!("path", ["--manifest", manifest, "--kind", "run", "--run", second.run])
 
     assert {:ok, %{path: path, exists: true}} = Weld.run(request)
-    assert path == second.project_path
+    assert path == second.run_path
+    assert Path.join(path, "project") == second.project_path
   end
 
   test "publication requires confirmation and dry-run makes no transport calls" do

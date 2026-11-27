@@ -3,6 +3,7 @@ defmodule Weld.ReleaseTest do
 
   @moduletag timeout: 180_000
 
+  alias Weld.Core.Identity
   alias Weld.FixtureCase
 
   @tag integration: true, ci_build: "release"
@@ -184,7 +185,7 @@ defmodule Weld.ReleaseTest do
              Weld.Hash.sha256_file(Path.join(root, metadata["source"]["manifest_path"]))
 
     assert metadata["project_id"] ==
-             Weld.Core.Identity.digest("project", Weld.Hash.observation(prepared.project_path))
+             Identity.digest("project", Weld.Hash.observation(prepared.project_path))
 
     assert metadata["files"]["package"]["path"] == "package.tar"
     assert metadata["archive_sha256"] == Weld.Hash.sha256_file(prepared.tarball_path)

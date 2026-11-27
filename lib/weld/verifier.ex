@@ -163,8 +163,8 @@ defmodule Weld.Verifier do
           "G02: dependency resolution modified project bytes, modes or membership outside the lock slot"
         )
 
+    lock_sha = freeze_lock!(project)
     frozen = observe_project!(project, [])
-    lock_sha = optional_sha(Path.join(project, "mix.lock"))
 
     if is_nil(lock_sha) and
          Enum.any?(after_metadata, fn {_env, facts} -> facts.config[:deps] != [] end),
@@ -777,6 +777,22 @@ defmodule Weld.Verifier do
   defp observe_tree!(root) do
     observed = Hash.observation(root)
     %{entries: observed["entries"], empty_dirs: observed["empty_dirs"]}
+  end
+
+  defp freeze_lock!(project) do
+    path = Output.source!(project, "mix.lock")
+
+    case File.lstat(path) do
+      {:ok, %{type: :regular, mode: mode}} when Bitwise.band(mode, 0o111) == 0 ->
+        File.chmod!(path, 0o644)
+        Hash.sha256_file(path)
+
+      {:error, :enoent} ->
+        nil
+
+      _ ->
+        raise Error, "G02: resolved mix.lock must be a regular non-executable file"
+    end
   end
 
   defp observe_project!(project, excluded) do

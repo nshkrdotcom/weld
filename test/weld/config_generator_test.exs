@@ -3,6 +3,7 @@ defmodule Weld.ConfigGeneratorTest do
 
   alias Weld.Config.Generator
   alias Weld.FixtureCase
+  alias Weld.Shell.{Materializer, Snapshot}
   alias Weld.Workspace.Project
 
   test "does not emit repo priv overlays when the merged repo path is the default priv/repo" do
@@ -156,14 +157,14 @@ defmodule Weld.ConfigGeneratorTest do
   defp generate!(projects, build_path, repo_infos, migration_layout, opts \\ []) do
     projects =
       Enum.map(projects, fn project ->
-        Map.put(project, :facts, Weld.Shell.Snapshot.observe!(project.abs_path))
+        Map.put(project, :facts, Snapshot.observe!(project.abs_path))
       end)
 
     result = Generator.plan!(projects, repo_infos, migration_layout, opts)
     nodes = Enum.reduce(projects, %{}, &Map.merge(&2, &1.facts.nodes))
     facts = %{root: build_path, nodes: nodes}
 
-    Weld.Shell.Materializer.execute!(
+    Materializer.execute!(
       %{full: result.operations, empty_dirs: []},
       facts,
       build_path,

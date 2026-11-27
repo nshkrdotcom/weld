@@ -2,16 +2,12 @@ defmodule Weld.Layout.Flat do
   @moduledoc false
 
   alias Weld.Config.Generator
+  alias Weld.Core.{Facts, Inputs, Modules, Selection}
   alias Weld.Error
-  alias Weld.Core.{Facts, Modules, Selection}
   alias Weld.Layout.FilePlan
-  alias Weld.Layout.Flat.Migrations
-  alias Weld.Layout.Flat.MixFile
-  alias Weld.Layout.Flat.TestHelper
-  alias Weld.Layout.Support
+  alias Weld.Layout.Flat.{Migrations, MixFile, TestHelper}
+  alias Weld.Layout.{Live, Support}
   alias Weld.Manifest
-  alias Weld.Layout.Live
-  alias Weld.Core.Inputs
 
   @source_dirs ~w(lib src c_src include)
 

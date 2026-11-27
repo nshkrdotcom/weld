@@ -1,6 +1,7 @@
 defmodule Weld.Core.CompilerTest do
   use ExUnit.Case, async: true
   @moduletag :pure
+  alias Weld.Core.Identity
   alias Weld.{LiteralPlan, Plan}
 
   test "literal observations compile complete full/live variants without a checkout" do
@@ -30,7 +31,7 @@ defmodule Weld.Core.CompilerTest do
 
     assert left["input_id"] == right["input_id"]
     assert left["plan_id"] == right["plan_id"]
-    refute Weld.Core.Identity.canonical(left) =~ "/nowhere/one"
+    refute Identity.canonical(left) =~ "/nowhere/one"
   end
 
   test "new config inputs and discovery members alter relevant watches" do
@@ -67,7 +68,7 @@ defmodule Weld.Core.CompilerTest do
 
     compiler_changed = %{
       plan
-      | facts: %{plan.facts | compiler_id: Weld.Core.Identity.raw("other compiler")}
+      | facts: %{plan.facts | compiler_id: Identity.raw("other compiler")}
     }
 
     refute Weld.Plan.Inventory.portable(compiler_changed)["input_id"] == before["input_id"]

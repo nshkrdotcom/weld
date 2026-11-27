@@ -5,7 +5,8 @@ defmodule Weld.Core.Facts do
   Missing observations never trigger IO. Absolute names are shell locators;
   portable inventories convert them to validated checkout-relative names.
   """
-  alias Weld.{Error, Core.Inventory}
+  alias Weld.Core.Inventory
+  alias Weld.Error
 
   def type(facts, path),
     do: Map.get(facts.nodes, Path.expand(path, facts.root), %{type: :missing}).type

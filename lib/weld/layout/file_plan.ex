@@ -1,8 +1,8 @@
 defmodule Weld.Layout.FilePlan do
   @moduledoc false
 
-  alias Weld.Error
   alias Weld.Core.{Facts, Inventory}
+  alias Weld.Error
 
   def copy(source, target, kind, operation \\ :link_or_copy) do
     %{target: target, sources: [source], kind: kind, operation: operation, content: nil}

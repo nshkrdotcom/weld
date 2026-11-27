@@ -1,8 +1,8 @@
 defmodule Weld.InventoryContractTest do
   use ExUnit.Case, async: true
   @moduletag :pure
+  alias Weld.Core.{Compiler, Identity, Inputs}
   alias Weld.{Error, LiteralPlan, Plan}
-  alias Weld.Core.Identity
 
   defp inventory, do: LiteralPlan.build() |> Plan.Inventory.portable()
 
@@ -16,7 +16,7 @@ defmodule Weld.InventoryContractTest do
     declaration = [path: "VERSION", type: :file, required: true]
 
     watch =
-      Weld.Core.Inputs.observe!(plan.facts, plan.facts.root, declaration)
+      Inputs.observe!(plan.facts, plan.facts.root, declaration)
       |> Map.merge(%{owner: ".", declaration: declaration})
 
     plan = %{
@@ -219,6 +219,6 @@ defmodule Weld.InventoryContractTest do
         graph: Weld.Graph.build(manifest, projects)
     }
 
-    struct!(Plan, Weld.Core.Compiler.compile!(manifest, workspace, plan.artifact, []))
+    struct!(Plan, Compiler.compile!(manifest, workspace, plan.artifact, []))
   end
 end

@@ -1,12 +1,12 @@
 defmodule Weld.Core.Compiler do
   @moduledoc "Deterministic artifact compilation from supplied manifest, graph and source facts."
-  alias Weld.Core.{Facts, Selection}
+  alias Weld.Core.{Facts, Inputs}
   alias Weld.Core.Inventory, as: CoreInventory
-  alias Weld.{Error, Graph, Violation}
+  alias Weld.Core.Selection
+  alias Weld.{Error, Graph}
   alias Weld.Layout.{Components, Flat, Preserve}
-  alias Weld.Plan.Boundary
-  alias Weld.Plan.Inventory
-  alias Weld.Core.Inputs
+  alias Weld.Plan.{Boundary, Inventory}
+  alias Weld.Violation
   @doc false
   def compile!(manifest, workspace, artifact, _opts) do
     graph = workspace.graph

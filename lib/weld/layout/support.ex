@@ -1,8 +1,8 @@
 defmodule Weld.Layout.Support do
   @moduledoc false
 
-  alias Weld.{Error, Manifest}
   alias Weld.Core.{Facts, Selection}
+  alias Weld.{Error, Manifest}
 
   @root_tooling_files ~w(.formatter.exs .credo.exs .dialyzer_ignore.exs)
 

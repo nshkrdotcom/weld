@@ -1,6 +1,8 @@
 defmodule Weld.LiveTopologyContractTest do
   use ExUnit.Case, async: false
 
+  alias Weld.Layout.Live
+
   setup do
     %{tmp_dir: Weld.FixtureCase.unique_tmp_dir("weld_live_topology")}
   end
@@ -20,7 +22,7 @@ defmodule Weld.LiveTopologyContractTest do
     File.mkdir_p!(live)
 
     guard =
-      Weld.Layout.Live.guard_ast(plan,
+      Live.guard_ast(plan,
         topology: [Path.join(root, "apps/a/lib")]
       )
 

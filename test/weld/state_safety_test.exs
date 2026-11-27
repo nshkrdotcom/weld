@@ -1,8 +1,8 @@
 defmodule Weld.StateSafetyTest do
   use ExUnit.Case, async: false
+  alias Weld.Core.Identity
   alias Weld.{Error, FixtureCase, Output}
   alias Weld.Shell.GC
-  alias Weld.Core.Identity
 
   @moduletag timeout: 60_000
 

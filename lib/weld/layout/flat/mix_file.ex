@@ -1,10 +1,8 @@
 defmodule Weld.Layout.Flat.MixFile do
   @moduledoc false
 
-  alias Weld.Layout.FilePlan
-  alias Weld.Layout.Support
-  alias Weld.Layout.Render
   alias Weld.Core.Inputs
+  alias Weld.Layout.{FilePlan, Render, Support}
   alias Weld.SourceFormatter
 
   def plan!(%{} = plan, operations, opts) do

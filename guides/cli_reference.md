@@ -65,7 +65,7 @@ Common flags are `--manifest PATH`, `--root PATH`, `--format text|json`, `--verb
 
 A **pin** is `--identity ID` or `--current`. IDs are complete 64-character lowercase hexadecimal digests; prefixes are rejected. `--identity` is exclusive with `--current` and `--all`. `--current` explicitly opts into resolving the current pointer once under the operation's lease.
 
-`--run ID` is required for `path --kind run`, and is invalid with other kinds. Bundle identities apply to bundle/docs/archive paths, not development outputs or run lookup. `path --kind archive` locates the archived bundle directory, not an unqualified newly built tarball.
+`--run ID` is required for `path --kind run`, and is invalid with other kinds. Run lookup returns the run directory. For a stage review, its `project/` subdirectory contains the review copy. Bundle identities apply to bundle/docs/archive paths, not development outputs or run lookup. `path --kind archive` locates the archived bundle directory, not an unqualified newly built tarball.
 
 ## Views, contexts, and batches
 
