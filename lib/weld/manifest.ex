@@ -195,33 +195,10 @@ defmodule Weld.Manifest do
   @spec load!(Path.t(), keyword()) :: t()
   def load!(manifest_path, opts \\ []) do
     manifest_path = Path.expand(manifest_path)
-
-    unless match?({:ok, %{type: :regular}}, File.lstat(manifest_path)) do
-      raise Error, "manifest not found: #{manifest_path}"
-    end
-
-    Weld.Output.source!(Path.dirname(manifest_path), Path.basename(manifest_path))
-    {raw, _binding} = Code.eval_file(manifest_path)
-
-    unless Keyword.keyword?(raw) do
-      raise Error, "manifest must evaluate to a keyword list: #{manifest_path}"
-    end
-
-    config = CoreManifest.normalize!(raw)
     manifest_dir = Path.dirname(manifest_path)
+    config = read_declaration!(manifest_path, manifest_dir)
     workspace = normalize_workspace(config[:workspace], manifest_dir)
-
-    unless match?({:ok, %{type: :directory}}, File.lstat(workspace.root)),
-      do: raise(Error, "workspace.root must be an existing regular directory")
-
-    git_root = Weld.Git.root(manifest_dir) || Weld.Git.root(workspace.root)
-    explicit_root = if opts[:checkout_root], do: Path.expand(opts[:checkout_root])
-
-    if git_root && explicit_root && git_root != explicit_root,
-      do: raise(Error, "explicit checkout root does not match Git")
-
-    repo_root = git_root || explicit_root || workspace.root
-    validate_workspace_root!(manifest_path, workspace.root, repo_root)
+    repo_root = checkout_root!(manifest_path, manifest_dir, workspace.root, opts[:checkout_root])
 
     %__MODULE__{
       manifest_path: manifest_path,
@@ -234,6 +211,36 @@ defmodule Weld.Manifest do
       artifacts: normalize_artifacts(config[:artifacts])
     }
     |> validate!()
+  end
+
+  defp read_declaration!(manifest_path, manifest_dir) do
+    unless match?({:ok, %{type: :regular}}, File.lstat(manifest_path)) do
+      raise Error, "manifest not found: #{manifest_path}"
+    end
+
+    Weld.Output.source!(manifest_dir, Path.basename(manifest_path))
+    {raw, _binding} = Code.eval_file(manifest_path)
+
+    unless Keyword.keyword?(raw) do
+      raise Error, "manifest must evaluate to a keyword list: #{manifest_path}"
+    end
+
+    CoreManifest.normalize!(raw)
+  end
+
+  defp checkout_root!(manifest_path, manifest_dir, workspace_root, explicit_root) do
+    unless match?({:ok, %{type: :directory}}, File.lstat(workspace_root)),
+      do: raise(Error, "workspace.root must be an existing regular directory")
+
+    explicit_root = if explicit_root, do: Path.expand(explicit_root)
+    git_root = Weld.Git.root(manifest_dir) || Weld.Git.root(workspace_root)
+
+    if git_root && explicit_root && git_root != explicit_root,
+      do: raise(Error, "explicit checkout root does not match Git")
+
+    repo_root = git_root || explicit_root || workspace_root
+    validate_workspace_root!(manifest_path, workspace_root, repo_root)
+    repo_root
   end
 
   @spec artifact!(t(), nil | String.t() | atom()) :: Artifact.t()

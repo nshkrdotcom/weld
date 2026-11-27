@@ -977,41 +977,40 @@ defmodule Weld.CLI do
     end
   end
 
-  def exit_status(command, {:ok, data}) do
-    cond do
-      command == "release-plan" and is_map(data) and data[:invalid_plan] == true ->
-        2
+  def exit_status("release-plan", {:ok, %{invalid_plan: true}}), do: 2
 
-      is_map(data) and data[:partial_failure] ->
-        5
+  def exit_status(_command, {:ok, %{partial_failure: failure}}) when failure not in [nil, false],
+    do: 5
 
-      command == "doctor" and is_map(data) and data[:errors] > 0 ->
-        3
+  def exit_status(command, {:ok, data}) when is_map(data), do: command_exit_status(command, data)
+  def exit_status(_command, {:ok, _data}), do: 0
 
-      command == "verify-tag" and is_map(data) and
-          data[:status] not in [:match, :missing_local, "match", "missing_local"] ->
-        3
+  defp command_exit_status("doctor", data), do: if(data[:errors] > 0, do: 3, else: 0)
 
-      command in ~w(publish reconcile) and is_map(data) and
-          data[:state] in [
-            "unknown",
-            "conflict",
-            "submitting",
-            "staged",
-            :unknown,
-            :conflict,
-            :submitting,
-            :staged
-          ] ->
-        4
-
-      command in ~w(plan graph) and is_map(data) and Map.get(data, :violations, []) != [] ->
-        2
-
-      true ->
-        0
-    end
+  defp command_exit_status("verify-tag", data) do
+    if data[:status] in [:match, :missing_local, "match", "missing_local"], do: 0, else: 3
   end
+
+  defp command_exit_status(command, data) when command in ~w(publish reconcile) do
+    if data[:state] in [
+         "unknown",
+         "conflict",
+         "submitting",
+         "staged",
+         :unknown,
+         :conflict,
+         :submitting,
+         :staged
+       ],
+       do: 4,
+       else: 0
+  end
+
+  defp command_exit_status(command, data) when command in ~w(plan graph) do
+    if Map.get(data, :violations, []) == [], do: 0, else: 2
+  end
+
+  defp command_exit_status(_command, _data), do: 0
 
   @doc false
   def diagnostic_field(diagnostic, key),

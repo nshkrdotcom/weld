@@ -1020,22 +1020,22 @@ defmodule Weld.Output do
     valid_owner!(owner)
     [start, _nonce] = String.split(owner["token"], ".", parts: 2)
 
+    observed_host = host()
+    observed_boot = boot_id()
+
     cond do
-      owner["host"] == "unknown" or owner["host"] != host() ->
-        :unknown
+      owner["host"] == "unknown" or owner["host"] != observed_host -> :unknown
+      "unknown" in [owner["boot_id"], observed_boot, start] -> :unknown
+      owner["boot_id"] != observed_boot -> :dead
+      true -> process_liveness(owner["pid"], start)
+    end
+  end
 
-      owner["boot_id"] == "unknown" or boot_id() == "unknown" or start == "unknown" ->
-        :unknown
-
-      owner["boot_id"] != boot_id() ->
-        :dead
-
-      true ->
-        case process_start(owner["pid"]) do
-          ^start -> :alive
-          nil -> if File.exists?("/proc/" <> owner["pid"]), do: :unknown, else: :dead
-          _other -> :dead
-        end
+  defp process_liveness(pid, start) do
+    case process_start(pid) do
+      ^start -> :alive
+      nil -> if File.exists?("/proc/" <> pid), do: :unknown, else: :dead
+      _other -> :dead
     end
   end
 

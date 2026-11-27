@@ -495,32 +495,33 @@ defmodule Weld.Graph do
   def dependency_kind(opts, target_classification) do
     only = opts[:only] |> List.wrap() |> Enum.uniq() |> Enum.sort()
 
-    base =
-      cond do
-        opts[:runtime] == false -> :compile
-        target_classification == :tooling -> :tooling
-        true -> :runtime
-      end
-
     if only == [] or :prod in only do
-      base
+      default_dependency_kind(opts[:runtime], target_classification)
     else
-      environment_kinds =
-        cond do
-          :dev in only -> [:dev_only]
-          :test in only -> [:test]
-          true -> []
-        end
+      scoped_dependency_kind(only)
+    end
+  end
 
-      kinds =
-        if(:docs in only, do: [:docs], else: []) ++
-          environment_kinds ++
-          if Enum.any?(only, &(&1 not in [:dev, :test, :docs])), do: [:tooling], else: []
+  defp default_dependency_kind(false, _classification), do: :compile
+  defp default_dependency_kind(_runtime, :tooling), do: :tooling
+  defp default_dependency_kind(_runtime, _classification), do: :runtime
 
-      case Enum.sort(Enum.uniq(kinds)) do
-        [kind] -> kind
-        kinds -> kinds
+  defp scoped_dependency_kind(only) do
+    environment_kinds =
+      cond do
+        :dev in only -> [:dev_only]
+        :test in only -> [:test]
+        true -> []
       end
+
+    kinds =
+      if(:docs in only, do: [:docs], else: []) ++
+        environment_kinds ++
+        if Enum.any?(only, &(&1 not in [:dev, :test, :docs])), do: [:tooling], else: []
+
+    case Enum.sort(kinds) do
+      [kind] -> kind
+      kinds -> kinds
     end
   end
 
