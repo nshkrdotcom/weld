@@ -5,11 +5,9 @@ defmodule Mix.Tasks.Weld do
 
   @impl Mix.Task
   def run(args) do
-    try do
-      invoke(args)
-    after
-      Mix.Task.reenable("weld")
-    end
+    invoke(args)
+  after
+    Mix.Task.reenable("weld")
   end
 
   defp invoke([]), do: IO.puts(Weld.CLI.help())
@@ -17,16 +15,14 @@ defmodule Mix.Tasks.Weld do
   defp invoke(["help"]), do: IO.puts(Weld.CLI.help())
 
   defp invoke(["help", command]) do
-    try do
-      IO.puts(Weld.CLI.help(command))
-    rescue
-      error in [Weld.Error, ArgumentError] ->
-        emit(
-          "help",
-          "text",
-          {:error, [Weld.CLI.diagnostic(:invalid_arguments, Exception.message(error))]}
-        )
-    end
+    IO.puts(Weld.CLI.help(command))
+  rescue
+    error in [Weld.Error, ArgumentError] ->
+      emit(
+        "help",
+        "text",
+        {:error, [Weld.CLI.diagnostic(:invalid_arguments, Exception.message(error))]}
+      )
   end
 
   defp invoke([command | args]) do

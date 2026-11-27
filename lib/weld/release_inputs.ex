@@ -78,7 +78,7 @@ defmodule Weld.ReleaseInputs do
   end
 
   defp compiler_reuse do
-    source = Weld.module_info(:compile)[:source]
+    source = __MODULE__.module_info(:compile)[:source]
 
     if (is_list(source) or is_binary(source)) and File.regular?(to_string(source)) do
       case Weld.Git.root(Path.dirname(to_string(source))) do
@@ -86,7 +86,7 @@ defmodule Weld.ReleaseInputs do
         root -> if Weld.Git.dirty?(root), do: "dirty_development_compiler", else: :ok
       end
     else
-      if is_list(:code.which(Weld)), do: :ok, else: "unidentified_compiler"
+      if is_list(:code.which(__MODULE__)), do: :ok, else: "unidentified_compiler"
     end
   rescue
     _ -> "unidentified_development_compiler"

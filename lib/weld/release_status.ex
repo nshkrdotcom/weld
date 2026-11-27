@@ -87,8 +87,12 @@ defmodule Weld.ReleaseStatus do
     metadata
   rescue
     error in [ArgumentError, File.Error, KeyError, MatchError] ->
-      raise Error,
-            "bundle failed strict integrity verification: #{bundle}: #{Exception.message(error)}"
+      reraise Error,
+              [
+                message:
+                  "bundle failed strict integrity verification: #{bundle}: #{Exception.message(error)}"
+              ],
+              __STACKTRACE__
   end
 
   def evidence!(bundle) do

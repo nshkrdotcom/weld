@@ -317,7 +317,7 @@ defmodule Weld.Layout.Flat do
 
   defp project_test_path!(project, test_path) do
     expanded = Path.expand(test_path, project.abs_path)
-    project_root = Path.expand(project.abs_path)
+    project_root = Path.expand(project.abs_path, project.facts.root)
 
     if expanded == project_root or String.starts_with?(expanded, project_root <> "/") do
       expanded

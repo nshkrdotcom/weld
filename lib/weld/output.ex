@@ -1325,12 +1325,13 @@ defmodule Weld.Output do
   end
 
   defp reject_ancestors!(path) do
-    Path.split(Path.expand(path))
-    |> Enum.reduce("", fn part, parent ->
-      child = if parent == "", do: part, else: Path.join(parent, part)
-      reject_link!(child)
-      child
-    end)
+    _ =
+      Path.split(Path.expand(path))
+      |> Enum.reduce("", fn part, parent ->
+        child = if parent == "", do: part, else: Path.join(parent, part)
+        reject_link!(child)
+        child
+      end)
 
     :ok
   end

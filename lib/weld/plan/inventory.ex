@@ -675,7 +675,7 @@ defmodule Weld.Plan.Inventory do
 
   defp checkout_relative_locator(path, root) do
     if Path.type(path) == :absolute do
-      path = Path.expand(path)
+      path = Path.expand(path, root)
       if path == root or String.starts_with?(path, root <> "/"), do: Path.relative_to(path, root)
     end
   end

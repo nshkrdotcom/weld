@@ -52,7 +52,7 @@ defmodule Weld.Core.Facts do
     reject_parents!(facts, path, root)
     path
   rescue
-    error in ArgumentError -> raise Error, Exception.message(error)
+    error in ArgumentError -> reraise Error, [message: Exception.message(error)], __STACKTRACE__
   end
 
   defp reject_parents!(facts, path, root) do
@@ -122,7 +122,9 @@ defmodule Weld.Core.Facts do
     Regex.compile!("\\A" <> source <> "\\z", "u")
   rescue
     error in Regex.CompileError ->
-      raise Error, "invalid input glob #{inspect(pattern)}: #{Exception.message(error)}"
+      reraise Error,
+              [message: "invalid input glob #{inspect(pattern)}: #{Exception.message(error)}"],
+              __STACKTRACE__
   end
 
   defp glob_parts(["*", "*", "/" | rest], depth), do: ["(?:.*/)?" | glob_parts(rest, depth)]

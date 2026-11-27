@@ -393,7 +393,7 @@ defmodule Weld.Shell.Hex do
       _ -> raise Error, "malformed archive headers or checksum"
     end
   rescue
-    error in ArgumentError -> raise Error, Exception.message(error)
+    error in ArgumentError -> reraise Error, [message: Exception.message(error)], __STACKTRACE__
   end
 
   defp header_name!({name, type, _size, _time, _mode, _uid, _gid}) do
