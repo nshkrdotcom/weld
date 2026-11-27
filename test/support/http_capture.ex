@@ -43,10 +43,11 @@ defmodule Weld.HTTPFixture do
   defp respond(_socket, :close), do: :ok
 
   defp respond(socket, {status, headers, body}) do
-    headers = Map.merge(
-      %{"content-length" => to_string(byte_size(body)), "connection" => "close"},
-      headers
-    )
+    headers =
+      Map.merge(
+        %{"content-length" => to_string(byte_size(body)), "connection" => "close"},
+        headers
+      )
 
     lines = Enum.map_join(headers, "\r\n", fn {name, value} -> name <> ": " <> value end)
     :ok = :gen_tcp.send(socket, "HTTP/1.1 #{status} Fixture\r\n" <> lines <> "\r\n\r\n" <> body)
