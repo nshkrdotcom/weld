@@ -8,7 +8,12 @@ defmodule Weld.HexConsumptionContractTest do
   @moduletag timeout: 3_600_000
 
   test "components, flat, preserve and pinned native packages resolve through a signed Hex registry after source removal" do
-    root = Path.join(FixtureCase.unique_tmp_dir("exact_hex_matrix"), "results")
+    root =
+      case System.get_env("WELD_QC_LAYOUT_OUTPUT") do
+        nil -> Path.join(FixtureCase.unique_tmp_dir("exact_hex_matrix"), "results")
+        output -> Path.expand(output)
+      end
+
     results = Weld.QC.matrix!(root)
     assert Enum.map(results, & &1["layout"]) == ~w(components flat preserve native)
 

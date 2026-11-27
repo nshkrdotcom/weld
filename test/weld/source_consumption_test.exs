@@ -46,10 +46,17 @@ defmodule Weld.SourceConsumptionTest do
     File.write!(extra, "defmodule Sprout.Addition do\n  def value, do: :two\nend\n")
     expr!(consumer, ":two = Sprout.Addition.value()")
 
-    expr!(
-      consumer,
-      "true = to_string(Sprout.Addition.module_info(:compile)[:source]) == #{inspect(extra)}"
-    )
+    # Mix can record the live symlink path rather than the checkout spelling.
+    # Require both the planned directory link and the actual compiled file identity.
+    assert File.read_link!(Path.join(live, "components/pure/lib")) == Path.dirname(extra)
+
+    expr!(consumer, """
+    source = Sprout.Addition.module_info(:compile)[:source] |> to_string() |> Path.expand(#{inspect(live)})
+    fields = [:major_device, :minor_device, :inode]
+    actual = Map.take(File.stat!(source), fields)
+    expected = Map.take(File.stat!(#{inspect(extra)}), fields)
+    unless actual == expected, do: raise("compiled source is not authoritative: " <> source)
+    """)
 
     File.rm!(extra)
     expr!(consumer, "false = Code.ensure_loaded?(Sprout.Addition)")

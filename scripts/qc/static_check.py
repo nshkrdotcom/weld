@@ -97,7 +97,9 @@ def main() -> int:
     check("no_removed_module_references_lexical", not removed_refs, removed_refs)
     lanes = re.findall(r'\{"([^"\n]+)",\s*(?:nil|"[^"\n]+")\}', files["scripts/test_ci.exs"])
     check("original_independent_ci_lanes_retained", ORIGINAL_LANES <= set(lanes), lanes)
-    check("additional_contract_lanes_present", {"qualification_faults", "hex_consumption"} <= set(lanes), lanes)
+    additional_lanes = {"qualification_faults", "hex_consumption", "slow", "probe_timeout",
+                        "release_faults_prepare", "release_faults_seal", "release_faults_pointer"}
+    check("additional_contract_lanes_present", additional_lanes <= set(lanes), lanes)
     checkpoint_lock = git("show", f"{CHECKPOINT}:mix.lock").decode()
     pin = lambda text: next((line for line in text.splitlines() if line.lstrip().startswith('"hex_core":')), None)
     check("resolved_hex_core_lock_pin_unchanged", pin(files["mix.lock"]) == pin(checkpoint_lock) and pin(files["mix.lock"]) is not None,

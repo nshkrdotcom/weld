@@ -1,10 +1,16 @@
+# Queue long independent lanes first so the final worker does not spend minutes
+# executing every release rollback boundary while the other workers are idle.
 jobs = [
-  {"fast", nil},
   {"hex_consumption", "hex_consumption_contract_test"},
   {"qualification_faults", "qualification_contract_test"},
   {"slow", nil},
+  {"release_faults_seal", "release_test"},
+  {"release_faults_pointer", "release_test"},
+  {"release_faults_prepare", "release_test"},
+  {"component_prepare", "component_tests_test"},
   {"source_consumption", "source_consumption_test"},
   {"release", "release_test"},
+  {"fast", nil},
   {"formatter", "release_test"},
   {"internal", "release_test"},
   {"package", "verifier_test"},
@@ -14,7 +20,6 @@ jobs = [
   {"monolith_tests", "projector_monolith_test"},
   {"package_config", "projector_package_mode_test"},
   {"source_docs_output", "verifier_test"},
-  {"component_prepare", "component_tests_test"},
   {"graph_consumption", "graph_live_test"},
   {"bootstrap_relocation", "bootstrap_relocation_test"},
   {"probe_timeout", "workspace_snapshot_v2_test"}
@@ -32,6 +37,7 @@ max_jobs =
   end
 
 source_cases = cores |> div(8) |> max(1) |> min(4)
+layout_output = System.get_env("WELD_QC_LAYOUT_OUTPUT")
 
 IO.puts(
   "Weld CI: #{length(jobs)} isolated lanes, #{max_jobs} at a time, " <>
@@ -62,15 +68,22 @@ try do
             ["--max-cases", "1", "--only", "ci_build:#{name}", "test/weld/#{test_file}.exs"]
         end
 
+      env = %{
+        "WELD_CI_BUILD_ROOT" => build_root,
+        "ERL_CRASH_DUMP" => Path.join(build_root, "erl_crash.dump"),
+        "ERL_FLAGS" => System.get_env("ERL_FLAGS", "+S 4:4")
+      }
+
+      env =
+        if name == "hex_consumption" and is_binary(layout_output),
+          do: Map.put(env, "WELD_QC_LAYOUT_OUTPUT", Path.expand(layout_output)),
+          else: env
+
       Blitz.command(
         id: name,
         command: "mix",
         args: ["test", "--no-compile", "--warnings-as-errors" | args],
-        env: %{
-          "WELD_CI_BUILD_ROOT" => build_root,
-          "ERL_CRASH_DUMP" => Path.join(build_root, "erl_crash.dump"),
-          "ERL_FLAGS" => System.get_env("ERL_FLAGS", "+S 4:4")
-        }
+        env: env
       )
     end)
 

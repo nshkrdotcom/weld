@@ -91,39 +91,13 @@ defmodule Weld.ReleaseTest do
     assert_reproducible(repo_root, prepared)
   end
 
-  @tag integration: true, ci_build: "release", timeout: 1_800_000
+  @tag integration: true, ci_build: "release_faults_prepare", timeout: 1_800_000
   test "prepare failure boundaries retain the previous exact current bundle" do
-    root = FixtureCase.copy_fixture("library_bundle")
-    FixtureCase.init_git!(root)
-    manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
-    first = Weld.Commands.release_prepare!(manifest, fresh: true)
-    pointer = Weld.Output.path(root, ["current", "fixture_bundle"])
-    old = File.read!(pointer)
-    # A new committed provenance identity keeps identical project bytes possible.
-    File.write!(Path.join(root, "UNRELATED_RELEASE_NOTE"), "new committed provenance\n")
-    FixtureCase.commit_all!(root, "advance qualification provenance")
+    fixture = prepare_failure_fixture!()
+    assert_prepare_failures!(fixture, [:prepare_snapshot, :prepare_qualified, :prepare_copied])
+    %{manifest: manifest, pointer: pointer, old: old} = fixture
 
-    for boundary <- [
-          :prepare_snapshot,
-          :prepare_qualified,
-          :prepare_copied,
-          :prepare_sealed,
-          :reserved,
-          :bundle_inserted,
-          :before_pointer,
-          :pointer_replaced,
-          :committed
-        ] do
-      assert_raise Weld.Error, ~r/injected failure/, fn ->
-        Weld.Commands.release_prepare!(manifest, fresh: true, failpoint: boundary)
-      end
-
-      assert File.read!(pointer) == old
-
-      assert Weld.ReleaseStatus.validate_bundle_integrity!(first.bundle_path, first.identity)[
-               "bundle_id"
-             ] == first.identity
-    end
+    IO.puts("Release rollback: G02 frozen input mutation")
 
     assert_raise Weld.Error, ~r/frozen|changed/, fn ->
       Weld.Commands.release_prepare!(manifest,
@@ -136,6 +110,57 @@ defmodule Weld.ReleaseTest do
     end
 
     assert File.read!(pointer) == old
+  end
+
+  @tag integration: true, ci_build: "release_faults_seal", timeout: 1_800_000
+  test "seal failure boundaries retain the previous exact current bundle" do
+    assert_prepare_failures!(prepare_failure_fixture!(), [
+      :prepare_sealed,
+      :reserved,
+      :bundle_inserted
+    ])
+  end
+
+  @tag integration: true, ci_build: "release_faults_pointer", timeout: 1_800_000
+  test "pointer failure boundaries retain the previous exact current bundle" do
+    assert_prepare_failures!(prepare_failure_fixture!(), [
+      :before_pointer,
+      :pointer_replaced,
+      :committed
+    ])
+  end
+
+  defp prepare_failure_fixture! do
+    root = FixtureCase.copy_fixture("library_bundle")
+    FixtureCase.init_git!(root)
+    manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
+    IO.puts("Release rollback: qualify the initial bundle")
+    first = Weld.Commands.release_prepare!(manifest, fresh: true)
+    pointer = Weld.Output.path(root, ["current", "fixture_bundle"])
+    old = File.read!(pointer)
+    # A new committed provenance identity keeps identical project bytes possible.
+    File.write!(Path.join(root, "UNRELATED_RELEASE_NOTE"), "new committed provenance\n")
+    FixtureCase.commit_all!(root, "advance qualification provenance")
+    %{manifest: manifest, pointer: pointer, old: old, first: first}
+  end
+
+  defp assert_prepare_failures!(
+         %{manifest: manifest, pointer: pointer, old: old, first: first},
+         boundaries
+       ) do
+    for boundary <- boundaries do
+      IO.puts("Release rollback: #{boundary}")
+
+      assert_raise Weld.Error, "injected failure at #{boundary}", fn ->
+        Weld.Commands.release_prepare!(manifest, fresh: true, failpoint: boundary)
+      end
+
+      assert File.read!(pointer) == old
+
+      assert Weld.ReleaseStatus.validate_bundle_integrity!(first.bundle_path, first.identity)[
+               "bundle_id"
+             ] == first.identity
+    end
   end
 
   @tag integration: true, ci_build: "formatter"
@@ -337,6 +362,7 @@ defmodule Weld.ReleaseTest do
   test "prepares and archives internal-only bundles without a tarball" do
     repo_root = FixtureCase.copy_fixture("root_workspace")
     manifest_path = write_internal_only_monolith_manifest(repo_root)
+    write_internal_only_web_test!(repo_root)
     FixtureCase.init_git!(repo_root)
     prepared = Weld.Commands.release_prepare!(manifest_path)
 
@@ -353,6 +379,18 @@ defmodule Weld.ReleaseTest do
     assert metadata["files"]["package"] == nil
 
     proof = Weld.ReleaseStatus.evidence!(prepared.bundle_path).qualification
+    gates = Map.new(proof["gates"], &{&1["id"], &1})
+
+    assert %{"status" => "pass", "facts" => %{"count" => 1, "tests" => [source_test]}} =
+             gates["G03"]
+
+    assert source_test["file"] == "apps/web/test/internal_release_test.exs"
+    assert source_test["state"] == "pass"
+
+    assert %{"status" => "pass", "facts" => %{"count" => 1, "tests" => [projected_test]}} =
+             gates["G05"]
+
+    assert projected_test == %{source_test | "file" => "test/apps_web/internal_release_test.exs"}
 
     assert Enum.any?(proof["gates"], fn result ->
              result["id"] == "G08" and result["status"] == "skip" and
@@ -370,6 +408,23 @@ defmodule Weld.ReleaseTest do
     assert result.branch_created?
     assert result.committed?
     assert FixtureCase.branch_exists?(repo_root, "projection/root_web_monolith")
+  end
+
+  defp write_internal_only_web_test!(repo_root) do
+    test_dir = Path.join(repo_root, "apps/web/test")
+    File.mkdir_p!(test_dir)
+    File.write!(Path.join(test_dir, "test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(Path.join(test_dir, "internal_release_test.exs"), """
+    defmodule RootWorkspace.InternalReleaseTest do
+      use ExUnit.Case, async: true
+
+      test "the web project uses its runtime dependency and test-only support" do
+        assert RootWorkspace.Web.page_title() == "core web"
+        assert RootWorkspace.TestSupport.helper() == :ok
+      end
+    end
+    """)
   end
 
   defp write_internal_only_monolith_manifest(repo_root) do
@@ -394,6 +449,7 @@ defmodule Weld.ReleaseTest do
         artifacts: [
           web_monolith: [
             layout: :flat,
+            flat: [test_support: ["tooling/test_support"]],
             roots: ["apps/web"],
             package: [
               name: "root_web_monolith",

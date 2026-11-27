@@ -1,5 +1,6 @@
 defmodule Weld.SmokeApp do
   @moduledoc "Detached ordinary Mix consumers for project smoke and exact signed Hex archives."
+  alias Mix.Dep.Lock
   alias Weld.{Error, Hash, Output, Plan}
   alias Weld.Shell.{Hex, Runner}
 
@@ -230,7 +231,7 @@ defmodule Weld.SmokeApp do
   end
 
   defp installed_lock!(root, app, name, version, registry, outer_sha) do
-    {lock, _binding} = Code.eval_file(Path.join(root, "mix.lock"))
+    lock = Lock.read(Path.join(root, "mix.lock"))
     entry = Map.get(lock, String.to_atom(app))
 
     case entry do

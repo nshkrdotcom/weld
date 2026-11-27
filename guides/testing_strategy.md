@@ -53,22 +53,41 @@ case per four online schedulers, at most six; `--max-cases N` overrides it.
 Use an ordinary untraced run for wall-time measurements; `--trace` normally
 serializes ExUnit and changes the workload.
 
-`scripts/test_ci.exs` retains the seventeen existing lanes and adds a slow
-source lane and the previously unassigned integration probe-timeout lane.
-Each has isolated build output and warnings as errors. On a 24-scheduler host,
-the default is four simultaneous CI lanes and three ExUnit cases per broad
-source lane. Individual integration lanes retain serial execution. Nested
-fixture builds and metadata VMs make unrestricted fanout counterproductive;
-set `WELD_CI_JOBS=2` to reduce load, or tune after measuring on the actual host.
+`scripts/test_ci.exs` retains all existing lanes, including the slow source
+and probe-timeout lanes, and splits the release rollback cases into three
+independent lanes. Each rollback lane starts with its own real qualified
+bundle and retains the original failure and prior-pointer assertions. All nine
+failpoints and the G02 mutation case remain exercised. Long lanes are queued
+first to reduce the serial tail. There are 22 isolated lanes, each with
+separate build output and warnings as errors. On a 24-scheduler host, the
+default is four simultaneous CI lanes and three ExUnit cases per broad source
+lane. Individual integration lanes retain serial execution. Nested fixture
+builds and metadata VMs make unrestricted fanout counterproductive; set
+`WELD_CI_JOBS=2` to reduce load, or tune after measuring on the actual host.
 Blitz streams labeled results. Fast and slow source passes never stand in for
 integration acceptance.
+
+For release QC, retain the actual matrix results from the `hex_consumption`
+lane instead of running the identical matrix a second time:
+
+```bash
+WELD_QC_LAYOUT_OUTPUT=/var/tmp/weld-qc-layouts-NEW mix ci
+```
+
+Use a new directory with an existing parent. The lane invokes the same
+`Weld.QC.matrix!/1` harness as `scripts/qc/qualify_layouts.exs`, retaining its
+archives, docs, logs and report for inspection and browser checks. Ordinary
+CI without this explicit output retains the original temporary cleanup policy.
 
 | Lane | Scope |
 | --- | --- |
 | fast | Source tests excluding `:slow` and `:integration` |
 | slow | Slower source tests (`:slow`) |
 | source_consumption | Detached source/path/Git consumption |
-| release | Preparation, immutable evidence and release behavior |
+| release | Preparation, immutable evidence and independent reproducibility |
+| release_faults_prepare | Snapshot, qualification, copy and G02 mutation rollback |
+| release_faults_seal | Seal, reserve and bundle insertion rollback |
+| release_faults_pointer | Before-pointer, pointer replacement and commit rollback |
 | formatter | Actual generated formatting |
 | internal | Internal dependency projection |
 | package | Generated package qualification |
