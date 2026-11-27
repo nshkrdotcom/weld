@@ -6,11 +6,6 @@ defmodule Weld.Layout.Render do
   def mix(plan, application, spec, opts) do
     package = plan.artifact.package
 
-    links =
-      if map_size(package.links) == 0,
-        do: %{"Source" => plan.facts.remote_url || "https://github.com/nshkrdotcom/weld"},
-        else: package.links
-
     """
     defmodule #{Macro.camelize(to_string(package.otp_app))}.MixProject do
       use Mix.Project
@@ -36,7 +31,7 @@ defmodule Weld.Layout.Render do
       defp deps, do: #{inspect(spec.deps, pretty: true, limit: :infinity)}
       defp package do
         [name: #{inspect(package.name)}, licenses: #{inspect(package.licenses)},
-         maintainers: #{inspect(package.maintainers)}, links: #{inspect(links)},
+         links: #{inspect(package.links)},
          files: #{inspect(opts[:package_files], pretty: true, limit: :infinity)}]
       end
       defp docs, do: #{Support.render_docs_options(plan)}

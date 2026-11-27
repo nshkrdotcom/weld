@@ -28,8 +28,8 @@ Never report an unexecuted check as passing.
 The reference checkpoint toolchain was Elixir 1.20.5, OTP 29.1.2, Hex 2.7.0 and
 Hex Core 0.21.1. The project declares Elixir `~> 1.18`; maintainers must also run
 the supported minimum-version matrix before claiming compatibility. Preserve the
-resolved Hex Core lock entry. The implementation environment's lack of
-Elixir/OTP/Mix means all new runtime results remain pending, including formatting.
+resolved Hex Core lock entry and capture pass or failure for every required
+command on the committed source.
 
 ## Independent CI lanes
 
@@ -140,8 +140,8 @@ For actual MedEx base, Opus, RTC and Med Fabric, use disposable copies and the
 exact manifest/package versions in their coordinated change. Qualify the actual
 native provider archive and downstream dependency graph with Weld absent from
 the consumer. External checkouts and toolchains are prerequisites; fixture
-success alone does not establish ecosystem compatibility. See the standalone
-QC handoff for exact capture commands and the consumer-case configuration.
+success alone does not establish ecosystem compatibility. Use the [consumer integration guide](consumer_repo_integration.md) for the
+exact archive and signed-registry commands.
 
 ## Docs, transport and trust
 

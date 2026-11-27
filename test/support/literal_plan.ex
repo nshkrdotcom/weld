@@ -34,8 +34,7 @@ defmodule Weld.LiteralPlan do
       nodes: nodes,
       compiler_id: Identity.raw("literal compiler"),
       toolchain: %{"test" => "literal"},
-      context: [],
-      remote_url: nil
+      context: []
     }
 
     docs = %Manifest.Docs{

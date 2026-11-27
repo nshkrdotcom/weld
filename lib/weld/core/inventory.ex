@@ -37,6 +37,23 @@ defmodule Weld.Core.Inventory do
     sorted
   end
 
+  @doc false
+  def default_hex_files do
+    ~w(lib priv .formatter.exs mix.exs README* readme* LICENSE* license* CHANGELOG* changelog* src c_src Makefile*)
+  end
+
+  @doc false
+  def relative_charlist_path(path, root) when is_list(path) and is_binary(root) do
+    if Enum.all?(path, &is_integer/1), do: strip_charlist_root(path, String.to_charlist(root))
+  end
+
+  defp strip_charlist_root(path, root), do: strip_charlist_prefix(path, root, root ++ ~c"/")
+  defp strip_charlist_prefix(root, root, _prefix), do: ~c"."
+
+  defp strip_charlist_prefix(path, _root, prefix) do
+    if List.starts_with?(path, prefix), do: Enum.drop(path, length(prefix)), else: path
+  end
+
   @spec validate_path!(String.t()) :: String.t()
   def validate_path!(path) do
     if not is_binary(path) or not String.valid?(path) or Path.type(path) != :relative or

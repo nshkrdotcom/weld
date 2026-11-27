@@ -1,6 +1,6 @@
 defmodule Weld.Shell.Native do
   @moduledoc false
-  alias Weld.Core.Facts
+  alias Weld.Core.{Facts, Inventory}
   alias Weld.Error
   alias Weld.Shell.Runner
   alias Weld.Workspace.Probe
@@ -37,14 +37,18 @@ defmodule Weld.Shell.Native do
       dependencies = Enum.map(Map.fetch!(project.deps_by_env, env), & &1.original)
       elixirc = if env == :test, do: project.test_elixirc_paths, else: project.elixirc_paths
       erlc = if env == :test, do: project.test_erlc_paths, else: project.erlc_paths
+      source_config = Map.fetch!(project.config_by_env, env)
+      package_metadata = Enum.sort(source_config[:package] || [])
 
       compiler_metadata =
-        Keyword.take(Map.fetch!(project.config_by_env, env), [
+        source_config
+        |> Keyword.take([
           :compilers,
           :elixirc_options,
           :erlc_options,
           :erlc_include_path
         ])
+        |> normalize_compiler_metadata(source_root)
 
       script = """
       Mix.start()
@@ -71,9 +75,36 @@ defmodule Weld.Shell.Native do
           unless Enum.sort(List.wrap(config[:elixirc_paths] || ["lib"])) == #{inspect(Enum.sort(elixirc))} and
             Enum.sort(List.wrap(config[:erlc_paths] || ["src"])) == #{inspect(Enum.sort(erlc))},
             do: raise("staged compiler roots differ from source metadata")
-          unless Enum.sort(package) == #{inspect(Enum.sort(project.package_metadata), limit: :infinity)},
+          package_metadata = Keyword.take(package, #{inspect(Probe.package_fields())})
+          unless Enum.sort(package_metadata) == #{inspect(package_metadata, limit: :infinity)},
             do: raise("staged package metadata differs from source")
-          unless Enum.sort(Keyword.take(config, [:compilers, :elixirc_options, :erlc_options, :erlc_include_path])) == #{inspect(Enum.sort(compiler_metadata), limit: :infinity)},
+          normalize_erlc_option = fn
+            {:i, path} when is_list(path) ->
+              if Enum.all?(path, &is_integer/1) do
+                root_chars = String.to_charlist(generated_root)
+                prefix = root_chars ++ ~c"/"
+
+                cond do
+                  path == root_chars -> {:i, ~c"."}
+                  List.starts_with?(path, prefix) -> {:i, Enum.drop(path, length(prefix))}
+                  true -> {:i, path}
+                end
+              else
+                {:i, path}
+              end
+
+            option ->
+              option
+          end
+          compiler_config =
+            config
+            |> Keyword.take([:compilers, :elixirc_options, :erlc_options, :erlc_include_path])
+            |> then(fn meta ->
+              if is_list(meta[:erlc_options]),
+                do: Keyword.put(meta, :erlc_options, Enum.map(meta[:erlc_options], normalize_erlc_option)),
+                else: meta
+            end)
+          unless Enum.sort(compiler_config) == #{inspect(Enum.sort(compiler_metadata), limit: :infinity)},
             do: raise("staged compiler metadata differs from source")
           application = if function_exported?(project, :application, 0), do: project.application(), else: []
           actual_application = %{
@@ -133,4 +164,25 @@ defmodule Weld.Shell.Native do
 
     :ok
   end
+
+  defp normalize_compiler_metadata(metadata, root) do
+    if is_list(metadata[:erlc_options]) do
+      Keyword.put(
+        metadata,
+        :erlc_options,
+        Enum.map(metadata[:erlc_options], &normalize_erlc_option(&1, root))
+      )
+    else
+      metadata
+    end
+  end
+
+  defp normalize_erlc_option({:i, path}, root) when is_list(path) do
+    case Inventory.relative_charlist_path(path, root) do
+      nil -> {:i, path}
+      relative -> {:i, relative}
+    end
+  end
+
+  defp normalize_erlc_option(option, _root), do: option
 end

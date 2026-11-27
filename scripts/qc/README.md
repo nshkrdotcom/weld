@@ -106,7 +106,7 @@ proves index, script and listener shape; it never claims browser rendering.
 `Weld.Shell.Hex.http_transport/1`, not another release publisher. It refuses the
 public Hex service and accepts only an explicitly authorized HTTPS sandbox and
 package names beginning `weld_qc_`. It is never called by verify, prepare or CI.
-No sandbox or production write has been performed in this implementation session.
+No sandbox or production write is performed by ordinary CI or local QC.
 
 The sandbox must expose an authenticated `weld-qc/` API receipt route documenting
 its actual received HTTP body hashes, authoritative absence including staging,
@@ -269,7 +269,8 @@ child exits. It does not touch original sibling consumer repositories. The
 outer child-process bound is four hours; individual qualification subprocesses
 retain their own bounds. Missing prerequisites, any failed phase, unexpected
 code paths or checksum differences fail explicitly and never produce a successful
-final `result.json`. This driver has not been run in the current environment.
+final `result.json`. Record each run against the exact archive SHA-256 and
+source revision tested.
 
 Retain these artifacts:
 

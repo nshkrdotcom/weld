@@ -973,9 +973,7 @@ defmodule Weld.Verifier do
   defp package_empty_dirs!(project, config, empty_dirs) do
     package = config[:package] || []
 
-    patterns =
-      package[:files] ||
-        ~w(lib priv .formatter.exs mix.exs README* readme* LICENSE* license* CHANGELOG* changelog* src c_src Makefile*)
+    patterns = package[:files] || Weld.Core.Inventory.default_hex_files()
 
     matches =
       Enum.flat_map(patterns, fn pattern ->
@@ -1119,6 +1117,15 @@ defmodule Weld.Verifier do
     do: Map.new(value, fn {key, item} -> {to_string(key), portable(item, root)} end)
 
   defp portable(value, root) when is_list(value), do: Enum.map(value, &portable(&1, root))
+
+  # Erlang include paths can be charlists. Preserve the option's encoding while
+  # dropping the operational root of this qualification run.
+  defp portable({:i, path}, root) when is_list(path) do
+    case Weld.Core.Inventory.relative_charlist_path(path, root) do
+      nil -> ["i", portable(path, root)]
+      relative -> ["i", relative]
+    end
+  end
 
   defp portable(value, root) when is_tuple(value),
     do: value |> Tuple.to_list() |> Enum.map(&portable(&1, root))

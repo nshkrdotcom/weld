@@ -141,9 +141,7 @@ defmodule Weld.Plan.Inventory do
     root = plan.manifest.repo_root
     project = Map.fetch!(plan.workspace.projects, hd(plan.artifact.roots))
 
-    patterns =
-      project.package_files ||
-        ~w(lib priv .formatter.exs mix.exs README* readme* LICENSE* license* CHANGELOG* changelog* src c_src Makefile)
+    patterns = project.package_files || CoreInventory.default_hex_files()
 
     published =
       patterns
@@ -556,9 +554,7 @@ defmodule Weld.Plan.Inventory do
     {%{
        "artifact" => wire(Map.from_struct(plan.artifact), plan.manifest.repo_root),
        "projects" => projects,
-       "toolchain" => plan.facts.toolchain,
-       "remote_url" =>
-         if(map_size(plan.artifact.package.links) == 0, do: plan.facts.remote_url, else: nil)
+       "toolchain" => plan.facts.toolchain
      }, Map.values(external)}
   end
 
@@ -1036,6 +1032,14 @@ defmodule Weld.Plan.Inventory do
   end
 
   defp wire(value, root) when is_list(value), do: Enum.map(value, &wire(&1, root))
+
+  defp wire({:i, path}, root) when is_list(path) do
+    case CoreInventory.relative_charlist_path(path, root) do
+      nil -> ["i", wire(path, root)]
+      relative -> ["i", relative]
+    end
+  end
+
   defp wire(value, root) when is_tuple(value), do: value |> Tuple.to_list() |> wire(root)
   defp wire(value, _root) when value in [nil, true, false], do: value
   defp wire(value, _root) when is_atom(value), do: Atom.to_string(value)

@@ -6,8 +6,13 @@ defmodule Weld.Workspace.Probe do
   @max_response 1024 * 1024
   @max_nodes 100_000
   @environments [:dev, :test, :prod]
+  @package_fields ~w(name files exclude_patterns licenses links maintainers build_tools extra
+                     description secret_scan organization executables)a
 
   def environments, do: @environments
+
+  @doc false
+  def package_fields, do: @package_fields
 
   def collect!(root, project_ids, opts \\ []) do
     jobs = for id <- Enum.sort(project_ids), env <- @environments, do: {id, env}
@@ -211,7 +216,7 @@ defmodule Weld.Workspace.Probe do
         _ -> []
       end)
       config = Keyword.update(config, :package, [], fn package ->
-        if is_list(package), do: Keyword.take(package, [:name, :files, :exclude_patterns, :licenses, :links, :maintainers, :build_tools, :extra, :description, :secret_scan]), else: []
+        if is_list(package), do: Keyword.take(package, #{inspect(@package_fields)}), else: []
       end)
       application = if function_exported?(module, :application, 0), do: module.application(), else: []
       required_files = Code.required_files() |> Enum.filter(&(&1 == root or String.starts_with?(&1, root <> "/"))) |> Enum.map(&Path.relative_to(&1, root)) |> Enum.sort()

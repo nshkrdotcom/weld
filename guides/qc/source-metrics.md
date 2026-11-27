@@ -59,13 +59,14 @@ claim of an executed comparative benchmark.
 
 The compiler now consumes values, layouts share renderers and a materializer,
 and one canonical codec owns portable identity. Splitting the pure decision and
-observation boundary adds files while removing dependency cycles by design;
-compiled xref still requires runtime execution. We did not retain parallel
-implementations or add compatibility readers to avoid deleting old owners.
+observation boundary adds files while removing dependency cycles by design, as
+verified by compiled `mix xref` cycle checks during runtime QC. We did not retain
+parallel implementations or add compatibility readers to avoid deleting old owners.
 
-Selected **physical file** changes show both removal and expansion:
+Selected **physical file** changes at the initial unformatted handoff show both
+removal and expansion:
 
-| File | Checkpoint lines | Current lines | Delta |
+| File | Checkpoint lines | Initial handoff lines | Delta |
 | --- | ---: | ---: | ---: |
 | `lib/weld/plan.ex` | 546 | 105 | -441 |
 | `lib/weld/projector.ex` | 301 | 138 | -163 |
@@ -82,12 +83,12 @@ Selected **physical file** changes show both removal and expansion:
 These per-file rows are not summed as an overall saving: some responsibilities
 moved into shared pure compiler/render/materializer modules and must still be
 counted there. The complete production totals above include all such files.
-The four newly deleted paths are listed in the standalone QC handoff; they
-include the old live/source-project projectors, shell input selector and
-Lockfile wrapper. Legacy Hash identity helpers, the unused replace facade and
-verifier wrappers were also removed. The 37 removals already in the checkpoint
-remain absent. No production logic was moved into a QC script to improve this
-metric, and code was not minified to conceal scope.
+The four newly deleted paths since `0ff6f9e` are `lib/weld/lockfile.ex`,
+`lib/weld/projector/live.ex`, `lib/weld/projector/source_project.ex` and
+`lib/weld/shell/inputs.ex`. Legacy Hash identity helpers, the unused replace
+facade and verifier wrappers were also removed. The 37 removals already in the
+checkpoint remain absent. No production logic was moved into a QC script to
+improve this metric, and code was not minified to conceal scope.
 
 Multigraph had already been removed by the checkpoint; the completed source
 removes unused Telemetry and preserves the resolved Hex Core 0.21.1 lock entry.
@@ -110,23 +111,23 @@ Runtime QC also repaired behavior exposed by compilation and qualification.
 | Metric | Runtime QC measurement |
 | --- | ---: |
 | Production implementation files | 62 |
-| Physical production lines | 19,251 |
-| Nonblank/noncomment lines | 15,918 |
+| Physical production lines | 19,460 |
+| Nonblank/noncomment lines | 16,049 |
 | Lexical module declarations | 74 |
-| Lexical function declarations | 1,426 |
-| Lexical branch keywords | 1,217 |
+| Lexical function declarations | 1,555 |
+| Lexical branch keywords | 1,201 |
 | Direct dependencies, all scopes | 7 |
 | Public Mix task files | 1 |
 
-This measurement exceeds the physical line target by **9,351
-lines (94.5%)** and the file target by **7 files**.
+This measurement exceeds the physical line target by **9,560
+lines (96.6%)** and the file target by **7 files**.
 Rerun the same counter after additional repairs.
 
 ## Runtime and scaling status
 
-The implementation environment lacked Elixir, OTP, Mix and GNU time. The
-runtime QC index records subsequent compilation, xref and test observations for
-their exact source. Historical checkpoint warm plan timings were observed during
+The initial editing environment lacked Elixir, OTP, Mix and GNU time. Runtime QC
+records compilation, xref, test and driver observations against the exact source
+revision executed. Historical checkpoint warm plan timings were observed during
 concurrent QC. Use measured current samples for performance comparisons.
 
 `scripts/qc/benchmark.py` supplies exact revision checkouts, one cold/five warm
@@ -134,7 +135,8 @@ samples, forced full/live materializations separately from asserted cache hits,
 real qualification and optional docs/native measurements. Missing historical
 instrumentation is null, not zero. The deterministic synthetic generator was
 executed with Python and counted at 100 projects, 5,000 project files, ten
-artifacts and 197 mixed-scope edges. Its Elixir build and timing remain unrun.
+artifacts and 197 mixed-scope edges; record Elixir timing runs per tested
+revision under `.weld/v2/runs/qc/`.
 
 Use the same idle host/toolchain and actual consumer inputs for comparisons.
 Part 2 targets warm plan/cache medians no worse than baseline, full/qualification

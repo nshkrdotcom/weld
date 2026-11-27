@@ -28,6 +28,31 @@ defmodule Weld.ProjectorTest do
     assert mixfile =~ "components/runtime/local/lib"
   end
 
+  test "package links come from the manifest and maintainers are omitted" do
+    manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
+    source = File.read!(manifest)
+    explicit = Weld.Commands.project!(manifest)
+
+    assert File.read!(Path.join(explicit.build_path, "mix.exs")) =~
+             ~s|links: %{"Source" => "https://example.test/fixture_bundle"}|
+
+    File.write!(
+      manifest,
+      String.replace(
+        source,
+        ~s|        links: %{"Source" => "https://example.test/fixture_bundle"},
+|,
+        ""
+      )
+    )
+
+    result = Weld.Commands.project!(manifest)
+    mixfile = File.read!(Path.join(result.build_path, "mix.exs"))
+    assert mixfile =~ "links: %{}"
+    refute mixfile =~ "maintainers:"
+    refute mixfile =~ "github.com/nshkrdotcom/weld"
+  end
+
   test "reuses identical outputs and refreshes same-size edits and tampering" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
 

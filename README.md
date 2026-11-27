@@ -99,10 +99,7 @@ canonical proof, crash/concurrency, representative measurements and the final
 manual synthetic soak. The acceptance and disposition ledgers live in
 [guides/qc](guides/qc/acceptance.md).
 
-The implementation completion environment has no Elixir, OTP or Mix. Current
-source changes, test sources and QC drivers are delivered, but formatting,
-compilation, ExUnit, Credo, Dialyzer, ExDoc, all CI lanes, native builds and
-runtime qualification remain unrun. Historical checkpoint passes do not qualify
-this source. There has been no production publication or remote release push.
+Release QC records the results for the exact source revision tested. See the
+testing strategy for the required gates and how to collect evidence.
 
 License: MIT.

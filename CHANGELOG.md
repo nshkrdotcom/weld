@@ -7,10 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.20.0] - 2026-11-26
 
-This is a breaking schema 2 release. Source implementation and runtime
-qualification are separate: the current completion session has no Elixir, OTP
-or Mix runtime, so its new formatter/compiler/test/docs/consumer results are
-pending. Historical checkpoint results do not qualify these changes.
+This release introduces schema 2 and a single `mix weld` entry point.
+Runtime qualification applies to the exact source revision and toolchain
+recorded in the release evidence.
 
 ### Added
 
@@ -56,6 +55,13 @@ pending. Historical checkpoint results do not qualify these changes.
   representative benchmark and synthetic soak drivers.
 
 ### Changed
+
+- Normalize Erlang `{:i, charlist}` include paths in portable plan and
+  qualification evidence and in preserve staging checks.
+- Compare the same observed native package metadata fields by Mix environment
+  before and after preserve materialization.
+- Use declared links in generated package metadata and omit the redundant
+  maintainers field. Preserve follows the pinned Hex default Makefile patterns.
 
 - Consolidate the public surface into `mix weld COMMAND` and `Weld.run/2`, with
   typed requests, one JSON result envelope, stderr diagnostics and stable exit

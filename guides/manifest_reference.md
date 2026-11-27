@@ -88,7 +88,7 @@ package: [
 
 Name, OTP app and semantic version are required. Elixir defaults to `~> 1.18`; description, licenses and links have documented generated defaults. Development dependencies must be versioned Hex dependencies scoped to dev/test and `runtime: false`. Generated dependencies are selected by the compiled graph, not pasted from arbitrary source dependencies.
 
-`docs_main` is not a package key. Configure `docs.main`. A redundant generated `maintainers` field is omitted because Hex does not use it as authoritative maintainer ownership. Native preserve metadata remains owned by Mix/Hex.
+`docs_main` is not a package key. Configure `docs.main`. Generated package links come from the manifest. Set `package.links` explicitly for a public package. A redundant generated `maintainers` field is omitted because Hex does not use it as authoritative maintainer ownership. Native preserve metadata remains owned by Mix/Hex.
 
 ### Documentation and root files
 

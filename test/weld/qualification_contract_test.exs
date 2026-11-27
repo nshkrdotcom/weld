@@ -1,5 +1,6 @@
 defmodule Weld.QualificationContractTest do
   use ExUnit.Case, async: false
+  alias Weld.Core.Identity
   alias Weld.{Error, FixtureCase, Plan}
   alias Weld.Shell.GC
   alias Weld.Verifier
@@ -131,5 +132,65 @@ defmodule Weld.QualificationContractTest do
     prepared = Weld.Release.prepare!(plan, failpoint: barrier)
     assert_receive :qualified_run_retained
     assert File.regular?(Path.join(prepared.project_path, "mix.exs"))
+  end
+
+  @tag integration: true, ci_build: "qualification_faults", timeout: 180_000
+  test "Erlang include options do not bind the G02 digest to the qualification directory" do
+    root = FixtureCase.copy_fixture("library_bundle")
+    manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
+    {config, _binding} = Code.eval_file(manifest)
+
+    config =
+      put_in(config, [:artifacts, :fixture_bundle, :verify],
+        hex_build: false,
+        hex_publish_check: false
+      )
+
+    File.write!(manifest, inspect(config, limit: :infinity))
+    write_erl_include_fixture!(Path.join(root, "core/contracts"))
+    plan = Plan.build!(manifest)
+    first = Verifier.verify!(plan)
+    second = Verifier.verify!(plan)
+
+    assert first.build_path != second.build_path
+
+    for result <- [first, second] do
+      assert Enum.find(result.gates, &(&1["id"] == "G04"))["status"] == "pass"
+
+      assert File.regular?(
+               Path.join([
+                 Path.dirname(result.build_path),
+                 "cache/build/dev/lib/fixture_bundle/ebin",
+                 "weld_qualification_include.beam"
+               ])
+             )
+    end
+
+    assert metadata_sha256(first) == metadata_sha256(second)
+  end
+
+  defp metadata_sha256(result) do
+    assert %{"status" => "pass", "facts" => %{"metadata_sha256" => digest}} =
+             Enum.find(result.gates, &(&1["id"] == "G02"))
+
+    assert Identity.valid?(digest)
+    digest
+  end
+
+  defp write_erl_include_fixture!(project) do
+    File.mkdir_p!(Path.join(project, "include"))
+    File.mkdir_p!(Path.join(project, "src"))
+
+    File.write!(
+      Path.join(project, "include/weld_qualification_header.hrl"),
+      "-define(WELD_TEST_VALUE, 42).\n"
+    )
+
+    File.write!(Path.join(project, "src/weld_qualification_include.erl"), """
+    -module(weld_qualification_include).
+    -include("weld_qualification_header.hrl").
+    -export([value/0]).
+    value() -> ?WELD_TEST_VALUE.
+    """)
   end
 end

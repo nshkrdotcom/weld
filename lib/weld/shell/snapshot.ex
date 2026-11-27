@@ -25,8 +25,7 @@ defmodule Weld.Shell.Snapshot do
         "otp" => System.otp_release(),
         "architecture" => to_string(:erlang.system_info(:system_architecture))
       },
-      context: Keyword.get(opts, :context, []),
-      remote_url: Git.remote_url(root)
+      context: Keyword.get(opts, :context, [])
     }
   end
 

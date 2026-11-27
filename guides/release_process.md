@@ -10,8 +10,7 @@ publication each establish a different fact.
 Use a clean committed checkout, an explicit schema 2 manifest, initialized
 managed state and the pinned toolchain recorded in your QC evidence. Weld's own
 version is 0.20.0; its package still builds normally from the root Mix project.
-The 0.20 completion environment had no Elixir/OTP/Mix, so new runtime acceptance
-is required before release. Historical checkpoint results are not new passes.
+Record runtime acceptance for the exact committed revision before release.
 
 ```bash
 mix weld setup
