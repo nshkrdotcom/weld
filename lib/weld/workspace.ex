@@ -316,7 +316,7 @@ defmodule Weld.Workspace do
     |> Enum.flat_map(fn {env, deps} -> Enum.map(deps, &{env, &1}) end)
     |> Enum.group_by(fn {_env, dep} ->
       {dep.app, dep.requirement,
-       dep.opts |> Graph.normalize_dependency_options() |> Keyword.delete(:only)}
+       dep.app |> Graph.normalize_dependency_options(dep.opts) |> Keyword.delete(:only)}
     end)
     |> Enum.sort_by(&elem(&1, 0))
     |> Enum.flat_map(fn {_key, observations} ->
@@ -331,7 +331,7 @@ defmodule Weld.Workspace do
 
     signatures =
       observations
-      |> Enum.map(fn {_env, dep} -> Graph.normalize_dependency_options(dep.opts) end)
+      |> Enum.map(fn {_env, dep} -> Graph.normalize_dependency_options(dep.app, dep.opts) end)
       |> Enum.uniq()
 
     if present == Enum.sort(Probe.environments()) and length(signatures) == 1 do

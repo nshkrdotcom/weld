@@ -83,6 +83,29 @@ defmodule Weld.WorkspaceSnapshotV2Test do
            ) == [:development_dep, :production_dep]
   end
 
+  test "equivalent Hex defaults across environments do not introduce scopes", %{tmp_dir: dir} do
+    {path, _counter} = workspace(dir)
+    root = Path.dirname(Path.dirname(path))
+    mix = Path.join(root, "left/mix.exs")
+
+    File.write!(
+      mix,
+      String.replace(
+        File.read!(mix),
+        "version: WeldSnapshot.RepeatedHelper.version(),",
+        ~s|version: WeldSnapshot.RepeatedHelper.version(), deps: if(@environment == :prod, do: [{:fixture_dep, "~> 1.0", hex: "fixture_dep", repo: "hexpm"}], else: [{:fixture_dep, "~> 1.0"}]),|
+      )
+    )
+
+    loaded = path |> Manifest.load!() |> Workspace.load!()
+    project = loaded.projects["left"]
+
+    assert [%{original: {:fixture_dep, "~> 1.0", [hex: "fixture_dep", repo: "hexpm"]}}] =
+             project.deps_by_env.prod
+
+    assert [%{original: {:fixture_dep, "~> 1.0"}, opts: []}] = project.deps
+  end
+
   @tag :slow
   test "production-only identity package compiler and application drift fail explicitly", %{
     tmp_dir: dir

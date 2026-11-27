@@ -280,7 +280,11 @@ defmodule Weld.Graph do
     opts = canonical_external_opts(manifest_decl, dep)
 
     if Enum.all?([:runtime, :optional, :only, :targets], &same_scope?(&1, dep.opts, opts)) do
-      build_canonical_external_dep(dep.app, requirement, normalize_dependency_options(opts))
+      build_canonical_external_dep(
+        dep.app,
+        requirement,
+        normalize_dependency_options(dep.app, opts)
+      )
     else
       :error
     end
@@ -298,16 +302,16 @@ defmodule Weld.Graph do
         build_canonical_external_dep(
           dep.app,
           dep.requirement,
-          normalize_dependency_options(dep.opts)
+          normalize_dependency_options(dep.app, dep.opts)
         )
 
       policy.requirement != dep.requirement ->
         {:error, "canonical requirement conflicts with the native external package requirement"}
 
       true ->
-        candidate = canonical_external_opts(policy, dep) |> normalize_dependency_options()
+        candidate = normalize_dependency_options(dep.app, canonical_external_opts(policy, dep))
 
-        if normalize_dependency_options(dep.opts) == candidate do
+        if normalize_dependency_options(dep.app, dep.opts) == candidate do
           build_canonical_external_dep(dep.app, dep.requirement, candidate)
         else
           {:error,
@@ -435,9 +439,26 @@ defmodule Weld.Graph do
   end
 
   @doc false
+  def normalize_dependency_options(app, opts) do
+    opts = normalize_dependency_options(opts)
+
+    if default_hex_source?(app, opts), do: Keyword.drop(opts, [:hex, :repo]), else: opts
+  end
+
+  # Only the ordinary public package with the same name as the app is
+  # equivalent to Mix's shorthand. Keep all non-default source coordinates.
+  defp default_hex_source?(app, opts) do
+    source_options = [:path, :git, :github, :in_umbrella, :organization, :scm]
+
+    not Enum.any?(source_options, &Keyword.has_key?(opts, &1)) and
+      Keyword.get(opts, :repo, "hexpm") == "hexpm" and
+      Keyword.get(opts, :hex, app) in [app, Atom.to_string(app)]
+  end
+
+  @doc false
   def merge_dependency_scopes(left, right) do
-    left = %{left | opts: normalize_dependency_options(left.opts)}
-    right = %{right | opts: normalize_dependency_options(right.opts)}
+    left = %{left | opts: normalize_dependency_options(left.app, left.opts)}
+    right = %{right | opts: normalize_dependency_options(right.app, right.opts)}
     left_source = {left.app, left.requirement, Keyword.delete(left.opts, :only)}
     right_source = {right.app, right.requirement, Keyword.delete(right.opts, :only)}
 
@@ -473,7 +494,7 @@ defmodule Weld.Graph do
   def normalize_dependencies(deps) do
     deps
     |> Enum.map(fn dep ->
-      opts = normalize_dependency_options(dep.opts)
+      opts = normalize_dependency_options(dep.app, dep.opts)
       %{dep | opts: opts, original: dependency_tuple(dep.app, dep.requirement, opts)}
     end)
     |> Enum.group_by(&{&1.app, &1.requirement, Enum.sort(Keyword.delete(&1.opts, :only))})

@@ -232,7 +232,7 @@ defmodule Weld.Shell.Snapshot do
 
     Identity.digest("input", %{
       "schema" => "weld.compiler/2",
-      "version" => "0.20.0",
+      "version" => to_string(Application.spec(:weld, :vsn)),
       "modules" => entries
     })
   end

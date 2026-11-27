@@ -13,15 +13,15 @@ Weld is an artifact compiler for Elixir workspaces. It resolves explicitly decla
 
 ## Install
 
-These examples target Weld 0.20.0. Resolve the Hex dependency after publication.
+These examples target Weld 0.20.1. Resolve the Hex dependency after publication.
 
 ```elixir
-{:weld, "~> 0.20.0", only: [:dev, :test], runtime: false}
+{:weld, "~> 0.20.1", only: [:dev, :test], runtime: false}
 ```
 
 ## Start here
 
-Weld 0.20.0 is a breaking release. Use schema 2 manifests and the single `mix weld` command. Prior manifest schemas, dotted commands, and prior state formats are not supported.
+The 0.20 series introduced a breaking release in 0.20.0. Weld 0.20.1 retains that contract and fixes public Hex dependency normalization and invalid-plan diagnostics. Use schema 2 manifests and the single `mix weld` command. Prior manifest schemas, dotted commands, and prior state formats are not supported.
 
 ```bash
 mix weld setup
@@ -37,7 +37,7 @@ mix weld path --artifact weld --kind bundle
 
 Three layouts share a semantic plan: `:components` embeds selected workspace components, `:flat` merges their sources into a single project, and `:preserve` copies a declared existing project. Full projects are detached regular-file copies; live views link source for development and are not releasable. Qualification operates on a separate copy. A prepared bundle includes the qualified project, documentation and, when enabled, the exact package archive. Git tracking, staging and publication are distinct operations. Never publish from a mutable development project.
 
-Remote Git dependencies are supported for non-Hex artifacts. Local filesystem Git dependencies need a canonical remote Git or Hex replacement in generated layouts, or a native declaration change in preserve. Selected internal path dependencies continue to follow the chosen layout's ownership rules.
+Ordinary public Hex dependencies may use the Mix shorthand or explicitly name the same package and `hexpm` repository. Remote Git dependencies are supported for non-Hex artifacts. Local filesystem Git dependencies need a canonical remote Git or Hex replacement in generated layouts, or a native declaration change in preserve. Selected internal path dependencies continue to follow the chosen layout's ownership rules.
 
 Use `mix weld release-plan` for dependency order and `mix weld affected --base HEAD~1 --head HEAD --task package` to compare genuine Git trees. Batch commands share workspace facts and return per-artifact diagnostics. Later release operations require a full bundle identity or an explicit `--current`; historical pinned bundles can be read with `--root --artifact --identity` after a manifest changes. `--format json` emits one versioned envelope on stdout, with progress on stderr.
 
@@ -57,7 +57,7 @@ See [getting started](guides/getting_started.md), the [manifest reference](guide
 | Publication | Uploads use frozen bytes with independent package/docs outcomes. Reconciliation queries remote evidence after uncertain sends; stage and dry run do not publish. |
 
 No automatic state migration or old-task compatibility is provided. Read the
-[0.20.0 changelog](CHANGELOG.md) for the full change since 0.19.0 and the
+[changelog](CHANGELOG.md) for the full change since 0.19.0, including the 0.20.1 fixes, and the
 [workflow](guides/workflow.md) for setup, refresh, failure recovery and GC.
 
 ## Pinned release operations

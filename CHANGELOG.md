@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-11-26
+
+### Fixed
+
+- Treat explicit same-name public Hex package and repository defaults as
+  equivalent to Mix shorthand when combining dependency declarations. Keep
+  aliases, private repositories, organization and non-Hex sources distinct.
+- Reject invalid single-artifact plans with the underlying plan diagnostics
+  before attempting to serialize a missing layout.
+- Derive the compiler identity version from the loaded Weld application metadata
+  instead of a separately maintained release literal.
+
 ## [0.20.0] - 2026-11-26
 
 This release introduces schema 2 and a single `mix weld` entry point.
@@ -750,3 +762,4 @@ Initial release.
 [0.3.0]: https://github.com/nshkrdotcom/weld/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/nshkrdotcom/weld/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nshkrdotcom/weld/releases/tag/v0.1.0
+[0.20.1]: https://github.com/nshkrdotcom/weld/compare/v0.20.0...v0.20.1

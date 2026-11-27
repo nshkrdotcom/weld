@@ -88,6 +88,72 @@ defmodule Weld.GraphScopeV2Test do
              Selection.merge_external_deps(graph, ["owner"], :package)
   end
 
+  test "explicit public Hex defaults and shorthand have one dependency identity" do
+    implicit = %{app: :dep, requirement: "~> 1.0", opts: [], original: {:dep, "~> 1.0"}}
+
+    for opts <- [
+          [hex: "dep", repo: "hexpm"],
+          [hex: :dep, repo: "hexpm"],
+          [hex: "dep"],
+          [repo: "hexpm"]
+        ] do
+      explicit = %{implicit | opts: opts, original: {:dep, "~> 1.0", opts}}
+
+      assert [^implicit] = Graph.normalize_dependencies([implicit, explicit])
+      assert [^implicit] = Graph.normalize_dependencies([explicit, implicit])
+      assert {:ok, ^implicit} = Graph.merge_dependency_scopes(implicit, explicit)
+      assert {:ok, ^implicit} = Graph.merge_dependency_scopes(explicit, implicit)
+    end
+
+    explicit = %{implicit | opts: [hex: "dep", repo: "hexpm", only: :test]}
+    assert {:ok, ^implicit} = Graph.merge_dependency_scopes(implicit, explicit)
+  end
+
+  test "public defaults do not erase different dependency sources or other semantics" do
+    implicit = %{app: :dep, requirement: "~> 1.0", opts: [], original: {:dep, "~> 1.0"}}
+
+    for opts <- [
+          [hex: "different"],
+          [repo: "private"],
+          [organization: "private"],
+          [path: "../dep"],
+          [git: "https://example.test/dep.git"],
+          [github: "example/dep"],
+          [runtime: false],
+          [optional: true],
+          [targets: [:embedded]]
+        ] do
+      assert :error = Graph.merge_dependency_scopes(implicit, %{implicit | opts: opts})
+    end
+
+    for opts <- [[path: "../dep"], [git: "https://example.test/dep.git"]] do
+      assert :error =
+               Graph.merge_dependency_scopes(
+                 %{implicit | opts: opts},
+                 %{implicit | opts: opts ++ [hex: "dep", repo: "hexpm"]}
+               )
+    end
+  end
+
+  test "explicit canonical public source accepts shorthand but rejects another source" do
+    implicit = %{app: :dep, requirement: "~> 1.0", opts: [], original: {:dep, "~> 1.0"}}
+
+    manifest = %{
+      repo_root: "/workspace",
+      dependencies: %{dep: %{requirement: "~> 1.0", opts: [hex: "dep", repo: "hexpm"]}}
+    }
+
+    graph = Graph.build(manifest, %{"owner" => project(implicit)})
+    assert [] = Graph.violations(graph)
+    assert [%{original: {:dep, "~> 1.0"}}] = Graph.external_deps(graph, "owner")
+
+    for opts <- [[repo: "private"], [hex: "different"], [organization: "private"]] do
+      dep = %{implicit | opts: opts, original: {:dep, "~> 1.0", opts}}
+      graph = Graph.build(manifest, %{"owner" => project(dep)})
+      assert [%{code: :conflicting_dependency}] = Graph.violations(graph)
+    end
+  end
+
   test "topology is dependency-first with stable ties and a concrete cycle witness" do
     graph = %{Graph.new() | projects: Map.new(~w(a b c z), &{&1, nil})}
     graph = graph |> Graph.add_edge(edge("a", "b")) |> Graph.add_edge(edge("b", "c"))

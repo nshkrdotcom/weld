@@ -4,6 +4,7 @@ defmodule Weld.MonolithPlanTest do
   alias Weld.{Error, FixtureCase, Plan}
   alias Weld.Plan.Inventory
   alias Weld.Projector
+  alias Weld.Workspace.Probe
 
   setup do
     root = FixtureCase.copy_fixture("monolith_bundle")
@@ -57,6 +58,36 @@ defmodule Weld.MonolithPlanTest do
       assert Enum.all?(targets(plan), &File.regular?(Path.join(result.build_path, &1)))
       refute "test" in result.package_files
     end
+  end
+
+  test "flat layout emits one public Hex dependency for implicit and explicit defaults", c do
+    api = Path.join(c.root, "runtime/api/mix.exs")
+    store = Path.join(c.root, "core/store/mix.exs")
+
+    File.write!(
+      api,
+      String.replace(File.read!(api), "deps: [", ~s(deps: [{:fixture_dep, "~> 1.0"},))
+    )
+
+    File.write!(
+      store,
+      String.replace(
+        File.read!(store),
+        "deps: []",
+        ~s(deps: [{:fixture_dep, "~> 1.0", hex: "fixture_dep", repo: "hexpm"}])
+      )
+    )
+
+    plan = c.manifest |> Plan.build!() |> Plan.ensure_valid!()
+
+    assert [%{original: {:fixture_dep, "~> 1.0"}}] =
+             Enum.filter(plan.external_deps, &(&1.app == :fixture_dep))
+
+    result = Projector.project!(plan)
+    observation = Probe.project!(result.build_path, :prod)
+
+    assert [{:fixture_dep, "~> 1.0"}] =
+             Enum.filter(observation.config[:deps], &(elem(&1, 0) == :fixture_dep))
   end
 
   @tag :slow

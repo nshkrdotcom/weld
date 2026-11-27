@@ -12,6 +12,7 @@ defmodule Weld.Commands do
 
   @doc false
   def inspect_plan(plan) do
+    plan = Plan.ensure_valid!(plan)
     inventory = Inventory.portable(plan)
 
     %{

@@ -1,4 +1,4 @@
-# Weld 0.20.0 acceptance and evidence
+# Weld 0.20.1 acceptance and evidence
 
 This ledger maps the complete Part 2 acceptance contract to the current source.
 Runtime QC records the exact source commit, toolchain and command exit status
@@ -7,9 +7,11 @@ for each executed gate.
 ## Source and test disposition
 
 The comparison baseline is `7897ba6457d3ba725ee3a843bc863f2c38e90411`; the
-completion checkpoint is `0ff6f9ef7a66048abaf00f4f24e5464ca2d90c37`. Version stays
-0.20.0 and changelog date stays 2026-11-26. Historical checkpoint passes do not
-qualify the completed source.
+completion checkpoint is `0ff6f9ef7a66048abaf00f4f24e5464ca2d90c37`. Those
+0.20.0 results are historical. Version 0.20.1 (2026-11-26) retains the
+complete acceptance contract and adds regressions for equivalent public Hex
+declarations and invalid-plan diagnostics. Historical checkpoint passes do not
+qualify the current source.
 
 - `baseline-test-paths.tsv` records all 161 retained baseline test paths.
 - `baseline-test-disposition.tsv` maps all 171 baseline lexical declarations to

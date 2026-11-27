@@ -149,7 +149,7 @@ Soak results alone never imply release readiness.
 
 ## Documentation and evidence
 
-Update README, affected guides, the 0.20.0 changelog and ExDoc entries with every
+Update README, affected guides, the current release changelog and ExDoc entries with every
 public behavior change. `guides/qc/` holds acceptance/disposition/source accounting;
 `scripts/qc/` holds reproducible validation drivers, not production logic moved
 out of `lib` to improve a line-count metric. Production size targets are goals,

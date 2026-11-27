@@ -44,6 +44,37 @@ defmodule Weld.MixTasksTest do
     assert output =~ "\"fixture_bundle\""
   end
 
+  test "invalid single and batch plans report the actual dependency conflict" do
+    root = FixtureCase.raw_copy_fixture("monolith_bundle")
+    manifest = Path.join(root, "packaging/weld/monolith_bundle.exs")
+    api = Path.join(root, "runtime/api/mix.exs")
+    store = Path.join(root, "core/store/mix.exs")
+
+    File.write!(
+      api,
+      String.replace(File.read!(api), "deps: [", ~s(deps: [{:fixture_dep, "~> 1.0"},))
+    )
+
+    File.write!(
+      store,
+      String.replace(File.read!(store), "deps: []", ~s(deps: [{:fixture_dep, "~> 2.0"}]))
+    )
+
+    for {selection, status} <- [{["--artifact", "monolith_bundle"], 2}, {["--all"], 5}] do
+      output =
+        capture_io(fn ->
+          args = ["plan", "--manifest", manifest, "--format", "json"] ++ selection
+          assert catch_exit(Mix.Task.rerun("weld", args)) == {:shutdown, status}
+        end)
+
+      assert %{"ok" => false, "diagnostics" => [%{"message" => message}]} = Jason.decode!(output)
+      assert message =~ "conflicting_external_dependency | fixture_dep"
+      refute message =~ "expected a map"
+    end
+
+    refute File.exists?(Path.join(root, ".weld"))
+  end
+
   test "mix weld project generates the welded artifact" do
     manifest_path = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
 

@@ -2,7 +2,7 @@
 
 The source suite and generated artifact suite are independent gates. A plan is
 not a build result, a package build is not an installed-consumer result, and
-static docs checks do not establish browser rendering. Weld 0.20.0 pairs
+static docs checks do not establish browser rendering. Weld 0.20.1 pairs
 isolated ExUnit lanes with reproducible standalone QC drivers across layouts,
 native payloads, signed Hex registries and browser rendering.
 

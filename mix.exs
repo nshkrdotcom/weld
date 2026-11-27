@@ -1,7 +1,7 @@
 defmodule Weld.MixProject do
   use Mix.Project
 
-  @version "0.20.0"
+  @version "0.20.1"
 
   def project do
     [
@@ -76,7 +76,7 @@ defmodule Weld.MixProject do
         "guides/source_projects.md": [title: "Source-Project Artifacts"],
         "guides/manifest_reference.md": [title: "Manifest Reference"],
         "guides/testing_strategy.md": [title: "Testing Strategy"],
-        "guides/qc/acceptance.md": [title: "0.20 Acceptance and Evidence"],
+        "guides/qc/acceptance.md": [title: "0.20.1 Acceptance and Evidence"],
         "guides/release_process.md": [title: "Release Process"],
         "guides/consumer_repo_integration.md": [title: "Consumer Repo Integration"],
         "CHANGELOG.md": [title: "Changelog"],

@@ -1,6 +1,6 @@
 # CLI reference
 
-Weld 0.20.0 has one public task: `mix weld COMMAND`. Run `mix weld`, `mix weld help`, or `mix weld help COMMAND` for help generated from the same registry that validates requests. Help does not discover projects or initialize state.
+Weld 0.20.1 has one public task: `mix weld COMMAND`. Run `mix weld`, `mix weld help`, or `mix weld help COMMAND` for help generated from the same registry that validates requests. Help does not discover projects or initialize state.
 
 ## Discovery and selection
 
@@ -82,7 +82,7 @@ mix weld prepare --artifact sdk --reuse linux-public
 
 `--reuse CONTEXT` implies the same context. If `--context` is also supplied, it must match. `--fresh` and `--reuse` conflict. Supplying context without reuse still performs qualification. Reuse eligibility includes complete nonopaque inputs, locked dependencies, toolchain/trust coordinates and intact sealed evidence; an ineligible proof runs qualification, while a corrupt bundle fails closed.
 
-Plan, project, verify and prepare batches share one captured workspace value. Each discovered project is observed once in each of dev, test and prod; at most four fresh metadata VMs run concurrently. Production is always observed to detect branches hidden from dev/test. Independent artifact failures are reported in deterministic artifact order. If source observations change during a writing batch, remaining writes stop. Release-plan orders actual compiled publication dependencies; it does not schedule publication. `--no-check` permits reporting unsatisfied version constraints, but still rejects invalid plans, duplicate package identities and cycles.
+Plan, project, verify and prepare batches share one captured workspace value. Each discovered project is observed once in each of dev, test and prod; at most four fresh metadata VMs run concurrently. Production is always observed to detect branches hidden from dev/test. Invalid single-artifact plans report the underlying plan violations without attempting to serialize a missing layout. Independent artifact failures in a batch are reported in deterministic artifact order. If source observations change during a writing batch, remaining writes stop. Release-plan orders actual compiled publication dependencies; it does not schedule publication. `--no-check` permits reporting unsatisfied version constraints, but still rejects invalid plans, duplicate package identities and cycles.
 
 ## Historical bundles and recovery
 
