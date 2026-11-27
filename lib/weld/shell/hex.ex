@@ -966,49 +966,74 @@ defmodule Weld.Shell.Hex do
   defp validate_outcome!(record, path, bytes) do
     unless is_map(record) and Enum.sort(Map.keys(record)) == Enum.sort(@outcome_keys) and
              record["schema"] == "weld.outcome/2" and
-             record["operation"] in ["publish", "reconcile"] and
-             is_binary(record["id"]) and Regex.match?(~r/\A[0-9a-f]{24}\z/, record["id"]) and
-             Path.basename(path) == record["id"] <> ".json" and
-             Path.basename(Path.dirname(path)) == record["bundle_id"] and
-             Path.basename(Path.dirname(Path.dirname(path))) == record["artifact"] and
-             Identity.valid?(record["bundle_id"]) and
-             Identity.valid?(record["expected_archive_sha256"]) and
-             Identity.valid?(record["expected_docs_sha256"]) and
-             is_binary(record["artifact"]) and is_binary(record["package"]) and
-             is_binary(record["version"]) and
-             record["package_state"] in @states and record["docs_state"] in @states and
-             is_map(record["observed"]) and
-             (is_nil(record["previous_id"]) or
-                (is_binary(record["previous_id"]) and
-                   Regex.match?(~r/\A[0-9a-f]{24}\z/, record["previous_id"]))) and
-             is_binary(record["recorded_at"]) and
-             match?({:ok, _, _}, DateTime.from_iso8601(record["recorded_at"])) and
-             Identity.canonical(record) == bytes,
-           do: raise(Error, "invalid canonical publication outcome")
+             record["operation"] in ["publish", "reconcile"],
+           do: invalid_outcome!()
 
+    validate_outcome_path!(record, path)
+    validate_outcome_binding!(record)
+    validate_outcome_timestamp!(record, bytes)
     destination = safe_endpoint!(record["destination"], true)
+    observations = record["observed"]
 
-    unless Enum.sort(Map.keys(record["observed"])) == ["docs", "package"],
+    unless is_map(observations) and Enum.sort(Map.keys(observations)) == ["docs", "package"],
       do: raise(Error, "invalid outcome observations")
 
     for part <- ["docs", "package"] do
-      value = record["observed"][part]
-
-      unless is_map(value) and Enum.sort(Map.keys(value)) == ~w(code location sha256 source state) and
-               value["state"] in (@states ++ ["absent"]) and
-               state_for_record(value["state"]) == record[part <> "_state"] and
-               (is_nil(value["sha256"]) or Identity.valid?(value["sha256"])) and
-               value["code"] == public_label(value["code"]) and
-               value["source"] == public_label(value["source"]),
-             do: raise(Error, "invalid typed outcome observation")
-
-      location = value["location"]
-
-      if location && safe_location(%{location: location}, destination).location != location,
-        do: raise(Error, "untrusted staged outcome location")
+      validate_outcome_observation!(observations[part], record[part <> "_state"], destination)
     end
 
     :ok
+  end
+
+  defp validate_outcome_path!(record, path) do
+    directory = Path.dirname(path)
+    id = record["id"]
+
+    unless outcome_id?(id) and Path.basename(path) == id <> ".json" and
+             Path.basename(directory) == record["bundle_id"] and
+             Path.basename(Path.dirname(directory)) == record["artifact"],
+           do: invalid_outcome!()
+  end
+
+  defp validate_outcome_binding!(record) do
+    digests = ~w(bundle_id expected_archive_sha256 expected_docs_sha256)
+    labels = ~w(artifact package version)
+
+    unless Enum.all?(digests, &Identity.valid?(record[&1])) and
+             Enum.all?(labels, &is_binary(record[&1])) and
+             record["package_state"] in @states and record["docs_state"] in @states,
+           do: invalid_outcome!()
+  end
+
+  defp validate_outcome_timestamp!(record, bytes) do
+    previous = record["previous_id"]
+    timestamp = record["recorded_at"]
+
+    unless (is_nil(previous) or outcome_id?(previous)) and is_binary(timestamp) and
+             match?({:ok, _, _}, DateTime.from_iso8601(timestamp)) and
+             Identity.canonical(record) == bytes,
+           do: invalid_outcome!()
+  end
+
+  defp outcome_id?(id) when is_binary(id), do: Regex.match?(~r/\A[0-9a-f]{24}\z/, id)
+  defp outcome_id?(_), do: false
+  defp invalid_outcome!, do: raise(Error, "invalid canonical publication outcome")
+
+  defp validate_outcome_observation!(value, part_state, destination) do
+    unless is_map(value) and Enum.sort(Map.keys(value)) == ~w(code location sha256 source state),
+      do: raise(Error, "invalid typed outcome observation")
+
+    if value["state"] not in (@states ++ ["absent"]) or
+         state_for_record(value["state"]) != part_state or
+         (not is_nil(value["sha256"]) and not Identity.valid?(value["sha256"])) or
+         value["code"] != public_label(value["code"]) or
+         value["source"] != public_label(value["source"]),
+       do: raise(Error, "invalid typed outcome observation")
+
+    location = value["location"]
+
+    if location && safe_location(%{location: location}, destination).location != location,
+      do: raise(Error, "untrusted staged outcome location")
   end
 
   defp order_outcomes!([], _previous, ordered), do: ordered

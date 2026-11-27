@@ -476,70 +476,76 @@ defmodule Weld.Core.Manifest do
 
   defp dependency!(raw, at) do
     value = validate!(raw, @dependency, at)
-    opts = validate!(value[:opts], @dep_opts, at <> ".opts")
+    options_path = at <> ".opts"
+    opts = validate!(value[:opts], @dep_opts, options_path)
     git = opts[:git] || opts[:github]
 
+    validate_dependency_source!(opts, git, options_path)
+    validate_dependency_requirement!(value[:requirement], git, at <> ".requirement")
+
+    for key <- [:only, :targets], Keyword.has_key?(opts, key) do
+      validate_dependency_scope!(List.wrap(opts[key]), "#{options_path}.#{key}")
+    end
+
+    validate_dependency_mix_options!(opts, options_path)
+    Keyword.put(value, :opts, Weld.Graph.normalize_dependency_options(opts))
+  end
+
+  defp validate_dependency_source!(opts, git, at) do
     if opts[:git] && opts[:github],
-      do: fail!(:conflicting_dependency, at <> ".opts", "git and github are mutually exclusive")
+      do: fail!(:conflicting_dependency, at, "git and github are mutually exclusive")
 
     if Enum.count([:branch, :tag, :ref], &Keyword.has_key?(opts, &1)) > 1,
-      do:
-        fail!(:conflicting_dependency, at <> ".opts", "only one of branch, tag or ref is allowed")
+      do: fail!(:conflicting_dependency, at, "only one of branch, tag or ref is allowed")
 
     if is_nil(git) and
          Enum.any?(
            [:branch, :tag, :ref, :subdir, :sparse, :submodules, :depth],
            &Keyword.has_key?(opts, &1)
          ),
-       do: fail!(:invalid_dependency, at <> ".opts", "Git options require git or github")
+       do: fail!(:invalid_dependency, at, "Git options require git or github")
 
     if git && Enum.any?([:hex, :repo, :organization], &Keyword.has_key?(opts, &1)),
       do:
         fail!(
           :conflicting_dependency,
-          at <> ".opts",
+          at,
           "Git and Hex source options are mutually exclusive"
         )
+  end
 
-    requirement = value[:requirement]
-
+  defp validate_dependency_requirement!(requirement, git, at) do
     unless (is_nil(requirement) and not is_nil(git)) or
              (is_binary(requirement) and match?({:ok, _}, Version.parse_requirement(requirement))),
            do:
              fail!(
                :invalid_dependency,
-               at <> ".requirement",
+               at,
                "a valid requirement is required unless using git/github"
              )
+  end
 
-    for key <- [:only, :targets], Keyword.has_key?(opts, key) do
-      values = List.wrap(opts[key])
+  defp validate_dependency_scope!(values, at) do
+    unless values != [] and Enum.all?(values, &(is_atom(&1) and &1 not in [nil, true, false])),
+      do: fail!(:invalid_dependency, at, "expected an atom or a nonempty list of atoms")
 
-      unless values != [] and Enum.all?(values, &(is_atom(&1) and &1 not in [nil, true, false])),
-        do:
-          fail!(
-            :invalid_dependency,
-            "#{at}.opts.#{key}",
-            "expected an atom or a nonempty list of atoms"
-          )
+    unique!(values, at)
+  end
 
-      unique!(values, "#{at}.opts.#{key}")
-    end
-
+  defp validate_dependency_mix_options!(opts, at) do
     if opts[:hex] && not (is_binary(opts[:hex]) or is_atom(opts[:hex])),
-      do: fail!(:invalid_dependency, at <> ".opts.hex", "expected package name")
+      do: fail!(:invalid_dependency, at <> ".hex", "expected package name")
 
     if Keyword.has_key?(opts, :app) and not (is_atom(opts[:app]) and opts[:app] != nil),
-      do: fail!(:invalid_dependency, at <> ".opts.app", "expected application atom or false")
+      do: fail!(:invalid_dependency, at <> ".app", "expected application atom or false")
 
     if Keyword.has_key?(opts, :compile) and
          not (is_binary(opts[:compile]) or opts[:compile] == false),
-       do: fail!(:invalid_dependency, at <> ".opts.compile", "expected a command string or false")
+       do: fail!(:invalid_dependency, at <> ".compile", "expected a command string or false")
 
-    if opts[:system_env], do: string_map!(opts[:system_env], at <> ".opts.system_env")
-    for key <- [:subdir, :sparse], opts[key], do: path!(opts[key], "#{at}.opts.#{key}")
-    for key <- [:git], opts[key], do: public_url!(opts[key], "#{at}.opts.#{key}")
-    Keyword.put(value, :opts, Weld.Graph.normalize_dependency_options(opts))
+    if opts[:system_env], do: string_map!(opts[:system_env], at <> ".system_env")
+    for key <- [:subdir, :sparse], opts[key], do: path!(opts[key], "#{at}.#{key}")
+    for key <- [:git], opts[key], do: public_url!(opts[key], "#{at}.#{key}")
   end
 
   defp declarations!(declarations, project?, at) when is_list(declarations) do

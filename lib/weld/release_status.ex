@@ -129,25 +129,21 @@ defmodule Weld.ReleaseStatus do
   defp validate_bundle_fields!(metadata) do
     ReleaseReceipt.from_bundle(metadata)
 
-    unless metadata["layout"] in ~w(components flat preserve) and
-             Enum.all?(
-               ~w(input_id plan_id project_id qualification_id compiler_id docs_id),
-               &Identity.valid?(metadata[&1])
-             ) and
-             Enum.all?(
-               ~w(package_id archive_sha256 docs_archive_sha256),
-               &(is_nil(metadata[&1]) or Identity.valid?(metadata[&1]))
-             ) and
-             length(
-               Enum.uniq(
-                 Enum.map(
-                   ~w(package_id archive_sha256 docs_archive_sha256),
-                   &is_nil(metadata[&1])
-                 )
-               )
-             ) == 1,
-           do: raise(Error, "invalid bundle identity fields")
+    validate_bundle_identity_fields!(metadata)
+    validate_bundle_descriptors!(metadata)
+  end
 
+  defp validate_bundle_identity_fields!(metadata) do
+    required = ~w(input_id plan_id project_id qualification_id compiler_id docs_id)
+    package = Enum.map(~w(package_id archive_sha256 docs_archive_sha256), &metadata[&1])
+
+    unless metadata["layout"] in ~w(components flat preserve) and
+             Enum.all?(required, &Identity.valid?(metadata[&1])) and
+             (Enum.all?(package, &is_nil/1) or Enum.all?(package, &Identity.valid?/1)),
+           do: raise(Error, "invalid bundle identity fields")
+  end
+
+  defp validate_bundle_descriptors!(metadata) do
     files = metadata["files"]
 
     unless is_map(files) and
@@ -160,17 +156,22 @@ defmodule Weld.ReleaseStatus do
           {"package", "package.tar"},
           {"docs_archive", "docs.tar.gz"}
         ] do
-      value = files[field]
       optional = field in ["package", "docs_archive"] and is_nil(metadata["package_id"])
-
-      unless (optional and is_nil(value)) or
-               (not optional and is_map(value) and
-                  Enum.sort(Map.keys(value)) == ~w(path sha256 size) and
-                  value["path"] == path and Identity.valid?(value["sha256"]) and
-                  is_integer(value["size"]) and value["size"] >= 0),
-             do: raise(Error, "invalid bundle file descriptor: #{field}")
+      validate_bundle_descriptor!(files[field], field, path, optional)
     end
   end
+
+  defp validate_bundle_descriptor!(nil, _field, _path, true), do: :ok
+
+  defp validate_bundle_descriptor!(value, field, path, false) when is_map(value) do
+    unless Enum.sort(Map.keys(value)) == ~w(path sha256 size) and
+             value["path"] == path and Identity.valid?(value["sha256"]) and
+             is_integer(value["size"]) and value["size"] >= 0,
+           do: raise(Error, "invalid bundle file descriptor: #{field}")
+  end
+
+  defp validate_bundle_descriptor!(_, field, _, _),
+    do: raise(Error, "invalid bundle file descriptor: #{field}")
 
   defp validate_bindings!(metadata, inventory, qualification) do
     unless inventory["artifact"] == metadata["artifact"] and
@@ -320,13 +321,20 @@ defmodule Weld.ReleaseStatus do
   end
 
   defp validate_qualification!(proof, inventory) do
-    unless is_binary(proof["gate_schema"]) and proof["gate_schema"] == "weld.gates/2" and
+    validate_qualification_context!(proof, inventory)
+    validate_qualification_gates!(proof, inventory)
+  end
+
+  defp validate_qualification_context!(proof, inventory) do
+    unless proof["gate_schema"] == "weld.gates/2" and
              is_map(proof["toolchain"]) and
              proof["toolchain"]["compiler_id"] == inventory["compiler_id"] and
              is_map(proof["trust"]) and proof["trust"]["verified"] == true and
              (is_nil(proof["context_digest"]) or Identity.valid?(proof["context_digest"])),
            do: raise(Error, "unsupported or incomplete qualification evidence")
+  end
 
+  defp validate_qualification_gates!(proof, inventory) do
     gates = proof["gates"]
 
     unless is_list(gates) and Enum.map(gates, & &1["id"]) == @gate_ids,
@@ -334,17 +342,7 @@ defmodule Weld.ReleaseStatus do
 
     policy = inventory["qualification_policy"]
 
-    for gate <- gates do
-      required = required_gate?(gate["id"], policy, inventory)
-
-      unless is_map(gate) and Enum.sort(Map.keys(gate)) == ~w(facts id skip_reason status) and
-               is_map(gate["facts"]) and
-               ((gate["status"] == "pass" and is_nil(gate["skip_reason"])) or
-                  (not required and gate["status"] == "skip" and is_binary(gate["skip_reason"]) and
-                     gate["skip_reason"] != "")),
-             do:
-               raise(Error, "required gate missing, failed or improperly skipped: #{gate["id"]}")
-    end
+    for gate <- gates, do: validate_gate!(gate, policy, inventory)
 
     facts = Map.new(gates, &{&1["id"], &1["facts"]})
     hex? = policy["hex_build"]
@@ -366,6 +364,19 @@ defmodule Weld.ReleaseStatus do
            },
            do: raise(Error, "G11 gate observations disagree with the frozen proof")
   end
+
+  defp validate_gate!(gate, policy, inventory) do
+    required = required_gate?(gate["id"], policy, inventory)
+
+    unless is_map(gate) and Enum.sort(Map.keys(gate)) == ~w(facts id skip_reason status) and
+             is_map(gate["facts"]) and
+             valid_gate_outcome?(gate["status"], gate["skip_reason"], required),
+           do: raise(Error, "required gate missing, failed or improperly skipped: #{gate["id"]}")
+  end
+
+  defp valid_gate_outcome?("pass", nil, _required), do: true
+  defp valid_gate_outcome?("skip", reason, false) when is_binary(reason), do: reason != ""
+  defp valid_gate_outcome?(_, _, _), do: false
 
   defp required_gate?("G03", policy, inventory),
     do: layout(inventory) == "flat" or policy["component_tests"] == true

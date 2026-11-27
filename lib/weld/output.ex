@@ -652,26 +652,29 @@ defmodule Weld.Output do
       :ok
     rescue
       error ->
-        with_lock(
-          root,
-          fn ->
-            active_lease!(root, opts[:lease])
-            actual = pointer_bytes!(pointer)
-
-            cond do
-              actual == old -> :ok
-              actual == pointer_bytes and is_nil(old) -> File.rm!(pointer)
-              actual == pointer_bytes -> atomic_write!(pointer, old)
-              true -> raise Error, "pointer rollback is ambiguous; retain journal for recovery"
-            end
-
-            atomic_write!(journal, Identity.canonical(Map.put(record, "phase", "cleaned")))
-          end,
-          opts
-        )
-
+        rollback_pointer!(root, pointer, old, pointer_bytes, journal, record, opts)
         reraise error, __STACKTRACE__
     end
+  end
+
+  defp rollback_pointer!(root, pointer, old, pointer_bytes, journal, record, opts) do
+    with_lock(
+      root,
+      fn ->
+        active_lease!(root, opts[:lease])
+        actual = pointer_bytes!(pointer)
+
+        cond do
+          actual == old -> :ok
+          actual == pointer_bytes and is_nil(old) -> File.rm!(pointer)
+          actual == pointer_bytes -> atomic_write!(pointer, old)
+          true -> raise Error, "pointer rollback is ambiguous; retain journal for recovery"
+        end
+
+        atomic_write!(journal, Identity.canonical(Map.put(record, "phase", "cleaned")))
+      end,
+      opts
+    )
   end
 
   def insert_immutable!(root, stage, target, opts \\ []) do
