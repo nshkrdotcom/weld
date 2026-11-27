@@ -49,7 +49,15 @@ defmodule Weld.Graph do
   @doc "Build actual dependency facts from explicit manifest/project observations."
   def build(manifest, projects) do
     apps = Enum.map(projects, fn {_id, project} -> project.app end)
-    unless length(Enum.uniq(apps)) == length(apps), do: raise(Weld.Error, code: :duplicate_app, phase: :plan, message: "workspace projects declare duplicate apps")
+
+    unless length(Enum.uniq(apps)) == length(apps),
+      do:
+        raise(Weld.Error,
+          code: :duplicate_app,
+          phase: :plan,
+          message: "workspace projects declare duplicate apps"
+        )
+
     app_index = Map.new(projects, fn {project_id, project} -> {project.app, project_id} end)
     path_index = Map.new(projects, fn {project_id, project} -> {project.abs_path, project_id} end)
 
@@ -92,11 +100,21 @@ defmodule Weld.Graph do
             )
         end
 
-      Map.has_key?(app_index, dep.app) and not compatible_project_dependency?(dep, Map.fetch!(graph.projects, Map.fetch!(app_index, dep.app))) ->
-        Graph.add_violation(graph, Violation.new(:incompatible_dependency_identity,
-          "declared dependency package/version conflicts with the discovered project",
-          project: project.id, dependency: dep.app,
-          details: %{target: Map.fetch!(app_index, dep.app)}))
+      Map.has_key?(app_index, dep.app) and
+          not compatible_project_dependency?(
+            dep,
+            Map.fetch!(graph.projects, Map.fetch!(app_index, dep.app))
+          ) ->
+        Graph.add_violation(
+          graph,
+          Violation.new(
+            :incompatible_dependency_identity,
+            "declared dependency package/version conflicts with the discovered project",
+            project: project.id,
+            dependency: dep.app,
+            details: %{target: Map.fetch!(app_index, dep.app)}
+          )
+        )
 
       Map.has_key?(app_index, dep.app) ->
         target = Map.fetch!(app_index, dep.app)
@@ -120,27 +138,46 @@ defmodule Weld.Graph do
 
       true ->
         case external_package_dependency(manifest, dep) do
-          {:ok, external_dep} -> Graph.add_external_dep(graph, project.id, external_dep)
+          {:ok, external_dep} ->
+            Graph.add_external_dep(graph, project.id, external_dep)
+
           {:error, message} ->
-            Graph.add_violation(graph, Violation.new(:conflicting_dependency, message,
-              project: project.id, dependency: dep.app,
-              details: %{source: Path.join(project.id, "mix.exs"), requirement: dep.requirement,
-                hint: "Declare one compatible versioned dependency or an explicit canonical source."}))
+            Graph.add_violation(
+              graph,
+              Violation.new(:conflicting_dependency, message,
+                project: project.id,
+                dependency: dep.app,
+                details: %{
+                  source: Path.join(project.id, "mix.exs"),
+                  requirement: dep.requirement,
+                  hint:
+                    "Declare one compatible versioned dependency or an explicit canonical source."
+                }
+              )
+            )
         end
     end
   end
 
   defp compatible_project_dependency?(dep, project) do
-    package_matches = to_string(dep.opts[:hex] || dep.app) == (project.package_name || to_string(project.app))
-    requirement_matches = case dep.requirement do
-      nil -> true
-      value when is_binary(value) ->
-        case Version.parse_requirement(value) do
-          {:ok, requirement} -> Version.match?(project.version, requirement)
-          :error -> false
-        end
-      _ -> false
-    end
+    package_matches =
+      to_string(dep.opts[:hex] || dep.app) == (project.package_name || to_string(project.app))
+
+    requirement_matches =
+      case dep.requirement do
+        nil ->
+          true
+
+        value when is_binary(value) ->
+          case Version.parse_requirement(value) do
+            {:ok, requirement} -> Version.match?(project.version, requirement)
+            :error -> false
+          end
+
+        _ ->
+          false
+      end
+
     package_matches and requirement_matches
   end
 
@@ -151,10 +188,18 @@ defmodule Weld.Graph do
       dep_path == manifest.repo_root or String.starts_with?(dep_path, manifest.repo_root <> "/")
 
     cond do
-      Map.has_key?(path_index, dep_path) and Map.fetch!(graph.projects, Map.fetch!(path_index, dep_path)).app != dep.app ->
-        Graph.add_violation(graph, Violation.new(:incompatible_dependency_app,
-          "path dependency app does not match the target project", project: project.id,
-          dependency: dep.app, details: %{target: Map.fetch!(path_index, dep_path)}))
+      Map.has_key?(path_index, dep_path) and
+          Map.fetch!(graph.projects, Map.fetch!(path_index, dep_path)).app != dep.app ->
+        Graph.add_violation(
+          graph,
+          Violation.new(
+            :incompatible_dependency_app,
+            "path dependency app does not match the target project",
+            project: project.id,
+            dependency: dep.app,
+            details: %{target: Map.fetch!(path_index, dep_path)}
+          )
+        )
 
       Map.has_key?(path_index, dep_path) ->
         target = Map.fetch!(path_index, dep_path)
@@ -177,9 +222,15 @@ defmodule Weld.Graph do
         )
 
       not within_repo? and not Map.has_key?(manifest.dependencies, dep.app) ->
-        Graph.add_violation(graph, Violation.new(:external_path_dependency,
-          "path dependency outside the workspace requires an explicit canonical dependency declaration",
-          project: project.id, dependency: dep.app))
+        Graph.add_violation(
+          graph,
+          Violation.new(
+            :external_path_dependency,
+            "path dependency outside the workspace requires an explicit canonical dependency declaration",
+            project: project.id,
+            dependency: dep.app
+          )
+        )
 
       not within_repo? ->
         case canonical_external_dep(manifest, dep) do
@@ -239,26 +290,42 @@ defmodule Weld.Graph do
 
   defp external_package_dependency(manifest, dep) do
     policy = Map.get(manifest.dependencies, dep.app)
+
     cond do
-      not is_binary(dep.requirement) or not match?({:ok, _}, Version.parse_requirement(dep.requirement)) ->
+      not is_binary(dep.requirement) or
+          not match?({:ok, _}, Version.parse_requirement(dep.requirement)) ->
         {:error, "external package dependency has no valid version requirement"}
+
       is_nil(policy) ->
-        build_canonical_external_dep(dep.app, dep.requirement, normalize_dependency_options(dep.opts))
+        build_canonical_external_dep(
+          dep.app,
+          dep.requirement,
+          normalize_dependency_options(dep.opts)
+        )
+
       policy.requirement != dep.requirement ->
         {:error, "canonical requirement conflicts with the native external package requirement"}
+
       true ->
         candidate = canonical_external_opts(policy, dep) |> normalize_dependency_options()
+
         if normalize_dependency_options(dep.opts) == candidate do
           build_canonical_external_dep(dep.app, dep.requirement, candidate)
         else
-          {:error, "canonical source or options conflict with the native external package declaration"}
+          {:error,
+           "canonical source or options conflict with the native external package declaration"}
         end
     end
   end
 
-  defp same_scope?(:runtime, left, right), do: Keyword.get(left, :runtime, true) == Keyword.get(right, :runtime, true)
-  defp same_scope?(:optional, left, right), do: Keyword.get(left, :optional, false) == Keyword.get(right, :optional, false)
-  defp same_scope?(key, left, right), do: Enum.sort(List.wrap(left[key])) == Enum.sort(List.wrap(right[key]))
+  defp same_scope?(:runtime, left, right),
+    do: Keyword.get(left, :runtime, true) == Keyword.get(right, :runtime, true)
+
+  defp same_scope?(:optional, left, right),
+    do: Keyword.get(left, :optional, false) == Keyword.get(right, :optional, false)
+
+  defp same_scope?(key, left, right),
+    do: Enum.sort(List.wrap(left[key])) == Enum.sort(List.wrap(right[key]))
 
   defp finalize(graph) do
     case Graph.topology(graph, :package) do
@@ -281,8 +348,26 @@ defmodule Weld.Graph do
   defp canonical_external_requirement(manifest_decl, _dep), do: manifest_decl.requirement
 
   defp canonical_external_opts(manifest_decl, dep) do
-    removed = if manifest_decl, do: [:path, :git, :github, :override, :branch, :tag, :ref, :subdir, :sparse, :depth, :submodules], else: [:path, :override]
-    dep.opts |> Keyword.drop(removed) |> Keyword.merge((manifest_decl && manifest_decl.opts) || [])
+    removed =
+      if manifest_decl,
+        do: [
+          :path,
+          :git,
+          :github,
+          :override,
+          :branch,
+          :tag,
+          :ref,
+          :subdir,
+          :sparse,
+          :depth,
+          :submodules
+        ],
+        else: [:path, :override]
+
+    dep.opts
+    |> Keyword.drop(removed)
+    |> Keyword.merge((manifest_decl && manifest_decl.opts) || [])
   end
 
   defp build_canonical_external_dep(app, requirement, opts)
@@ -337,12 +422,18 @@ defmodule Weld.Graph do
 
   @doc false
   def normalize_dependency_options(opts) do
-    opts = Enum.reduce([runtime: true, optional: false, override: false], opts, fn {key, default}, opts ->
-      if opts[key] == default, do: Keyword.delete(opts, key), else: opts
-    end)
+    opts =
+      Enum.reduce([runtime: true, optional: false, override: false], opts, fn {key, default},
+                                                                              opts ->
+        if opts[key] == default, do: Keyword.delete(opts, key), else: opts
+      end)
+
     Enum.reduce([:only, :targets], opts, fn key, opts ->
-      if Keyword.has_key?(opts, key), do: Keyword.put(opts, key, Enum.sort(List.wrap(opts[key]))), else: opts
-    end) |> Enum.sort_by(&elem(&1, 0))
+      if Keyword.has_key?(opts, key),
+        do: Keyword.put(opts, key, Enum.sort(List.wrap(opts[key]))),
+        else: opts
+    end)
+    |> Enum.sort_by(&elem(&1, 0))
   end
 
   @doc false
@@ -351,15 +442,28 @@ defmodule Weld.Graph do
     right = %{right | opts: normalize_dependency_options(right.opts)}
     left_source = {left.app, left.requirement, Keyword.delete(left.opts, :only)}
     right_source = {right.app, right.requirement, Keyword.delete(right.opts, :only)}
+
     if left_source == right_source do
-      opts = if is_nil(left.opts[:only]) or is_nil(right.opts[:only]) do
-        Keyword.delete(left.opts, :only)
-      else
-        scopes = (List.wrap(left.opts[:only]) ++ List.wrap(right.opts[:only])) |> Enum.uniq() |> Enum.sort()
-        Keyword.put(left.opts, :only, scopes)
-      end |> Enum.sort_by(&elem(&1, 0))
+      opts =
+        if is_nil(left.opts[:only]) or is_nil(right.opts[:only]) do
+          Keyword.delete(left.opts, :only)
+        else
+          scopes =
+            (List.wrap(left.opts[:only]) ++ List.wrap(right.opts[:only]))
+            |> Enum.uniq()
+            |> Enum.sort()
+
+          Keyword.put(left.opts, :only, scopes)
+        end
+        |> Enum.sort_by(&elem(&1, 0))
+
       dep = %{left | opts: opts, original: dependency_tuple(left.app, left.requirement, opts)}
-      origins = (Map.get(left, :origins, []) ++ Map.get(right, :origins, [])) |> Enum.uniq() |> Enum.sort()
+
+      origins =
+        (Map.get(left, :origins, []) ++ Map.get(right, :origins, []))
+        |> Enum.uniq()
+        |> Enum.sort()
+
       dep = if origins == [], do: dep, else: Map.put(dep, :origins, origins)
       {:ok, if(Map.has_key?(left, :kind), do: external_dependency(dep), else: dep)}
     else
@@ -369,12 +473,18 @@ defmodule Weld.Graph do
 
   @doc false
   def normalize_dependencies(deps) do
-    deps |> Enum.map(fn dep ->
+    deps
+    |> Enum.map(fn dep ->
       opts = normalize_dependency_options(dep.opts)
       %{dep | opts: opts, original: dependency_tuple(dep.app, dep.requirement, opts)}
-    end) |> Enum.group_by(&{&1.app, &1.requirement, Enum.sort(Keyword.delete(&1.opts, :only))})
-    |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(fn {_key, [first | rest]} ->
-      Enum.reduce(rest, first, fn dep, acc -> {:ok, merged} = merge_dependency_scopes(acc, dep); merged end)
+    end)
+    |> Enum.group_by(&{&1.app, &1.requirement, Enum.sort(Keyword.delete(&1.opts, :only))})
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(fn {_key, [first | rest]} ->
+      Enum.reduce(rest, first, fn dep, acc ->
+        {:ok, merged} = merge_dependency_scopes(acc, dep)
+        merged
+      end)
     end)
   end
 
@@ -384,22 +494,29 @@ defmodule Weld.Graph do
   @doc false
   def dependency_kind(opts, target_classification) do
     only = opts[:only] |> List.wrap() |> Enum.uniq() |> Enum.sort()
-    base = cond do
-      opts[:runtime] == false -> :compile
-      target_classification == :tooling -> :tooling
-      true -> :runtime
-    end
+
+    base =
+      cond do
+        opts[:runtime] == false -> :compile
+        target_classification == :tooling -> :tooling
+        true -> :runtime
+      end
+
     if only == [] or :prod in only do
       base
     else
-      kinds =
-        (if :docs in only, do: [:docs], else: []) ++
-        (cond do
+      environment_kinds =
+        cond do
           :dev in only -> [:dev_only]
           :test in only -> [:test]
           true -> []
-        end) ++
-        (if Enum.any?(only, &(&1 not in [:dev, :test, :docs])), do: [:tooling], else: [])
+        end
+
+      kinds =
+        if(:docs in only, do: [:docs], else: []) ++
+          environment_kinds ++
+          if Enum.any?(only, &(&1 not in [:dev, :test, :docs])), do: [:tooling], else: []
+
       case Enum.sort(Enum.uniq(kinds)) do
         [kind] -> kind
         kinds -> kinds
@@ -453,7 +570,9 @@ defmodule Weld.Graph do
     graph.edges
     |> Map.values()
     |> List.flatten()
-    |> Enum.sort_by(fn edge -> {edge.from, edge.to, edge.kind, Atom.to_string(edge.app), edge.requirement, edge.opts} end)
+    |> Enum.sort_by(fn edge ->
+      {edge.from, edge.to, edge.kind, Atom.to_string(edge.app), edge.requirement, edge.opts}
+    end)
   end
 
   @doc false
@@ -522,11 +641,15 @@ defmodule Weld.Graph do
   end
 
   defp dependency_layers([], _neighbors, ordered), do: {:ok, ordered}
+
   defp dependency_layers(remaining, neighbors, ordered) do
     pending = MapSet.new(remaining)
-    {ready, blocked} = Enum.split_with(remaining, fn id ->
-      Enum.all?(Map.get(neighbors, id, []), &(not MapSet.member?(pending, &1)))
-    end)
+
+    {ready, blocked} =
+      Enum.split_with(remaining, fn id ->
+        Enum.all?(Map.get(neighbors, id, []), &(not MapSet.member?(pending, &1)))
+      end)
+
     if ready == [] do
       case order(remaining, neighbors, {%{}, []}, []) do
         {:cycle, witness} -> {:cycle, witness}

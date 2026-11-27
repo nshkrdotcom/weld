@@ -74,52 +74,104 @@ defmodule Weld.Workspace do
 
   defp validate_references!(manifest, discovered) do
     classified = Enum.flat_map(manifest.classify, fn {_class, ids} -> Enum.to_list(ids) end)
-    roles = Enum.to_list(manifest.publication.internal_only) ++ Enum.to_list(manifest.publication.separate) ++
-      Enum.flat_map(manifest.publication.optional, fn {_feature, ids} -> Enum.to_list(ids) end)
-    for id <- Enum.sort(Enum.uniq(classified ++ roles ++ Map.keys(manifest.project_inputs))), id not in discovered do
-      raise Error, code: :unknown_project, phase: :manifest,
-        message: "declaration references undiscovered workspace project #{id}", details: %{project: id}
+
+    roles =
+      Enum.to_list(manifest.publication.internal_only) ++
+        Enum.to_list(manifest.publication.separate) ++
+        Enum.flat_map(manifest.publication.optional, fn {_feature, ids} -> Enum.to_list(ids) end)
+
+    for id <- Enum.sort(Enum.uniq(classified ++ roles ++ Map.keys(manifest.project_inputs))),
+        id not in discovered do
+      raise Error,
+        code: :unknown_project,
+        phase: :manifest,
+        message: "declaration references undiscovered workspace project #{id}",
+        details: %{project: id}
     end
   end
 
   defp load_projects!(manifest, project_ids, observations, facts) do
-    projects = Map.new(project_ids, fn id ->
-      project = load_project!(manifest, id, observations, facts)
-      {id, project}
-    end)
+    projects =
+      Map.new(project_ids, fn id ->
+        project = load_project!(manifest, id, observations, facts)
+        {id, project}
+      end)
+
     duplicate_apps = projects |> Map.values() |> Enum.frequencies_by(& &1.app)
+
     case duplicate_apps |> Enum.filter(fn {_app, count} -> count > 1 end) |> Enum.sort() do
-      [{app, _} | _] -> raise Error, code: :duplicate_app, phase: :snapshot,
-        message: "workspace projects declare duplicate app #{app}"
-      [] -> projects
+      [{app, _} | _] ->
+        raise Error,
+          code: :duplicate_app,
+          phase: :snapshot,
+          message: "workspace projects declare duplicate app #{app}"
+
+      [] ->
+        projects
     end
   end
 
   defp load_project!(manifest, project_id, observations, facts) do
-    abs_path = if project_id == ".", do: manifest.repo_root, else: Output.source!(manifest.repo_root, project_id)
-    environments = Map.new(Probe.environments(), &{&1, Map.fetch!(observations, {project_id, &1})})
+    abs_path =
+      if project_id == ".",
+        do: manifest.repo_root,
+        else: Output.source!(manifest.repo_root, project_id)
+
+    environments =
+      Map.new(Probe.environments(), &{&1, Map.fetch!(observations, {project_id, &1})})
+
     validate_environment_semantics!(project_id, environments)
     %{config: config, application: application} = Map.fetch!(environments, :dev)
     %{config: test_config} = Map.fetch!(environments, :test)
-    deps_by_env = Map.new(environments, fn {env, observation} -> {env, normalize_deps(observation.config[:deps] || [])} end)
-    required_files = environments |> Map.values() |> Enum.flat_map(& &1.required_files) |> Enum.uniq() |> Enum.sort()
-    for path <- required_files, not Map.has_key?(facts.nodes, Path.join(manifest.repo_root, path)),
-      do: raise(Error, code: :inputs_changed, phase: :snapshot,
-        message: "probe required a file absent from the workspace snapshot: #{path}")
+
+    deps_by_env =
+      Map.new(environments, fn {env, observation} ->
+        {env, normalize_deps(observation.config[:deps] || [])}
+      end)
+
+    required_files =
+      environments
+      |> Map.values()
+      |> Enum.flat_map(& &1.required_files)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    for path <- required_files,
+        not Map.has_key?(facts.nodes, Path.join(manifest.repo_root, path)),
+        do:
+          raise(Error,
+            code: :inputs_changed,
+            phase: :snapshot,
+            message: "probe required a file absent from the workspace snapshot: #{path}"
+          )
+
     package = Keyword.get(config, :package) || []
     app = Keyword.fetch!(config, :app)
+
     %Project{
-      id: project_id, abs_path: abs_path, app: app, version: Keyword.fetch!(config, :version),
-      package_name: to_string(Keyword.get(package, :name, app)), package_files: package[:files],
-      package_exclude_patterns: package[:exclude_patterns] || [], package_metadata: package,
+      id: project_id,
+      abs_path: abs_path,
+      app: app,
+      version: Keyword.fetch!(config, :version),
+      package_name: to_string(Keyword.get(package, :name, app)),
+      package_files: package[:files],
+      package_exclude_patterns: package[:exclude_patterns] || [],
+      package_metadata: package,
       description: Keyword.get(config, :description, ""),
       docs_source_ref: if(is_list(config[:docs]), do: config[:docs][:source_ref]),
-      docs: config[:docs] || [], compilers: config[:compilers] || [],
-      elixir: Keyword.get(config, :elixir, "~> 1.18"), deps: configured_deps(project_id, deps_by_env),
+      docs: config[:docs] || [],
+      compilers: config[:compilers] || [],
+      elixir: Keyword.get(config, :elixir, "~> 1.18"),
+      deps: configured_deps(project_id, deps_by_env),
       deps_by_env: deps_by_env,
-      config_by_env: Map.new(environments, fn {env, observation} -> {env, observation.config} end),
-      application_by_env: Map.new(environments, fn {env, observation} -> {env, observation.application} end),
-      probe_context: Map.new(environments, fn {env, observation} -> {env, %{environment: observation.environment, target: observation.target}} end),
+      config_by_env:
+        Map.new(environments, fn {env, observation} -> {env, observation.config} end),
+      application_by_env:
+        Map.new(environments, fn {env, observation} -> {env, observation.application} end),
+      probe_context:
+        Map.new(environments, fn {env, observation} ->
+          {env, %{environment: observation.environment, target: observation.target}}
+        end),
       application: normalize_application(application),
       elixirc_paths: normalize_paths(Keyword.get(config, :elixirc_paths, ["lib"])),
       erlc_paths: normalize_paths(Keyword.get(config, :erlc_paths, ["src"])),
@@ -127,8 +179,11 @@ defmodule Weld.Workspace do
       test_paths: normalize_paths(Keyword.get(test_config, :test_paths, ["test"])),
       test_elixirc_paths: normalize_paths(Keyword.get(test_config, :elixirc_paths, ["lib"])),
       test_erlc_paths: normalize_paths(Keyword.get(test_config, :erlc_paths, ["src"])),
-      copy_dirs: existing_copy_dirs(facts, abs_path), classification: classification_for(project_id, manifest),
-      publication_role: publication_role_for(project_id, manifest), probe_inputs: required_files, facts: facts
+      copy_dirs: existing_copy_dirs(facts, abs_path),
+      classification: classification_for(project_id, manifest),
+      publication_role: publication_role_for(project_id, manifest),
+      probe_inputs: required_files,
+      facts: facts
     }
   end
 
@@ -165,30 +220,84 @@ defmodule Weld.Workspace do
 
   defp normalize_deps(deps) when is_list(deps) do
     Enum.map(deps, fn
-      {app, requirement} when is_binary(requirement) -> normalized_dep!(app, requirement, [])
-      {app, requirement, opts} -> normalized_dep!(app, requirement, opts)
-      {app, opts} when is_list(opts) -> normalized_dep!(app, nil, opts)
-      _ -> raise Error, code: :invalid_project_facts, phase: :snapshot, message: "unsupported dependency shape in Mix metadata"
+      {app, requirement} when is_binary(requirement) ->
+        normalized_dep!(app, requirement, [])
+
+      {app, requirement, opts} ->
+        normalized_dep!(app, requirement, opts)
+
+      {app, opts} when is_list(opts) ->
+        normalized_dep!(app, nil, opts)
+
+      _ ->
+        raise Error,
+          code: :invalid_project_facts,
+          phase: :snapshot,
+          message: "unsupported dependency shape in Mix metadata"
     end)
   end
-  defp normalize_deps(_), do: raise(Error, code: :invalid_project_facts, phase: :snapshot, message: "Mix deps must be a list")
+
+  defp normalize_deps(_),
+    do:
+      raise(Error,
+        code: :invalid_project_facts,
+        phase: :snapshot,
+        message: "Mix deps must be a list"
+      )
 
   defp normalized_dep!(app, requirement, opts) do
     unless is_atom(app) and app not in [nil, true, false] and
-        (is_nil(requirement) or is_binary(requirement)) and Keyword.keyword?(opts),
-      do: raise(Error, code: :invalid_project_facts, phase: :snapshot, message: "invalid dependency metadata")
+             (is_nil(requirement) or is_binary(requirement)) and Keyword.keyword?(opts),
+           do:
+             raise(Error,
+               code: :invalid_project_facts,
+               phase: :snapshot,
+               message: "invalid dependency metadata"
+             )
+
     unless Enum.uniq(Keyword.keys(opts)) == Keyword.keys(opts),
-      do: raise(Error, code: :invalid_project_facts, phase: :snapshot, message: "duplicate dependency options for #{app}")
+      do:
+        raise(Error,
+          code: :invalid_project_facts,
+          phase: :snapshot,
+          message: "duplicate dependency options for #{app}"
+        )
+
     if is_binary(requirement) and not match?({:ok, _}, Version.parse_requirement(requirement)),
-      do: raise(Error, code: :invalid_project_facts, phase: :snapshot, message: "invalid dependency requirement for #{app}")
-    for key <- [:path, :git, :github], Keyword.has_key?(opts, key),
+      do:
+        raise(Error,
+          code: :invalid_project_facts,
+          phase: :snapshot,
+          message: "invalid dependency requirement for #{app}"
+        )
+
+    for key <- [:path, :git, :github],
+        Keyword.has_key?(opts, key),
         not (is_binary(opts[key]) and opts[key] != "" and not String.contains?(opts[key], <<0>>)),
-      do: raise(Error, code: :invalid_project_facts, phase: :snapshot, message: "invalid #{key} dependency option for #{app}")
+        do:
+          raise(Error,
+            code: :invalid_project_facts,
+            phase: :snapshot,
+            message: "invalid #{key} dependency option for #{app}"
+          )
+
     for key <- [:only, :targets], Keyword.has_key?(opts, key) do
-      unless List.wrap(opts[key]) != [] and Enum.all?(List.wrap(opts[key]), &(is_atom(&1) and &1 not in [nil, true, false])),
-        do: raise(Error, code: :invalid_project_facts, phase: :snapshot, message: "invalid #{key} dependency scope for #{app}")
+      unless List.wrap(opts[key]) != [] and
+               Enum.all?(List.wrap(opts[key]), &(is_atom(&1) and &1 not in [nil, true, false])),
+             do:
+               raise(Error,
+                 code: :invalid_project_facts,
+                 phase: :snapshot,
+                 message: "invalid #{key} dependency scope for #{app}"
+               )
     end
-    %{app: app, requirement: requirement, opts: opts, original: Graph.dependency_tuple(app, requirement, opts)}
+
+    %{
+      app: app,
+      requirement: requirement,
+      opts: opts,
+      original: Graph.dependency_tuple(app, requirement, opts)
+    }
   end
 
   # Preserve identical native declarations. For declarations conditional on
@@ -198,28 +307,55 @@ defmodule Weld.Workspace do
     deps_by_env
     |> Enum.flat_map(fn {env, deps} -> Enum.map(deps, &{env, &1}) end)
     |> Enum.group_by(fn {_env, dep} ->
-      {dep.app, dep.requirement, dep.opts |> Graph.normalize_dependency_options() |> Keyword.delete(:only)}
+      {dep.app, dep.requirement,
+       dep.opts |> Graph.normalize_dependency_options() |> Keyword.delete(:only)}
     end)
     |> Enum.sort_by(&elem(&1, 0))
     |> Enum.flat_map(fn {_key, observations} ->
       present = observations |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> Enum.sort()
       declarations = observations |> Enum.map(&elem(&1, 1)) |> Graph.normalize_dependencies()
-      signatures = observations |> Enum.map(fn {_env, dep} -> Graph.normalize_dependency_options(dep.opts) end) |> Enum.uniq()
+
+      signatures =
+        observations
+        |> Enum.map(fn {_env, dep} -> Graph.normalize_dependency_options(dep.opts) end)
+        |> Enum.uniq()
+
       if present == Enum.sort(Probe.environments()) and length(signatures) == 1 do
         declarations
       else
-        scopes = observations |> Enum.flat_map(fn {env, dep} ->
-          declared = List.wrap(dep.opts[:only])
-          if Enum.any?(declared, &(&1 not in Probe.environments())),
-            do: environment_error!(project_id, env, :dependencies,
-              "conditional dependency scopes name an unobserved environment; make the declaration identical across dev/test/prod")
-          if declared == [] or env in declared, do: [env], else: []
-        end) |> Enum.uniq() |> Enum.sort()
+        scopes =
+          observations
+          |> Enum.flat_map(fn {env, dep} ->
+            declared = List.wrap(dep.opts[:only])
+
+            if Enum.any?(declared, &(&1 not in Probe.environments())),
+              do:
+                environment_error!(
+                  project_id,
+                  env,
+                  :dependencies,
+                  "conditional dependency scopes name an unobserved environment; make the declaration identical across dev/test/prod"
+                )
+
+            if declared == [] or env in declared, do: [env], else: []
+          end)
+          |> Enum.uniq()
+          |> Enum.sort()
+
         case {declarations, scopes} do
-          {_, []} -> []
+          {_, []} ->
+            []
+
           {[dep], scopes} ->
             opts = Keyword.put(dep.opts, :only, scopes)
-            [%{dep | opts: opts, original: Graph.dependency_tuple(dep.app, dep.requirement, opts)}]
+
+            [
+              %{
+                dep
+                | opts: opts,
+                  original: Graph.dependency_tuple(dep.app, dep.requirement, opts)
+              }
+            ]
         end
       end
     end)
@@ -228,40 +364,99 @@ defmodule Weld.Workspace do
 
   defp validate_environment_semantics!(project_id, environments) do
     baseline = Map.fetch!(environments, :dev)
+
     for env <- [:test, :prod] do
       observed = Map.fetch!(environments, env)
-      for key <- [:app, :version], observed.config[key] != baseline.config[key],
-        do: raise(Error, code: :conflicting_project_identity, phase: :snapshot,
-          message: "project #{project_id} changes #{key} between dev and #{env}",
-          details: %{project: project_id, environment: env, field: key})
-      for key <- [:package, :description, :elixir, :compilers, :elixirc_options, :erlc_options, :erlc_include_path],
+
+      for key <- [:app, :version],
+          observed.config[key] != baseline.config[key],
+          do:
+            raise(Error,
+              code: :conflicting_project_identity,
+              phase: :snapshot,
+              message: "project #{project_id} changes #{key} between dev and #{env}",
+              details: %{project: project_id, environment: env, field: key}
+            )
+
+      for key <- [
+            :package,
+            :description,
+            :elixir,
+            :compilers,
+            :elixirc_options,
+            :erlc_options,
+            :erlc_include_path
+          ],
           environment_value(observed.config, key) != environment_value(baseline.config, key),
-        do: environment_error!(project_id, env, key, "environment-dependent package/compiler metadata is unsupported")
+          do:
+            environment_error!(
+              project_id,
+              env,
+              key,
+              "environment-dependent package/compiler metadata is unsupported"
+            )
+
       if Enum.sort(observed.application) != Enum.sort(baseline.application),
-        do: environment_error!(project_id, env, :application, "environment-dependent application callbacks are unsupported")
+        do:
+          environment_error!(
+            project_id,
+            env,
+            :application,
+            "environment-dependent application callbacks are unsupported"
+          )
+
       if observed.target != baseline.target,
-        do: environment_error!(project_id, env, :target, "the Mix target changes during source evaluation")
+        do:
+          environment_error!(
+            project_id,
+            env,
+            :target,
+            "the Mix target changes during source evaluation"
+          )
     end
+
     prod = Map.fetch!(environments, :prod)
+
     for key <- [:elixirc_paths, :erlc_paths],
         environment_value(prod.config, key) != environment_value(baseline.config, key),
-      do: environment_error!(project_id, :prod, key,
-        "production compiler roots differ from dev; declare stable roots or use an explicitly supported artifact layout")
+        do:
+          environment_error!(
+            project_id,
+            :prod,
+            key,
+            "production compiler roots differ from dev; declare stable roots or use an explicitly supported artifact layout"
+          )
+
     :ok
   end
 
   defp environment_value(config, :package), do: Enum.sort(config[:package] || [])
-  defp environment_value(config, :elixirc_paths), do: normalize_paths(config[:elixirc_paths] || ["lib"])
+
+  defp environment_value(config, :elixirc_paths),
+    do: normalize_paths(config[:elixirc_paths] || ["lib"])
+
   defp environment_value(config, :erlc_paths), do: normalize_paths(config[:erlc_paths] || ["src"])
   defp environment_value(config, :erlc_include_path), do: config[:erlc_include_path] || "include"
-  defp environment_value(config, key) when key in [:elixirc_options, :erlc_options], do: Enum.sort(config[key] || [])
+
+  defp environment_value(config, key) when key in [:elixirc_options, :erlc_options],
+    do: Enum.sort(config[key] || [])
+
   defp environment_value(config, key), do: config[key]
 
   defp environment_error!(project_id, env, field, reason),
-    do: raise(Error, code: :unsupported_environment_semantics, phase: :plan,
-      message: "project #{project_id} has unsupported #{env} #{field} semantics: #{reason}",
-      details: %{project: project_id, environment: env, field: field,
-        hint: "Keep identity, package/compiler metadata and application behavior stable; express dependency environments with explicit only scopes."})
+    do:
+      raise(Error,
+        code: :unsupported_environment_semantics,
+        phase: :plan,
+        message: "project #{project_id} has unsupported #{env} #{field} semantics: #{reason}",
+        details: %{
+          project: project_id,
+          environment: env,
+          field: field,
+          hint:
+            "Keep identity, package/compiler metadata and application behavior stable; express dependency environments with explicit only scopes."
+        }
+      )
 
   defp normalize_paths(path) when is_binary(path), do: [path]
   defp normalize_paths(paths) when is_list(paths), do: Enum.sort(paths)
@@ -320,5 +515,4 @@ defmodule Weld.Workspace do
   defp owns_relative_path?(project, relative) do
     relative == project.id or String.starts_with?(relative, "#{project.id}/")
   end
-
 end

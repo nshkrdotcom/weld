@@ -20,10 +20,12 @@ defmodule Weld.Core.Inventory do
 
     if MapSet.size(set) != length(targets), do: raise(ArgumentError, "duplicate inventory target")
     folded = Enum.map(targets, &String.downcase/1)
+
     if length(Enum.uniq(folded)) != length(folded),
       do: raise(ArgumentError, "case-fold inventory collision")
 
     folded_set = MapSet.new(folded)
+
     for target <- targets do
       validate_path!(target)
 

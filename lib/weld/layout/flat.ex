@@ -23,7 +23,11 @@ defmodule Weld.Layout.Flat do
     projects = plan.selected_projects ++ support
     shared_configs = plan.artifact.monolith_opts[:shared_test_configs] || []
     unknown_configs = shared_configs -- Enum.map(projects, & &1.id)
-    if unknown_configs != [], do: raise(Error, "flat.shared_test_configs has unused projects: #{inspect(unknown_configs)}")
+
+    if unknown_configs != [],
+      do:
+        raise(Error, "flat.shared_test_configs has unused projects: #{inspect(unknown_configs)}")
+
     ensure_unique_slugs!(projects)
     root = plan.manifest.repo_root
     roots = live_roots(plan, projects)
@@ -97,8 +101,11 @@ defmodule Weld.Layout.Flat do
     transformed =
       full |> Enum.reject(&(&1.operation == :link_or_copy)) |> Enum.flat_map(& &1.sources)
 
-    links = for op <- full, op.operation == :link_or_copy,
-      do: {op.target, Path.relative_to(hd(op.sources), root)}
+    links =
+      for op <- full,
+          op.operation == :link_or_copy,
+          do: {op.target, Path.relative_to(hd(op.sources), root)}
+
     guard =
       Live.guard_source(plan,
         links: links,
@@ -151,7 +158,9 @@ defmodule Weld.Layout.Flat do
       (Enum.map(plan.artifact.output.docs, &{&1, :docs}) ++
          Enum.map(plan.artifact.output.assets, &{&1, :runtime}) ++
          Enum.map(Support.root_tooling_files(plan), &{&1, :metadata}))
-      |> Enum.flat_map(fn {path, kind} -> tree_operations(plan.facts, Path.join(root, path), path, kind) end)
+      |> Enum.flat_map(fn {path, kind} ->
+        tree_operations(plan.facts, Path.join(root, path), path, kind)
+      end)
 
     Enum.reduce(plan.selected_projects, {initial, [], [], []}, &merge_project_sources/2)
   end
@@ -238,10 +247,17 @@ defmodule Weld.Layout.Flat do
   defp tree_operations(facts, source, target, kind) do
     Facts.reject_tree_links!(facts, source)
     operation = if kind in [:native, :runtime, :metadata], do: :copy, else: :link_or_copy
+
     case Facts.stat(facts, source) do
       {:ok, %{type: :directory}} ->
         for {path, :regular} <- Facts.topology(facts, source),
-            do: FilePlan.copy(path, Path.join(target, Path.relative_to(path, source)), kind, operation)
+            do:
+              FilePlan.copy(
+                path,
+                Path.join(target, Path.relative_to(path, source)),
+                kind,
+                operation
+              )
 
       {:ok, %{type: :regular}} ->
         [FilePlan.copy(source, target, kind, operation)]
@@ -341,7 +357,12 @@ defmodule Weld.Layout.Flat do
     root = Path.join(["test", "support", "weld_projects", project_slug(project.id)])
 
     Enum.flat_map(@source_dirs ++ ["priv"], fn dir ->
-      tree_operations(project.facts, Path.join(project.abs_path, dir), Path.join(root, dir), :test)
+      tree_operations(
+        project.facts,
+        Path.join(project.abs_path, dir),
+        Path.join(root, dir),
+        :test
+      )
     end)
   end
 

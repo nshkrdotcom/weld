@@ -189,8 +189,10 @@ defmodule Weld.SourceProjectTest do
     source = Path.join(root, "extensions/palette")
 
     full = Weld.Commands.project!(manifest)
+
     assert full.package_files ==
              ~w(VERSION build_support/package.exs mix.exs priv/shade.txt source/palette.ex)
+
     assert Enum.sort(full.package_patterns) == ~w(VERSION build_support mix.exs priv source)
     assert "checks/palette_test.exs" in full.verification_files
     refute File.exists?(Path.join(full.build_path, "extensions"))
@@ -301,6 +303,9 @@ defmodule Weld.SourceProjectTest do
   defp marker(projection) do
     [root, suffix] = String.split(projection.build_path, "/.weld/v2/", parts: 2)
     [kind, artifact | _] = Path.split(suffix)
-    Weld.Output.path(root, ["views", artifact, kind <> ".json"]) |> File.read!() |> Jason.decode!()
+
+    Weld.Output.path(root, ["views", artifact, kind <> ".json"])
+    |> File.read!()
+    |> Jason.decode!()
   end
 end

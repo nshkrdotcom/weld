@@ -39,5 +39,4 @@ defmodule Weld.Core.Modules do
   defp modules({_key, value}, parent), do: modules(value, parent)
   defp modules(list, parent) when is_list(list), do: Enum.flat_map(list, &modules(&1, parent))
   defp modules(_other, _parent), do: []
-
 end

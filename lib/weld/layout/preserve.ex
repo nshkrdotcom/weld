@@ -12,53 +12,111 @@ defmodule Weld.Layout.Preserve do
     projects = portable_projects!(plan, project)
     required = Enum.flat_map(projects, &required_paths(&1, project))
     roots = plan.source_roots
-    validate_inventory!(plan.facts, plan.manifest.repo_root, root, roots,
-      Enum.map(roots, & &1.target), required)
+
+    validate_inventory!(
+      plan.facts,
+      plan.manifest.repo_root,
+      root,
+      roots,
+      Enum.map(roots, & &1.target),
+      required
+    )
+
     Enum.flat_map(projects, &compiler_paths(&1, project))
-    |> Enum.flat_map(&Facts.list_files(plan.facts, &1)) |> Enum.uniq()
+    |> Enum.flat_map(&Facts.list_files(plan.facts, &1))
+    |> Enum.uniq()
     |> Enum.filter(&(Path.extname(&1) == ".ex"))
-    |> Enum.map(&{&1, Facts.read!(plan.facts, &1)}) |> Modules.validate_module_sources!()
+    |> Enum.map(&{&1, Facts.read!(plan.facts, &1)})
+    |> Modules.validate_module_sources!()
+
     outputs = Inventory.preserve_inventory(plan)
+
     for entry <- Weld.Core.Inputs.mapped(plan) do
       unless Enum.any?(outputs, &(&1.target == entry.target and &1.publish == entry.publish)),
-        do: raise(Error, "preserve inventory does not cover declared target/publication: #{entry.target}")
+        do:
+          raise(
+            Error,
+            "preserve inventory does not cover declared target/publication: #{entry.target}"
+          )
     end
-    full = for entry <- outputs do
-      source = Path.join(plan.manifest.repo_root, hd(entry.inputs).source)
-      operation = if entry.kind in [:compiled, :test] and
-        hd(entry.inputs).source not in plan.structural_inputs and
-        not Enum.any?(Path.split(entry.target), &(&1 in ~w(c_src priv config))),
-        do: :link_or_copy, else: :copy
-      FilePlan.copy(source, entry.target, entry.kind, operation)
-    end
+
+    full =
+      for entry <- outputs do
+        source = Path.join(plan.manifest.repo_root, hd(entry.inputs).source)
+
+        operation =
+          if entry.kind in [:compiled, :test] and
+               hd(entry.inputs).source not in plan.structural_inputs and
+               not Enum.any?(Path.split(entry.target), &(&1 in ~w(c_src priv config))),
+             do: :link_or_copy,
+             else: :copy
+
+        FilePlan.copy(source, entry.target, entry.kind, operation)
+      end
+
     full = FilePlan.validate!(full)
-    groups = for entry <- roots, entry.directory,
-      children = Enum.filter(full, &covered?(&1.target, entry.target)), children != [],
-      Enum.all?(children, &(&1.operation == :link_or_copy)), do: entry
-    links = for op <- full, op.operation == :link_or_copy,
-      not Enum.any?(groups, &covered?(op.target, &1.target)),
-      do: {op.target, Path.relative_to(hd(op.sources), plan.manifest.repo_root)}
+
+    groups =
+      for entry <- roots,
+          entry.directory,
+          children = Enum.filter(full, &covered?(&1.target, entry.target)),
+          children != [],
+          Enum.all?(children, &(&1.operation == :link_or_copy)),
+          do: entry
+
+    links =
+      for op <- full,
+          op.operation == :link_or_copy,
+          not Enum.any?(groups, &covered?(op.target, &1.target)),
+          do: {op.target, Path.relative_to(hd(op.sources), plan.manifest.repo_root)}
+
     links = links ++ Enum.map(groups, &{&1.target, &1.source})
-    guard = Live.guard_ast(plan, directories: Enum.map(groups, &Path.join(plan.manifest.repo_root, &1.source)),
-      digests: for(op <- full, op.operation != :link_or_copy, source <- op.sources, do: source), links: links)
+
+    guard =
+      Live.guard_ast(plan,
+        directories: Enum.map(groups, &Path.join(plan.manifest.repo_root, &1.source)),
+        digests: for(op <- full, op.operation != :link_or_copy, source <- op.sources, do: source),
+        links: links
+      )
+
     mix = Facts.read!(plan.facts, Path.join(root, "mix.exs"))
-    {live_mix, live_error} = try do
-      {Live.native_mix!(mix, guard, Enum.map(links, &elem(&1, 0))), nil}
-    rescue
-      error in Error -> {nil, Exception.message(error)}
-    end
-    live = Enum.map(full, fn
-      %{target: "mix.exs"} when is_binary(live_mix) -> FilePlan.generated("mix.exs", live_mix, :metadata,
-        [Path.join(root, "mix.exs") | Enum.map(plan.structural_inputs, &Path.join(plan.manifest.repo_root, &1))])
-      op -> op
-    end)
-    %{full: full, live: FilePlan.validate!(live), live_error: live_error, live_roots: groups,
+
+    {live_mix, live_error} =
+      try do
+        {Live.native_mix!(mix, guard, Enum.map(links, &elem(&1, 0))), nil}
+      rescue
+        error in Error -> {nil, Exception.message(error)}
+      end
+
+    live =
+      Enum.map(full, fn
+        %{target: "mix.exs"} when is_binary(live_mix) ->
+          FilePlan.generated("mix.exs", live_mix, :metadata, [
+            Path.join(root, "mix.exs")
+            | Enum.map(plan.structural_inputs, &Path.join(plan.manifest.repo_root, &1))
+          ])
+
+        op ->
+          op
+      end)
+
+    %{
+      full: full,
+      live: FilePlan.validate!(live),
+      live_error: live_error,
+      live_roots: groups,
       package_files: for(entry <- outputs, entry.publish, do: entry.target),
       package_patterns: project.package_files,
-      empty_dirs: for(entry <- roots, entry.directory,
-        dir <- Facts.empty_dirs(plan.facts, Path.join(plan.manifest.repo_root, entry.source)),
-        do: Path.join(entry.target, dir)),
-      native_projects: projects, config_warnings: []}
+      empty_dirs:
+        for(
+          entry <- roots,
+          entry.directory,
+          dir <- Facts.empty_dirs(plan.facts, Path.join(plan.manifest.repo_root, entry.source)),
+          do: Path.join(entry.target, dir)
+        ),
+      native_projects: projects,
+      config_warnings: []
+    }
   end
 
   defp validate_inventory!(facts, checkout, root, roots, targets, required) do
@@ -89,7 +147,9 @@ defmodule Weld.Layout.Preserve do
       ["mix.exs", "mix.lock", "priv", "config", project.erlc_include_path, "c_src"] ++
         if(project.id == selected.id, do: project.test_paths, else: [])
 
-    (fields |> Enum.map(&Path.expand(&1, project.abs_path)) |> Enum.filter(&Facts.exists?(project.facts, &1))) ++
+    (fields
+     |> Enum.map(&Path.expand(&1, project.abs_path))
+     |> Enum.filter(&Facts.exists?(project.facts, &1))) ++
       compiler_paths(project, selected)
   end
 

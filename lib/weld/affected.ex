@@ -11,8 +11,13 @@ defmodule Weld.Affected do
 
   @doc "Compare one batch snapshot of each genuine Git tree, including removed artifacts."
   def compare!(manifest_path, opts) do
-    root = Git.root(opts[:root] || Path.dirname(Path.expand(manifest_path))) ||
-      raise(Weld.Error, code: :git_required, message: "affected requires Git; pass --root for the checkout")
+    root =
+      Git.root(opts[:root] || Path.dirname(Path.expand(manifest_path))) ||
+        raise(Weld.Error,
+          code: :git_required,
+          message: "affected requires Git; pass --root for the checkout"
+        )
+
     relative = Path.relative_to(Path.expand(manifest_path), root)
     Weld.Core.Inventory.validate_path!(relative)
     base = resolve_revision!(root, Keyword.fetch!(opts, :base))
@@ -21,54 +26,109 @@ defmodule Weld.Affected do
     before = snapshot(root, base, relative, opts)
     after_ = snapshot(root, head, relative, opts)
     changed = changed_files(root, before.revision, after_.revision)
-    ids = if opts[:artifact], do: [opts[:artifact]],
-      else: Enum.sort(Enum.uniq(Map.keys(before.plans) ++ Map.keys(after_.plans)))
-    common = %{base: before.revision, head: after_.revision, task: task, changed_files: changed.files}
+
+    ids =
+      if opts[:artifact],
+        do: [opts[:artifact]],
+        else: Enum.sort(Enum.uniq(Map.keys(before.plans) ++ Map.keys(after_.plans)))
+
+    common = %{
+      base: before.revision,
+      head: after_.revision,
+      task: task,
+      changed_files: changed.files
+    }
+
     errors = List.wrap(before[:error]) ++ List.wrap(after_[:error]) ++ List.wrap(changed[:error])
-    results = Enum.map(ids, fn id ->
-      report = artifact_report(id, before.plans[id], after_.plans[id], relative, changed.files, common, errors, opts)
-      %{artifact: id, ok: true, data: report}
-    end)
+
+    results =
+      Enum.map(ids, fn id ->
+        report =
+          artifact_report(
+            id,
+            before.plans[id],
+            after_.plans[id],
+            relative,
+            changed.files,
+            common,
+            errors,
+            opts
+          )
+
+        %{artifact: id, ok: true, data: report}
+      end)
+
     if opts[:artifact] do
       hd(results).data
     else
       Map.merge(common, %{
-        results: results, affected_artifacts: for(%{artifact: id, data: %{affected?: true}} <- results, do: id),
+        results: results,
+        affected_artifacts: for(%{artifact: id, data: %{affected?: true}} <- results, do: id),
         affected?: errors != [] or Enum.any?(results, & &1.data.affected?),
-        unknown?: errors != [] or Enum.any?(results, & &1.data.unknown?), reasons: errors,
+        unknown?: errors != [] or Enum.any?(results, & &1.data.unknown?),
+        reasons: errors,
         partial_failure: false
       })
     end
   end
 
   defp artifact_report(id, old, new, relative, changed, common, errors, opts) do
-    plan_errors = Enum.flat_map([old, new], fn
-      %{error: error} -> [error]
-      _ -> []
-    end)
+    plan_errors =
+      Enum.flat_map([old, new], fn
+        %{error: error} -> [error]
+        _ -> []
+      end)
+
     cond do
       errors != [] or plan_errors != [] ->
-        Map.merge(common, %{artifact: id, affected?: true, unknown?: true,
-          reasons: errors ++ plan_errors, direct_projects: [], affected_projects: []})
+        Map.merge(common, %{
+          artifact: id,
+          affected?: true,
+          unknown?: true,
+          reasons: errors ++ plan_errors,
+          direct_projects: [],
+          affected_projects: []
+        })
+
       is_nil(old) or is_nil(new) ->
         plan = old || new
-        Map.merge(common, %{artifact: id, affected?: true, unknown?: is_nil(plan),
-          reasons: [cond do is_nil(old) and is_nil(new) -> :artifact_unavailable; is_nil(old) -> :artifact_added; true -> :artifact_removed end],
-          direct_projects: [], affected_projects: if(plan, do: plan.selected_ids, else: [])})
-      true -> compare_plans(id, old, new, relative, changed, common, opts)
+
+        Map.merge(common, %{
+          artifact: id,
+          affected?: true,
+          unknown?: is_nil(plan),
+          reasons: [
+            cond do
+              is_nil(old) and is_nil(new) -> :artifact_unavailable
+              is_nil(old) -> :artifact_added
+              true -> :artifact_removed
+            end
+          ],
+          direct_projects: [],
+          affected_projects: if(plan, do: plan.selected_ids, else: [])
+        })
+
+      true ->
+        compare_plans(id, old, new, relative, changed, common, opts)
     end
   end
 
   defp compare_plans(id, before, after_, relative, changed, common, opts) do
-    role = case common.task do
-      "package" -> :package
-      "docs" -> :docs
-      "project" -> :project
-      _ -> :verify
-    end
+    role =
+      case common.task do
+        "package" -> :package
+        "docs" -> :docs
+        "project" -> :project
+        _ -> :verify
+      end
+
     expected = Weld.Core.Inventory.view(before.output_inventory, role)
     observed = Weld.Core.Inventory.view(after_.output_inventory, role)
-    delta = Weld.Core.Inventory.diff(expected, Map.new(observed, &{&1.target, &1})) |> Enum.reject(&(&1.state == :identical))
+
+    delta =
+      Weld.Core.Inventory.diff(expected, Map.new(observed, &{&1.target, &1}))
+      |> Enum.reject(&(&1.state == :identical))
+
     structural = Enum.uniq(before.structural_inputs ++ after_.structural_inputs)
     structural_changed? = relative in changed or Enum.any?(changed, &(&1 in structural))
     contributors = for entry <- expected ++ observed, input <- entry.inputs, do: input.source
@@ -78,19 +138,48 @@ defmodule Weld.Affected do
     new_report = run!(after_, Keyword.put(options, :changed_files, relevant))
     projects = Enum.sort(Enum.uniq(old_report.affected_projects ++ new_report.affected_projects))
     revision_changed? = common.base != common.head
-    opaque? = Enum.any?([before, after_], fn plan ->
-      Enum.any?(Inventory.portable(plan)["inputs"], &(&1["kind"] == "external" and &1["fact"]["opaque"]))
-    end)
-    affected? = opaque? or delta != [] or structural_changed? or (common.task == "release" and revision_changed?)
-    projects = if opaque?, do: Enum.sort(Enum.uniq(before.selected_ids ++ before.verification_ids ++
-      before.inventory_member_ids ++ after_.selected_ids ++ after_.verification_ids ++ after_.inventory_member_ids)), else: projects
+
+    opaque? =
+      Enum.any?([before, after_], fn plan ->
+        Enum.any?(
+          Inventory.portable(plan)["inputs"],
+          &(&1["kind"] == "external" and &1["fact"]["opaque"])
+        )
+      end)
+
+    affected? =
+      opaque? or delta != [] or structural_changed? or
+        (common.task == "release" and revision_changed?)
+
+    projects =
+      if opaque?,
+        do:
+          Enum.sort(
+            Enum.uniq(
+              before.selected_ids ++
+                before.verification_ids ++
+                before.inventory_member_ids ++
+                after_.selected_ids ++ after_.verification_ids ++ after_.inventory_member_ids
+            )
+          ),
+        else: projects
+
     Map.merge(common, %{
-      artifact: id, affected?: affected?, unknown?: opaque?,
-      content_changed: delta != [], source_revision_changed: revision_changed?,
-      structural_changed?: structural_changed?, entries: delta,
-      reasons: (if(opaque?, do: [:opaque_inputs], else: [])) ++
-        if(common.task == "release" and revision_changed?, do: [:source_revision_changed], else: []),
-      direct_projects: Enum.sort(Enum.uniq(old_report.direct_projects ++ new_report.direct_projects)),
+      artifact: id,
+      affected?: affected?,
+      unknown?: opaque?,
+      content_changed: delta != [],
+      source_revision_changed: revision_changed?,
+      structural_changed?: structural_changed?,
+      entries: delta,
+      reasons:
+        if(opaque?, do: [:opaque_inputs], else: []) ++
+          if(common.task == "release" and revision_changed?,
+            do: [:source_revision_changed],
+            else: []
+          ),
+      direct_projects:
+        Enum.sort(Enum.uniq(old_report.direct_projects ++ new_report.direct_projects)),
       affected_projects: if(affected?, do: projects, else: [])
     })
   end
@@ -99,10 +188,20 @@ defmodule Weld.Affected do
     case Git.run(root, ["rev-parse", "--verify", "--end-of-options", ref <> "^{commit}"]) do
       {:ok, revision} ->
         revision = String.trim(revision)
+
         unless Regex.match?(~r/\A[0-9a-f]{40,64}\z/, revision),
-          do: raise(Weld.Error, code: :invalid_arguments, message: "invalid Git revision #{inspect(ref)}")
+          do:
+            raise(Weld.Error,
+              code: :invalid_arguments,
+              message: "invalid Git revision #{inspect(ref)}"
+            )
+
         revision
-      _ -> raise Weld.Error, code: :invalid_arguments, message: "invalid Git revision #{inspect(ref)}"
+
+      _ ->
+        raise Weld.Error,
+          code: :invalid_arguments,
+          message: "invalid Git revision #{inspect(ref)}"
     end
   end
 
@@ -111,18 +210,35 @@ defmodule Weld.Affected do
       try do
         manifest = Weld.Manifest.load!(Path.join(directory, relative), checkout_root: directory)
         workspace = Workspace.load!(manifest, Keyword.put(opts, :checkout_root, directory))
-        ids = if opts[:artifact], do: Enum.filter(Map.keys(manifest.artifacts), &(&1 == opts[:artifact])),
-          else: Map.keys(manifest.artifacts)
-        plans = ids |> Enum.sort() |> Map.new(fn id ->
-          plan = try do
-            plan = Plan.build_from_workspace!(manifest, workspace, Keyword.put(opts, :artifact, id)) |> Plan.ensure_valid!()
-            _ = Inventory.portable(plan)
-            plan
-          rescue
-            error -> %{error: Exception.message(error)}
-          end
-          {id, plan}
-        end)
+
+        ids =
+          if opts[:artifact],
+            do: Enum.filter(Map.keys(manifest.artifacts), &(&1 == opts[:artifact])),
+            else: Map.keys(manifest.artifacts)
+
+        plans =
+          ids
+          |> Enum.sort()
+          |> Map.new(fn id ->
+            plan =
+              try do
+                plan =
+                  Plan.build_from_workspace!(
+                    manifest,
+                    workspace,
+                    Keyword.put(opts, :artifact, id)
+                  )
+                  |> Plan.ensure_valid!()
+
+                _ = Inventory.portable(plan)
+                plan
+              rescue
+                error -> %{error: Exception.message(error)}
+              end
+
+            {id, plan}
+          end)
+
         %{revision: commit, plans: plans}
       rescue
         error ->

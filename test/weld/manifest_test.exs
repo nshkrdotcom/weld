@@ -5,7 +5,9 @@ defmodule Weld.ManifestTest do
   alias Weld.Manifest
 
   test "loads a single-artifact manifest" do
-    manifest = Manifest.load!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
+    manifest =
+      Manifest.load!(FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle"))
+
     artifact = Manifest.artifact!(manifest, nil)
 
     assert manifest.workspace.project_globs == ["core/*", "runtime/*"]
@@ -31,7 +33,9 @@ defmodule Weld.ManifestTest do
   end
 
   test "loads monolith mode artifacts and canonical git dependency opts" do
-    manifest = Manifest.load!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
+    manifest =
+      Manifest.load!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
+
     artifact = Manifest.artifact!(manifest, nil)
 
     assert artifact.mode == :monolith
@@ -42,7 +46,9 @@ defmodule Weld.ManifestTest do
   end
 
   test "normalizes professional HexDocs metadata for generated packages" do
-    manifest = Manifest.load!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
+    manifest =
+      Manifest.load!(FixtureCase.copied_manifest_path("monolith_bundle", "monolith_bundle"))
+
     artifact = Manifest.artifact!(manifest, nil)
 
     assert artifact.package.docs.main == "readme"

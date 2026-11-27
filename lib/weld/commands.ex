@@ -18,9 +18,13 @@ defmodule Weld.Commands do
   @doc false
   def inspect_plan(plan) do
     inventory = Weld.Plan.Inventory.portable(plan)
+
     %{
       artifact_id: plan.artifact.id,
-      layout: %{package_projection: :components, monolith: :flat, source_project: :preserve}[plan.artifact.mode],
+      layout:
+        %{package_projection: :components, monolith: :flat, source_project: :preserve}[
+          plan.artifact.mode
+        ],
       plan_id: inventory["plan_id"],
       input_id: inventory["input_id"],
       compiler_id: inventory["compiler_id"],
@@ -63,7 +67,7 @@ defmodule Weld.Commands do
         structural_inputs: plan.structural_inputs,
         source_inventory: plan.source_inventory,
         output_inventory: plan.output_inventory,
-        source_target_basis: source_target_basis(plan),
+        source_target_basis: :projection,
         external_deps: Enum.map(plan.external_deps, &Atom.to_string(&1.app))
       },
       violations: Enum.map(plan.violations, &serialize_violation/1)
@@ -79,18 +83,43 @@ defmodule Weld.Commands do
   defp graph_report(workspace, plan, view) do
     %{
       view: view,
-      nodes: Enum.map(Weld.Workspace.projects(workspace), fn project ->
-        %{id: project.id, app: project.app, classification: project.classification,
-          selected: not is_nil(plan) and project.id in plan.selected_ids,
-          membership: if(plan, do: membership(plan, project.id), else: [])}
-      end),
-      edges: if(plan, do: Enum.map(reported_edges(plan, view), &report_edge(plan, &1)),
-        else: Enum.map(Graph.scoped_edges(workspace.graph, view), &plain_edge/1)),
-      external: for(project <- Weld.Workspace.projects(workspace),
-        dep <- Graph.external_deps(if(plan, do: plan.artifact_graph, else: workspace.graph), project.id),
-        Weld.Graph.View.allowed?(dep.kind, view),
-        do: %{from: project.id, app: dep.app, kind: dep.kind, requirement: dep.requirement, opts: dep.opts}),
-      violations: Enum.map(if(plan, do: plan.violations, else: Graph.violations(workspace.graph)), &serialize_violation/1)
+      nodes:
+        Enum.map(Weld.Workspace.projects(workspace), fn project ->
+          %{
+            id: project.id,
+            app: project.app,
+            classification: project.classification,
+            selected: not is_nil(plan) and project.id in plan.selected_ids,
+            membership: if(plan, do: membership(plan, project.id), else: [])
+          }
+        end),
+      edges:
+        if(plan,
+          do: Enum.map(reported_edges(plan, view), &report_edge(plan, &1)),
+          else: Enum.map(Graph.scoped_edges(workspace.graph, view), &plain_edge/1)
+        ),
+      external:
+        for(
+          project <- Weld.Workspace.projects(workspace),
+          dep <-
+            Graph.external_deps(
+              if(plan, do: plan.artifact_graph, else: workspace.graph),
+              project.id
+            ),
+          Weld.Graph.View.allowed?(dep.kind, view),
+          do: %{
+            from: project.id,
+            app: dep.app,
+            kind: dep.kind,
+            requirement: dep.requirement,
+            opts: dep.opts
+          }
+        ),
+      violations:
+        Enum.map(
+          if(plan, do: plan.violations, else: Graph.violations(workspace.graph)),
+          &serialize_violation/1
+        )
     }
   end
 
@@ -98,8 +127,12 @@ defmodule Weld.Commands do
   def graph_dot!(source, opts \\ []) do
     report = graph!(source, opts)
     nodes = for node <- report.nodes, do: "  #{Jason.encode!(node.id)};\n"
-    edges = for edge <- report.edges, do:
-      "  #{Jason.encode!(edge.from)} -> #{Jason.encode!(edge.to)} [label=#{Jason.encode!(edge.kind |> List.wrap() |> Enum.map_join(",", &to_string/1))},style=#{if(edge.externalized, do: "dashed", else: "solid")}];\n"
+
+    edges =
+      for edge <- report.edges,
+          do:
+            "  #{Jason.encode!(edge.from)} -> #{Jason.encode!(edge.to)} [label=#{Jason.encode!(edge.kind |> List.wrap() |> Enum.map_join(",", &to_string/1))},style=#{if(edge.externalized, do: "dashed", else: "solid")}];\n"
+
     IO.iodata_to_binary(["digraph weld {\n", nodes, edges, "}\n"])
   end
 
@@ -110,11 +143,20 @@ defmodule Weld.Commands do
     report = graph_report(workspace, plan, view)
     graph = if plan, do: plan.artifact_graph, else: workspace.graph
     reachable = Graph.reachable_from(graph, project_id, view) -- [project_id]
+
     %{
-      project: project_id, view: view,
-      outgoing: report.edges |> Enum.filter(&(&1.from == project_id)) |> Enum.map(&Map.delete(&1, :from)),
-      transitive: Enum.map(reachable, fn target -> %{project: target, path: dependency_path(graph, project_id, target, view)} end),
-      external: report.external |> Enum.filter(&(&1.from == project_id)) |> Enum.map(&Map.delete(&1, :from)),
+      project: project_id,
+      view: view,
+      outgoing:
+        report.edges |> Enum.filter(&(&1.from == project_id)) |> Enum.map(&Map.delete(&1, :from)),
+      transitive:
+        Enum.map(reachable, fn target ->
+          %{project: target, path: dependency_path(graph, project_id, target, view)}
+        end),
+      external:
+        report.external
+        |> Enum.filter(&(&1.from == project_id))
+        |> Enum.map(&Map.delete(&1, :from)),
       membership: if(plan, do: membership(plan, project_id), else: [])
     }
   end
@@ -124,22 +166,39 @@ defmodule Weld.Commands do
     Enum.each([from, to], &require_project!(workspace.graph, &1))
     view = opts[:view] || :all
     actual_path = dependency_path(workspace.graph, from, to, view)
-    artifact_path = dependency_path(if(plan, do: plan.artifact_graph, else: workspace.graph), from, to, view)
+
+    artifact_path =
+      dependency_path(if(plan, do: plan.artifact_graph, else: workspace.graph), from, to, view)
+
     path_pairs = actual_path |> Enum.chunk_every(2, 1, :discard) |> MapSet.new(&List.to_tuple/1)
-    boundary_edges = if plan do
-      plan.externalized_edges |> Enum.filter(&((MapSet.member?(path_pairs, {&1.from, &1.to}) or (actual_path == [] and &1.from == from and &1.to == to)) and Weld.Graph.View.allowed?(&1.kind, view)))
-      |> Enum.map(&report_edge(plan, &1))
-    else
-      []
-    end
+
+    boundary_edges =
+      if plan do
+        plan.externalized_edges
+        |> Enum.filter(
+          &((MapSet.member?(path_pairs, {&1.from, &1.to}) or
+               (actual_path == [] and &1.from == from and &1.to == to)) and
+              Weld.Graph.View.allowed?(&1.kind, view))
+        )
+        |> Enum.map(&report_edge(plan, &1))
+      else
+        []
+      end
+
     %{
-      from: from, to: to, view: view, path: actual_path, artifact_path: artifact_path,
-      reason: cond do
-        artifact_path == [] and boundary_edges != [] -> :external_boundary
-        actual_path == [] -> :no_dependency_path
-        true -> :reachable
-      end,
-      source_membership: not is_nil(plan) and from in plan.artifact.roots and to in plan.source_member_ids,
+      from: from,
+      to: to,
+      view: view,
+      path: actual_path,
+      artifact_path: artifact_path,
+      reason:
+        cond do
+          artifact_path == [] and boundary_edges != [] -> :external_boundary
+          actual_path == [] -> :no_dependency_path
+          true -> :reachable
+        end,
+      source_membership:
+        not is_nil(plan) and from in plan.artifact.roots and to in plan.source_member_ids,
       externalized_edges: boundary_edges
     }
   end
@@ -153,12 +212,21 @@ defmodule Weld.Commands do
   end
 
   defp require_project!(graph, id) do
-    unless Map.has_key?(graph.projects, id), do: raise(Weld.Error, code: :unknown_project,
-      phase: :plan, message: "unknown project #{id}")
+    unless Map.has_key?(graph.projects, id),
+      do:
+        raise(Weld.Error, code: :unknown_project, phase: :plan, message: "unknown project #{id}")
   end
 
-  defp plain_edge(edge), do: %{from: edge.from, to: edge.to, app: edge.app, kind: edge.kind,
-    requirement: edge.requirement, opts: edge.opts, externalized: false}
+  defp plain_edge(edge),
+    do: %{
+      from: edge.from,
+      to: edge.to,
+      app: edge.app,
+      kind: edge.kind,
+      requirement: edge.requirement,
+      opts: edge.opts,
+      externalized: false
+    }
 
   def affected!(manifest_path, opts) do
     Affected.compare!(manifest_path, opts)
@@ -298,11 +366,6 @@ defmodule Weld.Commands do
         id in ids,
         do: relationship
   end
-
-  defp source_target_basis(%Plan{artifact: %{mode: :monolith}, layout: nil}),
-    do: :unresolved
-
-  defp source_target_basis(_plan), do: :projection
 
   defp serialize_violation(violation) do
     %{

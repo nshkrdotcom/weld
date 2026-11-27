@@ -1,24 +1,41 @@
 defmodule Weld.WorkspaceSnapshotV2Test do
   use ExUnit.Case, async: false
   alias Weld.{CLI, Error, FixtureCase, Manifest, Workspace}
+
   setup do
     %{tmp_dir: Weld.FixtureCase.unique_tmp_dir("weld_workspace_snapshot")}
   end
 
-  test "multi-artifact planning probes each project/environment once with competing nested helpers", %{tmp_dir: dir} do
+  test "multi-artifact planning probes each project/environment once with competing nested helpers",
+       %{tmp_dir: dir} do
     {path, counter} = workspace(dir)
     parent = {Mix.Project.get(), Mix.env(), Code.required_files()}
-    assert {:ok, %{results: results, partial_failure: false}} = Weld.run(CLI.parse!("plan", ["--manifest", path, "--all"]))
+
+    assert {:ok, %{results: results, partial_failure: false}} =
+             Weld.run(CLI.parse!("plan", ["--manifest", path, "--all"]))
+
     assert Enum.map(results, & &1.artifact) == ["alpha", "beta"]
-    assert probes(counter) == ["left:dev", "left:prod", "left:test", "right:dev", "right:prod", "right:test"]
+
+    assert probes(counter) == [
+             "left:dev",
+             "left:prod",
+             "left:test",
+             "right:dev",
+             "right:prod",
+             "right:test"
+           ]
+
     assert {Mix.Project.get(), Mix.env(), Code.required_files()} == parent
     refute Code.ensure_loaded?(WeldSnapshot.RepeatedProject)
     refute Code.ensure_loaded?(WeldSnapshot.RepeatedHelper)
   end
 
-  test "compile-time environment and nested required files are explicit snapshot facts", %{tmp_dir: dir} do
+  test "compile-time environment and nested required files are explicit snapshot facts", %{
+    tmp_dir: dir
+  } do
     {path, _counter} = workspace(dir)
     loaded = path |> Manifest.load!() |> Workspace.load!()
+
     for {id, project} <- loaded.projects do
       assert project.test_paths == ["test/env-specific"]
       assert project.version == "1.2.3"
@@ -31,40 +48,91 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     end
   end
 
-  test "hidden production dependencies enter publication while dev/test branches remain scoped", %{tmp_dir: dir} do
+  test "hidden production dependencies enter publication while dev/test branches remain scoped",
+       %{tmp_dir: dir} do
     {path, _counter} = workspace(dir)
     root = Path.dirname(Path.dirname(path))
     mix = Path.join(root, "left/mix.exs")
-    File.write!(mix, File.read!(mix) |> String.replace("version: WeldSnapshot.RepeatedHelper.version(),",
-      "version: WeldSnapshot.RepeatedHelper.version(), deps: if(@environment == :prod, do: [{:production_dep, \"~> 1.0\"}], else: [{:development_dep, \"~> 2.0\"}]),"))
+
+    File.write!(
+      mix,
+      File.read!(mix)
+      |> String.replace(
+        "version: WeldSnapshot.RepeatedHelper.version(),",
+        "version: WeldSnapshot.RepeatedHelper.version(), deps: if(@environment == :prod, do: [{:production_dep, \"~> 1.0\"}], else: [{:development_dep, \"~> 2.0\"}]),"
+      )
+    )
+
     loaded = path |> Manifest.load!() |> Workspace.load!()
     project = loaded.projects["left"]
     assert [%{app: :production_dep}] = project.deps_by_env.prod
     assert [%{app: :development_dep}] = project.deps_by_env.dev
     assert [%{app: :development_dep}] = project.deps_by_env.test
-    assert [%{app: :production_dep, opts: opts}] = Weld.Core.Selection.merge_external_deps(loaded.graph, ["left"], :package).external_deps
+
+    assert [%{app: :production_dep, opts: opts}] =
+             Weld.Core.Selection.merge_external_deps(loaded.graph, ["left"], :package).external_deps
+
     assert opts[:only] == [:prod]
     assert Enum.find(project.deps, &(&1.app == :development_dep)).opts[:only] == [:dev, :test]
-    assert Enum.map(Weld.Core.Selection.merge_external_deps(loaded.graph, ["left"], :test).external_deps, & &1.app) == [:development_dep, :production_dep]
+
+    assert Enum.map(
+             Weld.Core.Selection.merge_external_deps(loaded.graph, ["left"], :test).external_deps,
+             & &1.app
+           ) == [:development_dep, :production_dep]
   end
 
-  test "production-only identity package compiler and application drift fail explicitly", %{tmp_dir: dir} do
+  test "production-only identity package compiler and application drift fail explicitly", %{
+    tmp_dir: dir
+  } do
     {path, _counter} = workspace(dir)
     root = Path.dirname(Path.dirname(path))
     {raw, _} = Code.eval_file(path)
-    raw = raw |> put_in([:workspace, :projects], ["left"])
-      |> put_in([:artifacts], [alpha: raw[:artifacts][:alpha]])
-      |> put_in([:project_inputs], [{"left", raw[:project_inputs] |> List.keyfind("left", 0) |> elem(1)}])
+
+    raw =
+      raw
+      |> put_in([:workspace, :projects], ["left"])
+      |> put_in([:artifacts], alpha: raw[:artifacts][:alpha])
+      |> put_in([:project_inputs], [
+        {"left", raw[:project_inputs] |> List.keyfind("left", 0) |> elem(1)}
+      ])
+
     File.write!(path, inspect(raw, pretty: true, limit: :infinity))
     mix = Path.join(root, "left/mix.exs")
     original = File.read!(mix)
+
     cases = [
-      {:app, String.replace(original, "app: :snapshot_left", "app: if(@environment == :prod, do: :other_app, else: :snapshot_left)")},
-      {:package, String.replace(original, "version: WeldSnapshot.RepeatedHelper.version(),", "version: WeldSnapshot.RepeatedHelper.version(), package: [name: if(@environment == :prod, do: \"production_name\", else: \"snapshot_left\")],")},
-      {:compilers, String.replace(original, "version: WeldSnapshot.RepeatedHelper.version(),", "version: WeldSnapshot.RepeatedHelper.version(), compilers: if(@environment == :prod, do: [:custom], else: []),")},
-      {:elixirc_paths, String.replace(original, "version: WeldSnapshot.RepeatedHelper.version(),", "version: WeldSnapshot.RepeatedHelper.version(), elixirc_paths: if(@environment == :prod, do: [\"production\"], else: [\"lib\"]),")},
-      {:application, String.replace(original, "  def project,", "  def application, do: [extra_applications: if(@environment == :prod, do: [:crypto], else: [])]\n  def project,")}
+      {:app,
+       String.replace(
+         original,
+         "app: :snapshot_left",
+         "app: if(@environment == :prod, do: :other_app, else: :snapshot_left)"
+       )},
+      {:package,
+       String.replace(
+         original,
+         "version: WeldSnapshot.RepeatedHelper.version(),",
+         "version: WeldSnapshot.RepeatedHelper.version(), package: [name: if(@environment == :prod, do: \"production_name\", else: \"snapshot_left\")],"
+       )},
+      {:compilers,
+       String.replace(
+         original,
+         "version: WeldSnapshot.RepeatedHelper.version(),",
+         "version: WeldSnapshot.RepeatedHelper.version(), compilers: if(@environment == :prod, do: [:custom], else: []),"
+       )},
+      {:elixirc_paths,
+       String.replace(
+         original,
+         "version: WeldSnapshot.RepeatedHelper.version(),",
+         "version: WeldSnapshot.RepeatedHelper.version(), elixirc_paths: if(@environment == :prod, do: [\"production\"], else: [\"lib\"]),"
+       )},
+      {:application,
+       String.replace(
+         original,
+         "  def project,",
+         "  def application, do: [extra_applications: if(@environment == :prod, do: [:crypto], else: [])]\n  def project,"
+       )}
     ]
+
     for {field, source} <- cases do
       File.write!(mix, source)
       error = assert_raise Error, fn -> path |> Manifest.load!() |> Workspace.load!() end
@@ -91,8 +159,16 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     {path, _counter} = workspace(dir)
     root = Path.dirname(Path.dirname(path))
     helper = Path.join(root, "left/nested/helper.exs")
-    File.write!(helper, "File.write!(Path.join(__DIR__, \"../VERSION\"), \"1.2.4\")\n" <> File.read!(helper))
-    assert_raise Error, ~r/inputs_changed/, fn -> path |> Manifest.load!() |> Workspace.load!() end
+
+    File.write!(
+      helper,
+      "File.write!(Path.join(__DIR__, \"../VERSION\"), \"1.2.4\")\n" <> File.read!(helper)
+    )
+
+    assert_raise Error, ~r/inputs_changed/, fn ->
+      path |> Manifest.load!() |> Workspace.load!()
+    end
+
     refute File.exists?(Path.join(root, ".weld"))
   end
 
@@ -109,21 +185,40 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     source = Path.join(dir, "stuck")
     File.mkdir_p!(source)
     marker = Path.join(dir, "pid")
-    File.write!(Path.join(source, "mix.exs"), "File.write!(#{inspect(marker)}, System.pid())\nProcess.sleep(:infinity)\n")
+
+    File.write!(
+      Path.join(source, "mix.exs"),
+      "File.write!(#{inspect(marker)}, System.pid())\nProcess.sleep(:infinity)\n"
+    )
+
     assert_raise Error, fn -> Workspace.Probe.project!(source, :dev, seconds: 1) end
     pid = marker |> File.read!() |> String.trim()
     assert {_output, status} = System.cmd("kill", ["-0", pid], stderr_to_stdout: true)
     assert status != 0
   end
 
-  test "affected batches each historical tree once and includes removed artifacts", %{tmp_dir: dir} do
+  test "affected batches each historical tree once and includes removed artifacts", %{
+    tmp_dir: dir
+  } do
     {path, counter} = workspace(dir)
     root = Path.dirname(Path.dirname(path))
     FixtureCase.init_git!(root)
     base = Weld.Git.revision(root)
-    File.write!(Path.join(root, "left/lib/left.ex"), "defmodule SnapshotLeft, do: def(value, do: :changed)\n")
+
+    File.write!(
+      Path.join(root, "left/lib/left.ex"),
+      "defmodule SnapshotLeft, do: def(value, do: :changed)\n"
+    )
+
     {raw, _} = Code.eval_file(path)
-    File.write!(path, raw |> Keyword.update!(:artifacts, &Keyword.delete(&1, :beta)) |> inspect(pretty: true, limit: :infinity))
+
+    File.write!(
+      path,
+      raw
+      |> Keyword.update!(:artifacts, &Keyword.delete(&1, :beta))
+      |> inspect(pretty: true, limit: :infinity)
+    )
+
     FixtureCase.commit_all!(root, "remove beta and change alpha")
     File.write!(counter, "")
     report = Weld.Affected.compare!(path, base: base, head: "HEAD", task: "package")
@@ -133,46 +228,92 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     assert length(probes(counter)) == 12
   end
 
-  test "an unavailable manifest is conservative while an invalid revision is an argument error", %{tmp_dir: dir} do
+  test "an unavailable manifest is conservative while an invalid revision is an argument error",
+       %{tmp_dir: dir} do
     {path, _counter} = workspace(dir)
     root = Path.dirname(Path.dirname(path))
     FixtureCase.init_git!(root)
+
     assert_raise Error, ~r/invalid Git revision/, fn ->
-      Weld.Affected.compare!(path, artifact: "alpha", base: "missing-ref", head: "HEAD", task: "verify")
+      Weld.Affected.compare!(path,
+        artifact: "alpha",
+        base: "missing-ref",
+        head: "HEAD",
+        task: "verify"
+      )
     end
+
     File.rm!(path)
     FixtureCase.commit_all!(root, "remove manifest")
-    report = Weld.Affected.compare!(path, artifact: "alpha", base: "HEAD~1", head: "HEAD", task: "verify")
+
+    report =
+      Weld.Affected.compare!(path,
+        artifact: "alpha",
+        base: "HEAD~1",
+        head: "HEAD",
+        task: "verify"
+      )
+
     assert report.affected?
     assert report.unknown?
     assert report.reasons != []
   end
 
-  test "release affected binds source provenance even when package content is unchanged", %{tmp_dir: dir} do
+  test "release affected binds source provenance even when package content is unchanged", %{
+    tmp_dir: dir
+  } do
     {path, _counter} = workspace(dir)
     root = Path.dirname(Path.dirname(path))
     FixtureCase.init_git!(root)
     File.write!(Path.join(root, "unrelated.txt"), "not an artifact input")
     FixtureCase.commit_all!(root, "unrelated source commit")
-    package = Weld.Affected.compare!(path, artifact: "alpha", base: "HEAD~1", head: "HEAD", task: "package")
-    release = Weld.Affected.compare!(path, artifact: "alpha", base: "HEAD~1", head: "HEAD", task: "release")
+
+    package =
+      Weld.Affected.compare!(path,
+        artifact: "alpha",
+        base: "HEAD~1",
+        head: "HEAD",
+        task: "package"
+      )
+
+    release =
+      Weld.Affected.compare!(path,
+        artifact: "alpha",
+        base: "HEAD~1",
+        head: "HEAD",
+        task: "release"
+      )
+
     refute package.affected?
     assert release.affected?
     refute release.content_changed
     assert release.source_revision_changed
   end
 
-  test "opaque canonical external source locators keep affected analysis conservative", %{tmp_dir: dir} do
+  test "opaque canonical external source locators keep affected analysis conservative", %{
+    tmp_dir: dir
+  } do
     {path, _counter} = workspace(dir)
     root = Path.dirname(Path.dirname(path))
     mix = Path.join(root, "left/mix.exs")
-    File.write!(mix, File.read!(mix) |> String.replace("version: WeldSnapshot.RepeatedHelper.version(),",
-      "version: WeldSnapshot.RepeatedHelper.version(), deps: [{:external_library, path: \"/unobserved-provider/source\"}],"))
+
+    File.write!(
+      mix,
+      File.read!(mix)
+      |> String.replace(
+        "version: WeldSnapshot.RepeatedHelper.version(),",
+        "version: WeldSnapshot.RepeatedHelper.version(), deps: [{:external_library, path: \"/unobserved-provider/source\"}],"
+      )
+    )
+
     {raw, _} = Code.eval_file(path)
-    raw = Keyword.put(raw, :dependencies, [external_library: [requirement: "~> 1.0", opts: []]])
+    raw = Keyword.put(raw, :dependencies, external_library: [requirement: "~> 1.0", opts: []])
     File.write!(path, inspect(raw, pretty: true, limit: :infinity))
     FixtureCase.init_git!(root)
-    report = Weld.Affected.compare!(path, artifact: "alpha", base: "HEAD", head: "HEAD", task: "package")
+
+    report =
+      Weld.Affected.compare!(path, artifact: "alpha", base: "HEAD", head: "HEAD", task: "package")
+
     assert report.affected?
     assert report.unknown?
     assert report.reasons == [:opaque_inputs]
@@ -181,16 +322,26 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     refute report.source_revision_changed
   end
 
-  test "runtime Git requirements are preserved only for explicit non-Hex artifacts", %{tmp_dir: dir} do
+  test "runtime Git requirements are preserved only for explicit non-Hex artifacts", %{
+    tmp_dir: dir
+  } do
     {path, _counter} = workspace(dir)
     root = Path.dirname(Path.dirname(path))
     mix = Path.join(root, "left/mix.exs")
-    File.write!(mix, File.read!(mix) |> String.replace("version: WeldSnapshot.RepeatedHelper.version(),",
-      "version: WeldSnapshot.RepeatedHelper.version(), deps: [{:external_git, git: \"https://example.test/provider.git\", ref: \"pinned\"}],"))
+
+    File.write!(
+      mix,
+      File.read!(mix)
+      |> String.replace(
+        "version: WeldSnapshot.RepeatedHelper.version(),",
+        "version: WeldSnapshot.RepeatedHelper.version(), deps: [{:external_git, git: \"https://example.test/provider.git\", ref: \"pinned\"}],"
+      )
+    )
+
     plan = Weld.Plan.build!(path, artifact: "alpha")
     assert Enum.any?(plan.violations, &(&1.code == :unsupported_publication_dependency))
     {raw, _} = Code.eval_file(path)
-    raw = put_in(raw, [:artifacts, :alpha, :verify], [hex_build: false, hex_publish_check: false])
+    raw = put_in(raw, [:artifacts, :alpha, :verify], hex_build: false, hex_publish_check: false)
     File.write!(path, inspect(raw, pretty: true, limit: :infinity))
     plan = Weld.Plan.build!(path, artifact: "alpha")
     assert plan.violations == []
@@ -204,15 +355,18 @@ defmodule Weld.WorkspaceSnapshotV2Test do
     counter = Path.join(dir, "probes.log")
     File.mkdir_p!(Path.join(root, "build_support"))
     File.write!(Path.join(root, "README.md"), "# Snapshot fixture\n")
+
     for id <- ["left", "right"] do
       File.mkdir_p!(Path.join(root, "#{id}/nested"))
       File.mkdir_p!(Path.join(root, "#{id}/lib"))
       File.write!(Path.join(root, "#{id}/VERSION"), "1.2.3")
+
       File.write!(Path.join(root, "#{id}/nested/helper.exs"), """
       defmodule WeldSnapshot.RepeatedHelper do
         def version, do: File.read!(Path.join(__DIR__, "../VERSION")) |> String.trim()
       end
       """)
+
       File.write!(Path.join(root, "#{id}/mix.exs"), """
       Code.require_file("nested/helper.exs", __DIR__)
       File.write!(#{inspect(counter)}, #{inspect(id)} <> ":" <> Atom.to_string(Mix.env()) <> "\\n", [:append])
@@ -223,14 +377,44 @@ defmodule Weld.WorkspaceSnapshotV2Test do
           test_paths: if(@environment == :test, do: ["test/env-specific"], else: ["wrong-env"])]
       end
       """)
-      File.write!(Path.join(root, "#{id}/lib/#{id}.ex"), "defmodule Snapshot#{String.capitalize(id)}, do: def(value, do: :ok)\n")
+
+      File.write!(
+        Path.join(root, "#{id}/lib/#{id}.ex"),
+        "defmodule Snapshot#{String.capitalize(id)}, do: def(value, do: :ok)\n"
+      )
     end
-    artifacts = for {name, id} <- [alpha: "left", beta: "right"], do: {name, [layout: :components, roots: [id], package: [name: "snapshot_#{name}", otp_app: String.to_atom("snapshot_#{name}"), version: "1.0.0"], files: [docs: ["README.md"]], verify: [hex_publish_check: false]]}
-    inputs = for id <- ["left", "right"], do: {id, [[path: "VERSION", type: :file, roles: [:generation], target: :none]]}
-    spec = [schema: 2, workspace: [root: "..", projects: ["left", "right"]], project_inputs: inputs, artifacts: artifacts]
+
+    artifacts =
+      for {name, id} <- [alpha: "left", beta: "right"],
+          do:
+            {name,
+             [
+               layout: :components,
+               roots: [id],
+               package: [
+                 name: "snapshot_#{name}",
+                 otp_app: String.to_atom("snapshot_#{name}"),
+                 version: "1.0.0"
+               ],
+               files: [docs: ["README.md"]],
+               verify: [hex_publish_check: false]
+             ]}
+
+    inputs =
+      for id <- ["left", "right"],
+          do: {id, [[path: "VERSION", type: :file, roles: [:generation], target: :none]]}
+
+    spec = [
+      schema: 2,
+      workspace: [root: "..", projects: ["left", "right"]],
+      project_inputs: inputs,
+      artifacts: artifacts
+    ]
+
     path = Path.join(root, "build_support/weld.exs")
     File.write!(path, inspect(spec, pretty: true, limit: :infinity))
     {path, counter}
   end
+
   defp probes(path), do: path |> File.read!() |> String.split("\n", trim: true) |> Enum.sort()
 end

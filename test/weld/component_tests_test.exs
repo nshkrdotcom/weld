@@ -196,12 +196,19 @@ defmodule Weld.ComponentTestsTest do
              )
     end
 
-    metadata = Weld.ReleaseStatus.validate_bundle_integrity!(prepared.bundle_path, prepared.identity)
+    metadata =
+      Weld.ReleaseStatus.validate_bundle_integrity!(prepared.bundle_path, prepared.identity)
+
     evidence = Weld.ReleaseStatus.evidence!(prepared.bundle_path)
-    assert metadata["project_id"] == Weld.Core.Identity.digest("project", Weld.Hash.observation(prepared.project_path))
+
+    assert metadata["project_id"] ==
+             Weld.Core.Identity.digest("project", Weld.Hash.observation(prepared.project_path))
+
     assert evidence.qualification["project_id"] == metadata["project_id"]
+
     assert evidence.qualification["lock_sha256"] ==
              Weld.Hash.sha256_file(Path.join(prepared.project_path, "mix.lock"))
+
     refute File.exists?(Path.join(prepared.project_path, "weld.provenance.json"))
     assert Weld.Commands.release_prepare!(ctx.manifest).identity == prepared.identity
   end

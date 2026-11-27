@@ -20,57 +20,98 @@ defmodule Weld.ReleaseStatus do
   def validate_bundle_integrity!(bundle, expected_id \\ nil) do
     Output.reject_tree_links!(bundle)
     metadata = canonical_file!(Path.join(bundle, "bundle.json"), @bundle_keys, "weld.bundle/2")
-    unless Identity.valid?(metadata["bundle_id"]) and (is_nil(expected_id) or expected_id == metadata["bundle_id"]) and
+
+    unless Identity.valid?(metadata["bundle_id"]) and
+             (is_nil(expected_id) or expected_id == metadata["bundle_id"]) and
              Identity.digest("bundle", Map.delete(metadata, "bundle_id")) == metadata["bundle_id"],
-      do: raise(Error, "bundle identity mismatch: #{bundle}")
+           do: raise(Error, "bundle identity mismatch: #{bundle}")
+
     validate_bundle_fields!(metadata)
-    inventory = canonical_file!(Path.join(bundle, "inventory.json"), @inventory_keys, "weld.inventory/2")
+
+    inventory =
+      canonical_file!(Path.join(bundle, "inventory.json"), @inventory_keys, "weld.inventory/2")
+
     Inventory.validate_portable!(inventory)
-    qualification = canonical_file!(Path.join(bundle, "qualification.json"), @qualification_keys, "weld.qualification/2")
+
+    qualification =
+      canonical_file!(
+        Path.join(bundle, "qualification.json"),
+        @qualification_keys,
+        "weld.qualification/2"
+      )
+
     validate_bindings!(metadata, inventory, qualification)
     validate_files!(bundle, metadata)
     project = Hash.observation(Path.join(bundle, "project"))
     docs = Hash.observation(Path.join(bundle, "docs"))
-    unless project == %{"entries" => inventory["frozen_project"], "empty_dirs" => inventory["empty_dirs"]} and
-             docs == %{"entries" => inventory["docs_entries"], "empty_dirs" => inventory["docs_empty_dirs"]} and
+
+    unless project == %{
+             "entries" => inventory["frozen_project"],
+             "empty_dirs" => inventory["empty_dirs"]
+           } and
+             docs == %{
+               "entries" => inventory["docs_entries"],
+               "empty_dirs" => inventory["docs_empty_dirs"]
+             } and
              Identity.digest("project", project) == metadata["project_id"] and
              Identity.digest("docs", docs) == metadata["docs_id"],
-      do: raise(Error, "bundle project or documentation inventory differs: #{bundle}")
+           do: raise(Error, "bundle project or documentation inventory differs: #{bundle}")
+
     validate_modes!(Path.join(bundle, "project"), inventory["frozen_project"])
     validate_modes!(Path.join(bundle, "docs"), inventory["docs_entries"])
     validate_frozen_plan!(inventory)
     validate_lock!(bundle, inventory, qualification)
     validate_qualification!(qualification, inventory)
+
     if metadata["package_id"] do
       package = Hex.package_observation!(Path.join(bundle, "package.tar"))
       Hex.validate_dependency_metadata!(package.metadata, inventory["dependencies"])
+
       unless Enum.all?(package.empty_dirs, &(&1 in inventory["empty_dirs"])) and
                Enum.all?(package.directories, fn directory ->
-                 directory in package.empty_dirs or Enum.any?(package.entries, &String.starts_with?(&1["path"], directory <> "/")) or
+                 directory in package.empty_dirs or
+                   Enum.any?(package.entries, &String.starts_with?(&1["path"], directory <> "/")) or
                    Enum.any?(package.empty_dirs, &String.starts_with?(&1, directory <> "/"))
-               end), do: raise(Error, "package contains unplanned empty or structural directories")
+               end),
+             do: raise(Error, "package contains unplanned empty or structural directories")
+
       docs_archive = Hex.docs_observation!(Path.join(bundle, "docs.tar.gz"))
-      unless package.entries == inventory["package_entries"] and package.metadata == inventory["package_metadata"] and
-               docs_archive.entries == inventory["docs_entries"] and docs_archive.empty_dirs == inventory["docs_empty_dirs"],
-        do: raise(Error, "archive contents disagree with exact bundle inventory")
+
+      unless package.entries == inventory["package_entries"] and
+               package.metadata == inventory["package_metadata"] and
+               docs_archive.entries == inventory["docs_entries"] and
+               docs_archive.empty_dirs == inventory["docs_empty_dirs"],
+             do: raise(Error, "archive contents disagree with exact bundle inventory")
     end
+
     metadata
   rescue
     error in [ArgumentError, File.Error, KeyError, MatchError] ->
-      raise Error, "bundle failed strict integrity verification: #{bundle}: #{Exception.message(error)}"
+      raise Error,
+            "bundle failed strict integrity verification: #{bundle}: #{Exception.message(error)}"
   end
 
   def evidence!(bundle) do
     %{
-      inventory: canonical_file!(Path.join(bundle, "inventory.json"), @inventory_keys, "weld.inventory/2"),
-      qualification: canonical_file!(Path.join(bundle, "qualification.json"), @qualification_keys, "weld.qualification/2")
+      inventory:
+        canonical_file!(Path.join(bundle, "inventory.json"), @inventory_keys, "weld.inventory/2"),
+      qualification:
+        canonical_file!(
+          Path.join(bundle, "qualification.json"),
+          @qualification_keys,
+          "weld.qualification/2"
+        )
     }
   end
 
   def canonical_file!(path, keys, schema) do
     Output.reject_link!(path)
-    unless File.stat!(path).size <= 32 * 1024 * 1024, do: raise(Error, "evidence file exceeds limit")
+
+    unless File.stat!(path).size <= 32 * 1024 * 1024,
+      do: raise(Error, "evidence file exceeds limit")
+
     bytes = File.read!(path)
+
     with {:ok, record} when is_map(record) <- Jason.decode(bytes),
          true <- Enum.sort(Map.keys(record)) == Enum.sort(keys),
          true <- record["schema"] == schema,
@@ -83,43 +124,80 @@ defmodule Weld.ReleaseStatus do
 
   defp validate_bundle_fields!(metadata) do
     ReleaseReceipt.from_bundle(metadata)
+
     unless metadata["layout"] in ~w(components flat preserve) and
-             Enum.all?(~w(input_id plan_id project_id qualification_id compiler_id docs_id), &Identity.valid?(metadata[&1])) and
-             Enum.all?(~w(package_id archive_sha256 docs_archive_sha256), &(is_nil(metadata[&1]) or Identity.valid?(metadata[&1]))) and
-             length(Enum.uniq(Enum.map(~w(package_id archive_sha256 docs_archive_sha256), &is_nil(metadata[&1])))) == 1,
-      do: raise(Error, "invalid bundle identity fields")
+             Enum.all?(
+               ~w(input_id plan_id project_id qualification_id compiler_id docs_id),
+               &Identity.valid?(metadata[&1])
+             ) and
+             Enum.all?(
+               ~w(package_id archive_sha256 docs_archive_sha256),
+               &(is_nil(metadata[&1]) or Identity.valid?(metadata[&1]))
+             ) and
+             length(
+               Enum.uniq(
+                 Enum.map(
+                   ~w(package_id archive_sha256 docs_archive_sha256),
+                   &is_nil(metadata[&1])
+                 )
+               )
+             ) == 1,
+           do: raise(Error, "invalid bundle identity fields")
+
     files = metadata["files"]
-    unless is_map(files) and Enum.sort(Map.keys(files)) == ~w(docs_archive inventory package qualification),
-      do: raise(Error, "invalid bundle file envelope")
-    for {field, path} <- [{"inventory", "inventory.json"}, {"qualification", "qualification.json"}, {"package", "package.tar"}, {"docs_archive", "docs.tar.gz"}] do
+
+    unless is_map(files) and
+             Enum.sort(Map.keys(files)) == ~w(docs_archive inventory package qualification),
+           do: raise(Error, "invalid bundle file envelope")
+
+    for {field, path} <- [
+          {"inventory", "inventory.json"},
+          {"qualification", "qualification.json"},
+          {"package", "package.tar"},
+          {"docs_archive", "docs.tar.gz"}
+        ] do
       value = files[field]
       optional = field in ["package", "docs_archive"] and is_nil(metadata["package_id"])
+
       unless (optional and is_nil(value)) or
-               (not optional and is_map(value) and Enum.sort(Map.keys(value)) == ~w(path sha256 size) and
-                  value["path"] == path and Identity.valid?(value["sha256"]) and is_integer(value["size"]) and value["size"] >= 0),
-        do: raise(Error, "invalid bundle file descriptor: #{field}")
+               (not optional and is_map(value) and
+                  Enum.sort(Map.keys(value)) == ~w(path sha256 size) and
+                  value["path"] == path and Identity.valid?(value["sha256"]) and
+                  is_integer(value["size"]) and value["size"] >= 0),
+             do: raise(Error, "invalid bundle file descriptor: #{field}")
     end
   end
 
   defp validate_bindings!(metadata, inventory, qualification) do
-    unless inventory["artifact"] == metadata["artifact"] and layout(inventory) == metadata["layout"] and
+    unless inventory["artifact"] == metadata["artifact"] and
+             layout(inventory) == metadata["layout"] and
              Enum.all?(~w(input_id plan_id compiler_id), &(inventory[&1] == metadata[&1])) and
              Inventory.input_id(inventory) == metadata["input_id"] and
              Inventory.plan_id(inventory) == metadata["plan_id"] and
-             Enum.all?(~w(plan_id project_id package_id archive_sha256 docs_id docs_archive_sha256 qualification_id source), &(qualification[&1] == metadata[&1])) and
-             Identity.digest("qualification", Map.delete(qualification, "qualification_id")) == metadata["qualification_id"],
-      do: raise(Error, "bundle, inventory and qualification disagree")
+             Enum.all?(
+               ~w(plan_id project_id package_id archive_sha256 docs_id docs_archive_sha256 qualification_id source),
+               &(qualification[&1] == metadata[&1])
+             ) and
+             Identity.digest("qualification", Map.delete(qualification, "qualification_id")) ==
+               metadata["qualification_id"],
+           do: raise(Error, "bundle, inventory and qualification disagree")
+
     validate_source_binding!(metadata["source"], inventory)
     validate_artifact_binding!(metadata, inventory)
     hex? = inventory["qualification_policy"]["hex_build"]
+
     unless is_boolean(hex?) and hex? == not is_nil(metadata["package_id"]),
       do: raise(Error, "package payload disagrees with qualification policy")
+
     if hex? do
       unless is_list(inventory["package_entries"]) and is_map(inventory["package_metadata"]) and
-               Identity.digest("package", %{"metadata" => inventory["package_metadata"], "entries" => inventory["package_entries"]}) == metadata["package_id"] and
+               Identity.digest("package", %{
+                 "metadata" => inventory["package_metadata"],
+                 "entries" => inventory["package_entries"]
+               }) == metadata["package_id"] and
                inventory["package_metadata"]["name"] == metadata["package"] and
                inventory["package_metadata"]["version"] == metadata["version"],
-        do: raise(Error, "package identity or metadata mismatch")
+             do: raise(Error, "package identity or metadata mismatch")
     else
       unless is_nil(inventory["package_entries"]) and is_nil(inventory["package_metadata"]),
         do: raise(Error, "disabled package contains publication evidence")
@@ -128,44 +206,60 @@ defmodule Weld.ReleaseStatus do
 
   defp validate_source_binding!(source, inventory) do
     manifest = Enum.find(inventory["inputs"], &(&1["id"] == "file:" <> source["manifest_path"]))
+
     unless is_map(manifest) and manifest["kind"] == "file" and
              manifest["fact"]["sha256"] == source["manifest_sha256"],
-      do: raise(Error, "source provenance disagrees with the manifest input fact")
+           do: raise(Error, "source provenance disagrees with the manifest input fact")
   end
 
   defp validate_artifact_binding!(metadata, inventory) do
     normalized = inventory["normalized_metadata"]
     artifact = if is_map(normalized), do: normalized["artifact"]
     package = if is_map(artifact), do: artifact["package"]
-    modes = %{"package_projection" => "components", "monolith" => "flat", "source_project" => "preserve"}
+
+    modes = %{
+      "package_projection" => "components",
+      "monolith" => "flat",
+      "source_project" => "preserve"
+    }
+
     unless is_map(artifact) and is_map(package) and artifact["id"] == metadata["artifact"] and
              modes[artifact["mode"]] == metadata["layout"] and
              package["name"] == metadata["package"] and package["version"] == metadata["version"],
-      do: raise(Error, "normalized artifact identity disagrees with the bundle")
+           do: raise(Error, "normalized artifact identity disagrees with the bundle")
   end
 
   defp validate_files!(bundle, metadata) do
-    expected = ~w(bundle.json inventory.json qualification.json project docs) ++
-      if(metadata["package_id"], do: ~w(package.tar docs.tar.gz), else: [])
-    unless Enum.sort(File.ls!(bundle)) == Enum.sort(expected), do: raise(Error, "unexpected or missing bundle entry")
+    expected =
+      ~w(bundle.json inventory.json qualification.json project docs) ++
+        if(metadata["package_id"], do: ~w(package.tar docs.tar.gz), else: [])
+
+    unless Enum.sort(File.ls!(bundle)) == Enum.sort(expected),
+      do: raise(Error, "unexpected or missing bundle entry")
+
     for name <- expected -- ["project", "docs"] do
       unless Bitwise.band(File.stat!(Path.join(bundle, name)).mode, 0o7777) == 0o644,
         do: raise(Error, "bundle evidence or archive mode is not normalized: #{name}")
     end
+
     for {_field, file} <- metadata["files"], file do
       target = Path.join(bundle, file["path"])
+
       unless File.regular?(target) and File.stat!(target).size == file["size"] and
-               Hash.sha256_file(target) == file["sha256"], do: raise(Error, "bundle file checksum mismatch: #{file["path"]}")
+               Hash.sha256_file(target) == file["sha256"],
+             do: raise(Error, "bundle file checksum mismatch: #{file["path"]}")
     end
+
     unless is_nil(metadata["package_id"]) or
              (metadata["files"]["package"]["sha256"] == metadata["archive_sha256"] and
                 metadata["files"]["docs_archive"]["sha256"] == metadata["docs_archive_sha256"]),
-      do: raise(Error, "archive digest binding mismatch")
+           do: raise(Error, "archive digest binding mismatch")
   end
 
   defp validate_modes!(root, entries) do
     for entry <- entries do
       expected = if entry["executable"], do: 0o755, else: 0o644
+
       unless Bitwise.band(File.stat!(Path.join(root, entry["path"])).mode, 0o7777) == expected,
         do: raise(Error, "bundle file mode is not normalized: #{entry["path"]}")
     end
@@ -174,85 +268,142 @@ defmodule Weld.ReleaseStatus do
   defp validate_frozen_plan!(inventory) do
     unless inventory["empty_dirs"] == inventory["layout"]["empty_dirs"],
       do: raise(Error, "frozen empty directory set differs from the compiler layout")
+
     frozen = Map.new(inventory["frozen_project"], &{&1["path"], &1})
     planned = Enum.map(inventory["entries"], & &1["target"])
-    expected_paths = if Map.has_key?(frozen, "mix.lock"), do: Enum.uniq(["mix.lock" | planned]), else: planned
+
+    expected_paths =
+      if Map.has_key?(frozen, "mix.lock"), do: Enum.uniq(["mix.lock" | planned]), else: planned
+
     unless Enum.sort(Map.keys(frozen)) == Enum.sort(expected_paths),
       do: raise(Error, "frozen project has missing or unplanned files")
+
     for entry <- inventory["entries"], entry["target"] != "mix.lock" do
       actual = frozen[entry["target"]]
       want = entry["full"]
+
       unless actual["sha256"] == want["content_sha256"] and actual["size"] == want["size"] and
-               actual["executable"] == want["executable"], do: raise(Error, "frozen project differs from compiler inventory: #{entry["target"]}")
+               actual["executable"] == want["executable"],
+             do:
+               raise(Error, "frozen project differs from compiler inventory: #{entry["target"]}")
     end
+
     if inventory["package_entries"] do
-      expected = inventory["entries"] |> Enum.filter(& &1["package"]) |> Enum.map(& &1["target"]) |> Enum.sort()
+      expected =
+        inventory["entries"]
+        |> Enum.filter(& &1["package"])
+        |> Enum.map(& &1["target"])
+        |> Enum.sort()
+
       observed = Enum.map(inventory["package_entries"], & &1["path"])
-      unless expected == observed and Enum.all?(inventory["package_entries"], &(frozen[&1["path"]] == &1)),
-        do: raise(Error, "package membership differs from compiler publication view")
+
+      unless expected == observed and
+               Enum.all?(inventory["package_entries"], &(frozen[&1["path"]] == &1)),
+             do: raise(Error, "package membership differs from compiler publication view")
     end
   end
 
   defp validate_lock!(bundle, inventory, qualification) do
     path = Path.join([bundle, "project", "mix.lock"])
     actual = if File.regular?(path), do: Hash.sha256_file(path)
-    unless actual == qualification["lock_sha256"], do: raise(Error, "resolved lock digest mismatch")
-    if is_nil(actual) and inventory["lock_slot"]["policy"] != "none" and inventory["dependencies"] != [],
-      do: raise(Error, "resolved standalone lock is required")
+
+    unless actual == qualification["lock_sha256"],
+      do: raise(Error, "resolved lock digest mismatch")
+
+    if is_nil(actual) and inventory["lock_slot"]["policy"] != "none" and
+         inventory["dependencies"] != [],
+       do: raise(Error, "resolved standalone lock is required")
   end
 
   defp validate_qualification!(proof, inventory) do
     unless is_binary(proof["gate_schema"]) and proof["gate_schema"] == "weld.gates/2" and
-             is_map(proof["toolchain"]) and proof["toolchain"]["compiler_id"] == inventory["compiler_id"] and
+             is_map(proof["toolchain"]) and
+             proof["toolchain"]["compiler_id"] == inventory["compiler_id"] and
              is_map(proof["trust"]) and proof["trust"]["verified"] == true and
              (is_nil(proof["context_digest"]) or Identity.valid?(proof["context_digest"])),
-      do: raise(Error, "unsupported or incomplete qualification evidence")
+           do: raise(Error, "unsupported or incomplete qualification evidence")
+
     gates = proof["gates"]
+
     unless is_list(gates) and Enum.map(gates, & &1["id"]) == @gate_ids,
       do: raise(Error, "qualification must record every gate exactly once in order")
+
     policy = inventory["qualification_policy"]
+
     for gate <- gates do
       required = required_gate?(gate["id"], policy, inventory)
+
       unless is_map(gate) and Enum.sort(Map.keys(gate)) == ~w(facts id skip_reason status) and
                is_map(gate["facts"]) and
                ((gate["status"] == "pass" and is_nil(gate["skip_reason"])) or
-                  (not required and gate["status"] == "skip" and is_binary(gate["skip_reason"]) and gate["skip_reason"] != "")),
-        do: raise(Error, "required gate missing, failed or improperly skipped: #{gate["id"]}")
+                  (not required and gate["status"] == "skip" and is_binary(gate["skip_reason"]) and
+                     gate["skip_reason"] != "")),
+             do:
+               raise(Error, "required gate missing, failed or improperly skipped: #{gate["id"]}")
     end
+
     facts = Map.new(gates, &{&1["id"], &1["facts"]})
     hex? = policy["hex_build"]
+
     if hex? do
-      unless facts["G08"] == %{"archive_sha256" => proof["archive_sha256"],
-               "package_id" => proof["package_id"], "entries" => length(inventory["package_entries"])},
-        do: raise(Error, "G08 gate observations disagree with the frozen proof")
+      unless facts["G08"] == %{
+               "archive_sha256" => proof["archive_sha256"],
+               "package_id" => proof["package_id"],
+               "entries" => length(inventory["package_entries"])
+             },
+             do: raise(Error, "G08 gate observations disagree with the frozen proof")
     end
-    unless facts["G11"] == %{"docs_id" => proof["docs_id"], "docs_archive_sha256" => proof["docs_archive_sha256"],
-             "roundtrip_verified" => hex?, "archive_policy" => if(hex?, do: "exact_frozen_payload", else: "non_hex_docs_tree")},
-      do: raise(Error, "G11 gate observations disagree with the frozen proof")
+
+    unless facts["G11"] == %{
+             "docs_id" => proof["docs_id"],
+             "docs_archive_sha256" => proof["docs_archive_sha256"],
+             "roundtrip_verified" => hex?,
+             "archive_policy" => if(hex?, do: "exact_frozen_payload", else: "non_hex_docs_tree")
+           },
+           do: raise(Error, "G11 gate observations disagree with the frozen proof")
   end
 
-  defp required_gate?("G03", policy, inventory), do: layout(inventory) == "flat" or policy["component_tests"] == true
+  defp required_gate?("G03", policy, inventory),
+    do: layout(inventory) == "flat" or policy["component_tests"] == true
+
   defp required_gate?("G07", policy, _), do: not is_nil(policy["smoke"])
   defp required_gate?(id, policy, _) when id in ["G08", "G10"], do: policy["hex_build"] == true
-  defp required_gate?("G09", policy, _), do: policy["hex_build"] == true and policy["hex_publish_check"] == true
-  defp required_gate?(_, _, _), do: true
-  defp layout(inventory), do: if(is_map(inventory["layout"]), do: inventory["layout"]["name"], else: inventory["layout"])
 
-  def selector(%Plan{} = plan), do: %{repo_root: plan.manifest.repo_root, artifact: plan.artifact.id}
-  def selector(%{repo_root: root, artifact: artifact}) when is_binary(root) and is_binary(artifact), do: %{repo_root: root, artifact: artifact}
+  defp required_gate?("G09", policy, _),
+    do: policy["hex_build"] == true and policy["hex_publish_check"] == true
+
+  defp required_gate?(_, _, _), do: true
+
+  defp layout(inventory),
+    do:
+      if(is_map(inventory["layout"]), do: inventory["layout"]["name"], else: inventory["layout"])
+
+  def selector(%Plan{} = plan),
+    do: %{repo_root: plan.manifest.repo_root, artifact: plan.artifact.id}
+
+  def selector(%{repo_root: root, artifact: artifact})
+      when is_binary(root) and is_binary(artifact), do: %{repo_root: root, artifact: artifact}
 
   def resolve_path!(selection, identity \\ nil) do
     %{repo_root: root, artifact: artifact} = selector(selection)
-    identity = identity || pointer!(File.read!(Output.path(root, ["current", artifact])), artifact)
-    unless Identity.valid?(identity), do: raise(Error, "prepared identity must be a full lowercase SHA-256")
+
+    identity =
+      identity || pointer!(File.read!(Output.path(root, ["current", artifact])), artifact)
+
+    unless Identity.valid?(identity),
+      do: raise(Error, "prepared identity must be a full lowercase SHA-256")
+
     bundle = Output.path(root, ["bundles", artifact, identity])
     unless File.dir?(bundle), do: raise(Error, "release bundle not found: #{bundle}")
     {identity, bundle}
   end
 
   def pointer!(bytes, artifact) do
-    with {:ok, %{"schema" => "weld.current/2", "artifact" => ^artifact, "bundle_id" => id} = record} <- Jason.decode(bytes),
-         true <- map_size(record) == 3 and Identity.valid?(id) and Identity.canonical(record) == bytes do
+    with {:ok,
+          %{"schema" => "weld.current/2", "artifact" => ^artifact, "bundle_id" => id} = record} <-
+           Jason.decode(bytes),
+         true <-
+           map_size(record) == 3 and Identity.valid?(id) and Identity.canonical(record) == bytes do
       id
     else
       _ -> raise Error, "invalid Weld current bundle pointer"
@@ -262,18 +413,39 @@ defmodule Weld.ReleaseStatus do
   def freshness_reasons(selection, metadata, current_revision) do
     %{repo_root: root} = selector(selection)
     source = metadata["source"]
-    base = [] |> add_if(current_revision != source["commit"], :head_moved)
+
+    base =
+      []
+      |> add_if(current_revision != source["commit"], :head_moved)
       |> add_if(is_binary(current_revision) and Git.dirty?(root), :dirty_worktree)
-      |> add_if(not match?({:ok, _}, Git.run(root, ["cat-file", "-e", source["commit"] <> "^{commit}"])), :source_commit_missing)
+      |> add_if(
+        not match?({:ok, _}, Git.run(root, ["cat-file", "-e", source["commit"] <> "^{commit}"])),
+        :source_commit_missing
+      )
+
     case selection do
       %Plan{} = plan ->
-        base |> add_if({plan.artifact.package.name, plan.artifact.package.version, plan.artifact.id} != {metadata["package"], metadata["version"], metadata["artifact"]}, :package_mismatch)
-        |> add_if(Hash.sha256_file(plan.manifest.manifest_path) != source["manifest_sha256"], :manifest_changed)
+        base
+        |> add_if(
+          {plan.artifact.package.name, plan.artifact.package.version, plan.artifact.id} !=
+            {metadata["package"], metadata["version"], metadata["artifact"]},
+          :package_mismatch
+        )
+        |> add_if(
+          Hash.sha256_file(plan.manifest.manifest_path) != source["manifest_sha256"],
+          :manifest_changed
+        )
         |> Enum.reverse()
+
       _ ->
         path = Path.join(root, source["manifest_path"])
-        base |> add_if(not File.regular?(path), :current_manifest_unavailable)
-        |> add_if(File.regular?(path) and Hash.sha256_file(path) != source["manifest_sha256"], :manifest_changed)
+
+        base
+        |> add_if(not File.regular?(path), :current_manifest_unavailable)
+        |> add_if(
+          File.regular?(path) and Hash.sha256_file(path) != source["manifest_sha256"],
+          :manifest_changed
+        )
         |> Enum.reverse()
     end
   end
@@ -281,6 +453,7 @@ defmodule Weld.ReleaseStatus do
   def status(selection, opts \\ []) do
     %{repo_root: root, artifact: artifact} = selector(selection)
     revision = Git.revision(root)
+
     try do
       {id, bundle} = resolve_path!(selection, opts[:identity])
       metadata = validate_bundle_integrity!(bundle, id)
@@ -290,40 +463,86 @@ defmodule Weld.ReleaseStatus do
       projection = projection_status(root, metadata)
       remote = remote_status(selection, bundle, metadata, opts)
       publication = local_publication(selection, bundle, metadata, opts)
+
       %{
-        artifact: artifact, identity: id, short_identity: String.slice(id, 0, 12), package: metadata["package"], version: metadata["version"],
-        state: if(reasons == [], do: :ready, else: :stale), integrity: :valid,
-        freshness: if(reasons == [], do: :fresh, else: :stale), qualification: :passed,
-        reasons: reasons, source_revision: metadata["source"]["commit"], current_revision: revision,
-        has_tarball: not is_nil(metadata["archive_sha256"]), archive_sha256: metadata["archive_sha256"],
-        project_id: metadata["project_id"], docs_id: metadata["docs_id"], archive: archive, archived: archive == :matching,
-        projection: projection, remote: remote, package_publish: publication.package, docs_publish: publication.docs,
-        run: run_status(root, artifact), default_tag: default_tag(metadata), paths: paths(root, artifact, id),
-        warnings: docs_source_ref_warnings(selection, opts[:tag]), next_command: next_command(artifact, id, metadata, reasons, publication)
+        artifact: artifact,
+        identity: id,
+        short_identity: String.slice(id, 0, 12),
+        package: metadata["package"],
+        version: metadata["version"],
+        state: if(reasons == [], do: :ready, else: :stale),
+        integrity: :valid,
+        freshness: if(reasons == [], do: :fresh, else: :stale),
+        qualification: :passed,
+        reasons: reasons,
+        source_revision: metadata["source"]["commit"],
+        current_revision: revision,
+        has_tarball: not is_nil(metadata["archive_sha256"]),
+        archive_sha256: metadata["archive_sha256"],
+        project_id: metadata["project_id"],
+        docs_id: metadata["docs_id"],
+        archive: archive,
+        archived: archive == :matching,
+        projection: projection,
+        remote: remote,
+        package_publish: publication.package,
+        docs_publish: publication.docs,
+        run: run_status(root, artifact),
+        default_tag: default_tag(metadata),
+        paths: paths(root, artifact, id),
+        warnings: docs_source_ref_warnings(selection, opts[:tag]),
+        next_command: next_command(artifact, id, metadata, reasons, publication)
       }
     rescue
       error in [Error, File.Error] ->
-        missing = match?(%File.Error{reason: :enoent}, error) or String.contains?(Exception.message(error), "not found")
-        Map.merge(empty_info(selection), %{artifact: artifact, identity: opts[:identity] || current_identity(root, artifact), state: if(missing, do: :unprepared, else: :corrupt_bundle),
-          integrity: if(missing, do: :absent, else: :corrupt), freshness: :unknown, qualification: :not_qualified,
-          reasons: [Exception.message(error)], current_revision: revision, has_tarball: false, archived: false,
-          paths: paths(root, artifact, opts[:identity]), warnings: [], next_command: nil})
+        missing =
+          match?(%File.Error{reason: :enoent}, error) or
+            String.contains?(Exception.message(error), "not found")
+
+        Map.merge(empty_info(selection), %{
+          artifact: artifact,
+          identity: opts[:identity] || current_identity(root, artifact),
+          state: if(missing, do: :unprepared, else: :corrupt_bundle),
+          integrity: if(missing, do: :absent, else: :corrupt),
+          freshness: :unknown,
+          qualification: :not_qualified,
+          reasons: [Exception.message(error)],
+          current_revision: revision,
+          has_tarball: false,
+          archived: false,
+          paths: paths(root, artifact, opts[:identity]),
+          warnings: [],
+          next_command: nil
+        })
     end
   end
 
   defp empty_info(%Plan{} = plan) do
-    %{default_tag: plan.artifact.package.name <> "-v" <> plan.artifact.package.version,
-      projection: %{branch: "projection/" <> plan.artifact.package.name, exists: false, state: :untracked,
-        matches_identity: false, tree_matches: nil, tip_sha: nil}}
+    %{
+      default_tag: plan.artifact.package.name <> "-v" <> plan.artifact.package.version,
+      projection: %{
+        branch: "projection/" <> plan.artifact.package.name,
+        exists: false,
+        state: :untracked,
+        matches_identity: false,
+        tree_matches: nil,
+        tip_sha: nil
+      }
+    }
   end
+
   defp empty_info(_), do: %{default_tag: nil, projection: %{state: :untracked}}
+
   defp current_identity(root, artifact) do
     pointer!(File.read!(Output.path(root, ["current", artifact])), artifact)
   rescue
     _ -> nil
   end
+
   defp remote_status(selection, bundle, metadata, opts) do
-    if opts[:remote] and metadata["package_id"], do: Hex.status(selection, bundle, metadata, opts), else: :not_checked
+    if opts[:remote] and metadata["package_id"],
+      do: Hex.status(selection, bundle, metadata, opts),
+      else: :not_checked
   rescue
     error -> %{state: :unavailable, reason: Exception.message(error)}
   end
@@ -342,8 +561,15 @@ defmodule Weld.ReleaseStatus do
   end
 
   defp run_status(root, artifact) do
-    active = for {_path, lease} <- Output.leases(root), lease["artifact"] == artifact,
-      do: %{operation: lease["operation"], phase: lease["phase"], liveness: Output.owner_liveness(lease["owner"])}
+    active =
+      for {_path, lease} <- Output.leases(root),
+          lease["artifact"] == artifact,
+          do: %{
+            operation: lease["operation"],
+            phase: lease["phase"],
+            liveness: Output.owner_liveness(lease["owner"])
+          }
+
     if active == [], do: :idle, else: active
   rescue
     _ -> :unknown
@@ -351,17 +577,30 @@ defmodule Weld.ReleaseStatus do
 
   defp next_command(artifact, id, metadata, reasons, publication) do
     cond do
-      publication.package in ["unknown", "submitting", "staged"] or publication.docs in ["unknown", "submitting", "staged"] -> "mix weld reconcile --artifact #{artifact} --identity #{id}"
-      publication.package == "conflict" or publication.docs == "conflict" -> nil
-      reasons != [] -> "mix weld prepare --artifact #{artifact}"
-      publication.package == "confirmed" and publication.docs == "confirmed" -> "mix weld archive --artifact #{artifact} --identity #{id}"
-      metadata["package_id"] -> "mix weld publish --artifact #{artifact} --identity #{id} --dry-run"
-      true -> "mix weld archive --artifact #{artifact} --identity #{id}"
+      publication.package in ["unknown", "submitting", "staged"] or
+          publication.docs in ["unknown", "submitting", "staged"] ->
+        "mix weld reconcile --artifact #{artifact} --identity #{id}"
+
+      publication.package == "conflict" or publication.docs == "conflict" ->
+        nil
+
+      reasons != [] ->
+        "mix weld prepare --artifact #{artifact}"
+
+      publication.package == "confirmed" and publication.docs == "confirmed" ->
+        "mix weld archive --artifact #{artifact} --identity #{id}"
+
+      metadata["package_id"] ->
+        "mix weld publish --artifact #{artifact} --identity #{id} --dry-run"
+
+      true ->
+        "mix weld archive --artifact #{artifact} --identity #{id}"
     end
   end
 
   defp archive_status(root, artifact, id) do
     archive = Output.path(root, ["archives", artifact, id])
+
     if File.exists?(archive) do
       validate_bundle_integrity!(archive, id)
       :matching
@@ -375,52 +614,97 @@ defmodule Weld.ReleaseStatus do
   defp projection_status(root, metadata) do
     branch = "projection/" <> metadata["package"]
     ref = "refs/heads/" <> branch
+
     case ReleaseReceipt.from_commit(root, ref) do
       {:ok, receipt} ->
         tree_matches = Git.project_id(root, ref) == metadata["project_id"]
         matches = receipt == ReleaseReceipt.from_bundle(metadata) and tree_matches
-        %{branch: branch, exists: true, state: if(matches, do: :matching, else: :different), matches_identity: matches, tree_matches: tree_matches, tip_sha: Git.ref_oid(root, ref)}
-      :missing -> %{branch: branch, exists: false, state: :untracked, matches_identity: false, tip_sha: nil}
-      _ -> %{branch: branch, exists: true, state: :conflict, matches_identity: false, tip_sha: Git.ref_oid(root, ref)}
+
+        %{
+          branch: branch,
+          exists: true,
+          state: if(matches, do: :matching, else: :different),
+          matches_identity: matches,
+          tree_matches: tree_matches,
+          tip_sha: Git.ref_oid(root, ref)
+        }
+
+      :missing ->
+        %{branch: branch, exists: false, state: :untracked, matches_identity: false, tip_sha: nil}
+
+      _ ->
+        %{
+          branch: branch,
+          exists: true,
+          state: :conflict,
+          matches_identity: false,
+          tip_sha: Git.ref_oid(root, ref)
+        }
     end
   end
 
   defp paths(root, artifact, id) do
-    %{releases: Output.path(root, ["bundles", artifact]), bundle: id && Output.path(root, ["bundles", artifact, id]),
+    %{
+      releases: Output.path(root, ["bundles", artifact]),
+      bundle: id && Output.path(root, ["bundles", artifact, id]),
       archive: id && Output.path(root, ["archives", artifact, id]),
-      live_project: Output.path(root, ["live", artifact]), full_project: Output.path(root, ["full", artifact, "project"]),
-      current: Output.path(root, ["current", artifact])}
+      live_project: Output.path(root, ["live", artifact]),
+      full_project: Output.path(root, ["full", artifact, "project"]),
+      current: Output.path(root, ["current", artifact])
+    }
   end
 
   def verify_tag(root, tag, opts \\ []) do
-    with {:ok, %{type: :annotated, target_sha: target, receipt: receipt}} <- ReleaseReceipt.from_tag(root, tag),
+    with {:ok, %{type: :annotated, target_sha: target, receipt: receipt}} <-
+           ReleaseReceipt.from_tag(root, tag),
          {:ok, ^receipt} <- ReleaseReceipt.from_commit(root, target),
          true <- Git.project_id(root, target) == receipt["project_id"],
          true <- is_nil(opts[:artifact]) or opts[:artifact] == receipt["artifact"],
          true <- is_nil(opts[:identity]) or opts[:identity] == receipt["bundle_id"] do
       local = local_evidence(root, receipt)
       tar = tar_evidence(receipt, opts[:tarball])
-      state = cond do
-        :mismatch in [local, tar] -> :mismatch
-        local == :missing_local and tar != :match -> :missing_local
-        true -> :match
-      end
-      %{tag: tag, status: state, target_sha: target, tag_receipt: receipt, commit_receipt: receipt,
-        tree: :match, local_bundle: local, local_tarball: tar,
-        message: "Annotated receipt and actual Git project tree agree; local evidence: #{local}; no publication claim."}
+
+      state =
+        cond do
+          :mismatch in [local, tar] -> :mismatch
+          local == :missing_local and tar != :match -> :missing_local
+          true -> :match
+        end
+
+      %{
+        tag: tag,
+        status: state,
+        target_sha: target,
+        tag_receipt: receipt,
+        commit_receipt: receipt,
+        tree: :match,
+        local_bundle: local,
+        local_tarball: tar,
+        message:
+          "Annotated receipt and actual Git project tree agree; local evidence: #{local}; no publication claim."
+      }
     else
-      :missing -> %{tag: tag, status: :missing_tag, message: "Git tag not found"}
-      _ -> %{tag: tag, status: :mismatch, message: "Tag annotation, commit receipt or actual Git tree differs"}
+      :missing ->
+        %{tag: tag, status: :missing_tag, message: "Git tag not found"}
+
+      _ ->
+        %{
+          tag: tag,
+          status: :mismatch,
+          message: "Tag annotation, commit receipt or actual Git tree differs"
+        }
     end
   rescue
     error -> %{tag: tag, status: :mismatch, message: Exception.message(error)}
   end
 
   defp local_evidence(root, receipt) do
-    path = Enum.find_value(["bundles", "archives"], fn category ->
-      path = Output.path(root, [category, receipt["artifact"], receipt["bundle_id"]])
-      if File.exists?(path), do: path
-    end)
+    path =
+      Enum.find_value(["bundles", "archives"], fn category ->
+        path = Output.path(root, [category, receipt["artifact"], receipt["bundle_id"]])
+        if File.exists?(path), do: path
+      end)
+
     if path do
       metadata = validate_bundle_integrity!(path, receipt["bundle_id"])
       if ReleaseReceipt.from_bundle(metadata) == receipt, do: :match, else: :mismatch
@@ -432,6 +716,7 @@ defmodule Weld.ReleaseStatus do
   end
 
   defp tar_evidence(_receipt, nil), do: :not_checked
+
   defp tar_evidence(receipt, path) do
     cond do
       not File.regular?(path) -> :missing_local
@@ -441,13 +726,23 @@ defmodule Weld.ReleaseStatus do
   end
 
   def docs_source_ref_warnings(selection, tag \\ nil)
+
   def docs_source_ref_warnings(%Plan{} = plan, tag) do
     docs = plan.artifact.package.docs
-    [] |> add_if(plan.artifact.mode in [:package_projection, :monolith] and is_binary(docs.source_url) and
-      docs.source_ref in [nil, "main", "master", "HEAD"], "Set an immutable projection tag in docs.source_ref for accurate source links")
-    |> add_if(is_binary(tag) and is_binary(docs.source_ref) and docs.source_ref != tag, "docs.source_ref differs from the tracked projection tag")
+
+    []
+    |> add_if(
+      plan.artifact.mode in [:package_projection, :monolith] and is_binary(docs.source_url) and
+        docs.source_ref in [nil, "main", "master", "HEAD"],
+      "Set an immutable projection tag in docs.source_ref for accurate source links"
+    )
+    |> add_if(
+      is_binary(tag) and is_binary(docs.source_ref) and docs.source_ref != tag,
+      "docs.source_ref differs from the tracked projection tag"
+    )
     |> Enum.reverse()
   end
+
   def docs_source_ref_warnings(_, _), do: []
   def default_tag(metadata), do: metadata["package"] <> "-v" <> metadata["version"]
   defp add_if(values, true, item), do: [item | values]

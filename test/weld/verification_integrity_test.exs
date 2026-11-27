@@ -136,8 +136,15 @@ defmodule Weld.VerificationIntegrityTest do
     source = Path.join(root, "extensions/palette")
     mixfile = Path.join(source, "mix.exs")
     File.write!(Path.join(source, "unplanned.txt"), "not declared in preserve.files\n")
-    File.write!(mixfile, String.replace(File.read!(mixfile),
-      "files: Workshop.Palette.Package.files()", "files: [\"*\"]"))
+
+    File.write!(
+      mixfile,
+      String.replace(
+        File.read!(mixfile),
+        "files: Workshop.Palette.Package.files()",
+        "files: [\"*\"]"
+      )
+    )
 
     assert_raise Error, ~r/source inventory missing native package path/, fn ->
       Weld.Commands.project!(Path.join(root, "build_support/weld.exs"))

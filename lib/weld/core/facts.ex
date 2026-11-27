@@ -7,7 +7,9 @@ defmodule Weld.Core.Facts do
   """
   alias Weld.{Error, Core.Inventory}
 
-  def type(facts, path), do: Map.get(facts.nodes, Path.expand(path, facts.root), %{type: :missing}).type
+  def type(facts, path),
+    do: Map.get(facts.nodes, Path.expand(path, facts.root), %{type: :missing}).type
+
   def regular?(facts, path), do: type(facts, path) == :regular
   def dir?(facts, path), do: type(facts, path) == :directory
   def exists?(facts, path), do: type(facts, path) != :missing
@@ -63,21 +65,29 @@ defmodule Weld.Core.Facts do
   end
 
   def reject_tree_links!(facts, root) do
-    for {path, kind} <- topology(facts, root), kind not in [:regular, :directory, :missing],
-      do: raise(Error, "unsafe observed source: #{path}")
+    for {path, kind} <- topology(facts, root),
+        kind not in [:regular, :directory, :missing],
+        do: raise(Error, "unsafe observed source: #{path}")
+
     root
   end
 
   def ls!(facts, root) do
     root = Path.expand(root, facts.root)
     unless dir?(facts, root), do: raise(Error, "missing_fact: directory #{root}")
-    facts.nodes |> Map.keys() |> Enum.filter(&(Path.dirname(&1) == root))
-    |> Enum.map(&Path.basename/1) |> Enum.sort()
+
+    facts.nodes
+    |> Map.keys()
+    |> Enum.filter(&(Path.dirname(&1) == root))
+    |> Enum.map(&Path.basename/1)
+    |> Enum.sort()
   end
 
   def topology(facts, root) do
     root = Path.expand(root, facts.root)
-    facts.nodes |> Enum.filter(fn {path, _} -> covered?(path, root) end)
+
+    facts.nodes
+    |> Enum.filter(fn {path, _} -> covered?(path, root) end)
     |> Enum.map(fn {path, node} -> {path, node.type} end)
     |> case do
       [] -> [{root, :missing}]
@@ -91,8 +101,10 @@ defmodule Weld.Core.Facts do
   end
 
   def empty_dirs(facts, root) do
-    for {path, :directory} <- topology(facts, root), path != root,
-        ls!(facts, path) == [], do: Path.relative_to(path, root)
+    for {path, :directory} <- topology(facts, root),
+        path != root,
+        ls!(facts, path) == [],
+        do: Path.relative_to(path, root)
   end
 
   def wildcard(facts, pattern) do
@@ -107,7 +119,8 @@ defmodule Weld.Core.Facts do
     source = pattern |> String.graphemes() |> glob_parts(0) |> IO.iodata_to_binary()
     Regex.compile!("\\A" <> source <> "\\z", "u")
   rescue
-    error in Regex.CompileError -> raise Error, "invalid input glob #{inspect(pattern)}: #{Exception.message(error)}"
+    error in Regex.CompileError ->
+      raise Error, "invalid input glob #{inspect(pattern)}: #{Exception.message(error)}"
   end
 
   defp glob_parts(["*", "*", "/" | rest], depth), do: ["(?:.*/)?" | glob_parts(rest, depth)]
@@ -117,23 +130,32 @@ defmodule Weld.Core.Facts do
   defp glob_parts(["{" | rest], depth), do: ["(?:" | glob_parts(rest, depth + 1)]
   defp glob_parts(["}" | rest], depth) when depth > 0, do: [")" | glob_parts(rest, depth - 1)]
   defp glob_parts(["," | rest], depth) when depth > 0, do: ["|" | glob_parts(rest, depth)]
+
   defp glob_parts(["[" | rest], depth) do
     {members, tail} = Enum.split_while(rest, &(&1 != "]"))
+
     unless members != [] and tail != [] and "/" not in members,
       do: raise(Error, "invalid character class in input glob")
-    {negative, members} = case members do
-      [head | tail] when head in ["!", "^"] -> {"^", tail}
-      _ -> {"", members}
-    end
+
+    {negative, members} =
+      case members do
+        [head | tail] when head in ["!", "^"] -> {"^", tail}
+        _ -> {"", members}
+      end
+
     unless members != [], do: raise(Error, "empty character class in input glob")
-    escaped = Enum.map(members, fn
-      "\\" -> "\\\\"
-      "^" -> "\\^"
-      "[" -> "\\["
-      member -> member
-    end)
+
+    escaped =
+      Enum.map(members, fn
+        "\\" -> "\\\\"
+        "^" -> "\\^"
+        "[" -> "\\["
+        member -> member
+      end)
+
     ["[", negative, escaped, "]" | glob_parts(tl(tail), depth)]
   end
+
   defp glob_parts(["}" | _], 0), do: raise(Error, "unmatched brace in input glob")
   defp glob_parts([char | rest], depth), do: [Regex.escape(char) | glob_parts(rest, depth)]
   defp glob_parts([], 0), do: []

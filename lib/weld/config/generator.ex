@@ -311,7 +311,14 @@ defmodule Weld.Config.Generator do
     staged |> Enum.flat_map(& &1.operations) |> Enum.flat_map(& &1.sources) |> Enum.uniq()
   end
 
-  defp stage_project_config_file!(facts, source, source_root, static_root, runtime_root, private_root) do
+  defp stage_project_config_file!(
+         facts,
+         source,
+         source_root,
+         static_root,
+         runtime_root,
+         private_root
+       ) do
     relative = Path.relative_to(source, source_root)
     static_target = Path.join(static_root, relative)
     runtime_target = Path.join(runtime_root, relative)
@@ -343,15 +350,27 @@ defmodule Weld.Config.Generator do
       {:import_config, _, [relative]} = node when is_binary(relative) ->
         Weld.Core.Inventory.validate_path!(relative)
         absolute = Path.expand(relative, Path.dirname(source))
-        unless String.starts_with?(absolute, source_root <> "/") and Facts.regular?(facts, absolute),
-          do: raise(Error, "missing or escaping config import: #{relative}")
+
+        unless String.starts_with?(absolute, source_root <> "/") and
+                 Facts.regular?(facts, absolute),
+               do: raise(Error, "missing or escaping config import: #{relative}")
+
         node
-      {:import_config, _, [expression]} = node ->
-        supported = Macro.to_string(expression) in [~S("#{config_env()}.exs"), ~S("#{Mix.env()}.exs")]
-        unless supported and strip_imports?, do: raise(Error, "unsupported dynamic config import: #{source}")
-        if strip_imports?, do: :ok, else: node
-      {:import_config, _, _} -> raise Error, "unsupported config import: #{source}"
-      node -> node
+
+      {:import_config, _, [expression]} ->
+        supported =
+          Macro.to_string(expression) in [~S|"#{config_env()}.exs"|, ~S|"#{Mix.env()}.exs"|]
+
+        unless supported and strip_imports?,
+          do: raise(Error, "unsupported dynamic config import: #{source}")
+
+        :ok
+
+      {:import_config, _, _} ->
+        raise Error, "unsupported config import: #{source}"
+
+      node ->
+        node
     end)
   end
 

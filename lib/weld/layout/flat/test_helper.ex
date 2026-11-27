@@ -75,12 +75,15 @@ defmodule Weld.Layout.Flat.TestHelper do
 
   defp validate_requires!(forms, facts, helper_path) do
     Macro.prewalk(forms, fn
-      {{:., _, [{:__aliases__, _, [:Code]}, :require_file]}, _,
-       [relative, {:__DIR__, _, _}]} = node when is_binary(relative) ->
+      {{:., _, [{:__aliases__, _, [:Code]}, :require_file]}, _, [relative, {:__DIR__, _, _}]} =
+          node
+      when is_binary(relative) ->
         path = Path.expand(relative, Path.dirname(helper_path))
         unless Facts.regular?(facts, path), do: raise(Error, "missing test helper input: #{path}")
         node
-      node -> node
+
+      node ->
+        node
     end)
   end
 

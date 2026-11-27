@@ -59,19 +59,31 @@ defmodule Weld.Layout.Flat.MixFile do
 
   defp mixfile_contents(plan, paths, application, opts) do
     erlc = build_erlc_paths(paths, Keyword.get(opts, :test_support_projects, []))
+
     spec = %{
       elixirc_paths: ["lib"],
-      test_elixirc_paths: if(has_path?(paths, "test/support"), do: ["lib", "test/support"], else: ["lib"]),
-      erlc_paths: Enum.filter(erlc, &(&1 == "src")), test_erlc_paths: erlc,
+      test_elixirc_paths:
+        if(has_path?(paths, "test/support"), do: ["lib", "test/support"], else: ["lib"]),
+      erlc_paths: Enum.filter(erlc, &(&1 == "src")),
+      test_erlc_paths: erlc,
       include_paths: if(has_path?(paths, "include"), do: ["include"], else: []),
       test_include_paths: if(has_path?(paths, "include"), do: ["include"], else: []),
       test_paths: ["test"],
-      test_ignore_filters: Enum.filter(paths, &(String.starts_with?(&1, "test/") and
-        (String.ends_with?(&1, "_helper.exs") or String.starts_with?(&1, "test/support/")))),
-      deps: Render.dependencies(Keyword.get(opts, :runtime_external_deps, plan.external_deps),
-        Keyword.get(opts, :test_external_deps, []) ++ Keyword.get(opts, :forced_test_external_deps, []),
-        plan.artifact.package.development_dependencies)
+      test_ignore_filters:
+        Enum.filter(
+          paths,
+          &(String.starts_with?(&1, "test/") and
+              (String.ends_with?(&1, "_helper.exs") or String.starts_with?(&1, "test/support/")))
+        ),
+      deps:
+        Render.dependencies(
+          Keyword.get(opts, :runtime_external_deps, plan.external_deps),
+          Keyword.get(opts, :test_external_deps, []) ++
+            Keyword.get(opts, :forced_test_external_deps, []),
+          plan.artifact.package.development_dependencies
+        )
     }
+
     Render.mix(plan, application, spec, opts)
   end
 

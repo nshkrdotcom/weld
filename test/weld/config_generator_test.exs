@@ -154,13 +154,22 @@ defmodule Weld.ConfigGeneratorTest do
   end
 
   defp generate!(projects, build_path, repo_infos, migration_layout, opts \\ []) do
-    projects = Enum.map(projects, fn project ->
-      Map.put(project, :facts, Weld.Shell.Snapshot.observe!(project.abs_path))
-    end)
+    projects =
+      Enum.map(projects, fn project ->
+        Map.put(project, :facts, Weld.Shell.Snapshot.observe!(project.abs_path))
+      end)
+
     result = Generator.plan!(projects, repo_infos, migration_layout, opts)
     nodes = Enum.reduce(projects, %{}, &Map.merge(&2, &1.facts.nodes))
     facts = %{root: build_path, nodes: nodes}
-    Weld.Shell.Materializer.execute!(%{full: result.operations, empty_dirs: []}, facts, build_path, :full)
+
+    Weld.Shell.Materializer.execute!(
+      %{full: result.operations, empty_dirs: []},
+      facts,
+      build_path,
+      :full
+    )
+
     result
   end
 

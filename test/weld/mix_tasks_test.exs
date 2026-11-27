@@ -85,7 +85,9 @@ defmodule Weld.MixTasksTest do
     output =
       capture_io(fn ->
         File.cd!(repo_root, fn ->
-          assert catch_exit(Mix.Task.rerun("weld", ["project", "--root", repo_root, "--format", "json"])) ==
+          assert catch_exit(
+                   Mix.Task.rerun("weld", ["project", "--root", repo_root, "--format", "json"])
+                 ) ==
                    {:shutdown, 3}
         end)
       end)

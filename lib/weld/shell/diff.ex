@@ -11,10 +11,21 @@ defmodule Weld.Shell.Diff do
     unless File.dir?(path), do: raise(Error, "projection does not exist: #{path}")
 
     root = plan.manifest.repo_root
-    expected = Enum.map(plan.output_inventory, fn entry ->
-      op = if kind == :live, do: Enum.find(plan.layout.live, &(&1.target == entry.target))
-      if op && op.content, do: %{entry | sha256: Weld.Core.Identity.raw(op.content), size: byte_size(op.content), executable: false}, else: entry
-    end)
+
+    expected =
+      Enum.map(plan.output_inventory, fn entry ->
+        op = if kind == :live, do: Enum.find(plan.layout.live, &(&1.target == entry.target))
+
+        if op && op.content,
+          do: %{
+            entry
+            | sha256: Weld.Core.Identity.raw(op.content),
+              size: byte_size(op.content),
+              executable: false
+          },
+          else: entry
+      end)
+
     links = if kind == :live, do: planned_links(plan), else: %{}
     expected_paths = MapSet.new(expected, & &1.target)
 

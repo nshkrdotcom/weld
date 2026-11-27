@@ -33,7 +33,7 @@ defmodule Weld.Plan.Boundary do
       |> Map.take(targets)
       |> Map.new(fn {id, project} -> {project.app, id} end)
 
-    for project <- (workspace.projects |> Map.values() |> Enum.sort_by(& &1.id)),
+    for project <- workspace.projects |> Map.values() |> Enum.sort_by(& &1.id),
         dep <- project.deps,
         dep.opts[:git] || dep.opts[:github],
         target = targets_by_app[dep.app] do

@@ -7,8 +7,7 @@ defmodule Weld.SnapshotContractTest do
   setup do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
     plan = Plan.build!(manifest)
-    %{plan: plan, root: plan.manifest.repo_root,
-      input_id: Inventory.portable(plan)["input_id"]}
+    %{plan: plan, root: plan.manifest.repo_root, input_id: Inventory.portable(plan)["input_id"]}
   end
 
   test "selected rechecks ignore unrelated bytes but observe new discovery matches", ctx do
@@ -18,9 +17,12 @@ defmodule Weld.SnapshotContractTest do
     project = Path.join(ctx.root, "core/newly_discovered")
     File.mkdir_p!(project)
     File.write!(Path.join(project, "mix.exs"), "# newly discovered structural input\n")
-    error = assert_raise Error, fn ->
-      Projector.recheck_inputs!(ctx.plan, ctx.input_id)
-    end
+
+    error =
+      assert_raise Error, fn ->
+        Projector.recheck_inputs!(ctx.plan, ctx.input_id)
+      end
+
     assert error.code == :inputs_changed
   end
 
@@ -28,18 +30,24 @@ defmodule Weld.SnapshotContractTest do
     config = Path.join(ctx.root, "core/contracts/config")
     File.mkdir_p!(config)
     File.write!(Path.join(config, "config.exs"), "import Config\n")
-    error = assert_raise Error, fn ->
-      Projector.recheck_inputs!(ctx.plan, ctx.input_id)
-    end
+
+    error =
+      assert_raise Error, fn ->
+        Projector.recheck_inputs!(ctx.plan, ctx.input_id)
+      end
+
     assert error.code == :inputs_changed
     File.rm_rf!(config)
     assert :ok == Projector.recheck_inputs!(ctx.plan, ctx.input_id)
 
     source = Path.join(ctx.root, "core/contracts/lib/weld_fixture/contracts.ex")
     File.chmod!(source, 0o755)
-    error = assert_raise Error, fn ->
-      Projector.recheck_inputs!(ctx.plan, ctx.input_id)
-    end
+
+    error =
+      assert_raise Error, fn ->
+        Projector.recheck_inputs!(ctx.plan, ctx.input_id)
+      end
+
     assert error.code == :inputs_changed
   end
 

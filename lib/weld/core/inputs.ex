@@ -15,8 +15,14 @@ defmodule Weld.Core.Inputs do
     type = declaration[:type]
     observed_type = Facts.type(facts, absolute)
     expected_type = %{file: :regular, tree: :directory}[type]
+
     if expected_type && observed_type not in [expected_type, :missing],
-      do: raise(Error, "declared input type mismatch for #{pattern}: expected #{type}, observed #{observed_type}")
+      do:
+        raise(
+          Error,
+          "declared input type mismatch for #{pattern}: expected #{type}, observed #{observed_type}"
+        )
+
     paths = matching_paths(facts, type, absolute)
 
     if declaration[:required] and missing_paths?(facts, type, paths, absolute),
@@ -43,18 +49,30 @@ defmodule Weld.Core.Inputs do
   defp observation(facts, root, relative) do
     node = Facts.stat!(facts, Path.join(root, relative))
     unless node.type == :regular, do: raise(Error, "unsafe input: #{relative}")
-    %{target: relative, sha256: node.sha256, size: node.size,
-      mode: node.mode, executable: Bitwise.band(node.mode, 0o111) != 0}
+
+    %{
+      target: relative,
+      sha256: node.sha256,
+      size: node.size,
+      mode: node.mode,
+      executable: Bitwise.band(node.mode, 0o111) != 0
+    }
   end
 
-  defp matching_paths(facts, :file, path), do: if(Facts.regular?(facts, path), do: [path], else: [])
+  defp matching_paths(facts, :file, path),
+    do: if(Facts.regular?(facts, path), do: [path], else: [])
+
   defp matching_paths(facts, :tree, path), do: Facts.list_files(facts, path)
+
   defp matching_paths(facts, :glob, pattern) do
-    facts |> Facts.wildcard(pattern) |> Enum.flat_map(fn path ->
+    facts
+    |> Facts.wildcard(pattern)
+    |> Enum.flat_map(fn path ->
       Facts.reject_tree_links!(facts, path)
       if Facts.dir?(facts, path), do: Facts.list_files(facts, path), else: [path]
     end)
   end
+
   defp missing_paths?(facts, :tree, [], path), do: not Facts.dir?(facts, path)
   defp missing_paths?(_facts, _type, paths, _path), do: paths == []
 
@@ -131,7 +149,11 @@ defmodule Weld.Core.Inputs do
   end
 
   defp role_kind(roles),
-    do: if(:compile in roles, do: :compiled, else: Enum.find([:native, :runtime, :docs, :test], :metadata, &(&1 in roles)))
+    do:
+      if(:compile in roles,
+        do: :compiled,
+        else: Enum.find([:native, :runtime, :docs, :test], :metadata, &(&1 in roles))
+      )
 
   def add_operations!(plan, operations) do
     Enum.reduce(mapped(plan), operations, &add_operation!(plan.manifest.repo_root, &1, &2))
@@ -142,8 +164,18 @@ defmodule Weld.Core.Inputs do
 
     case Enum.find(operations, &(&1.target == entry.target)) do
       nil ->
-        mutable = Enum.any?(entry.roles, &(&1 in [:native, :metadata, :lock, :structure, :generation]))
-        operations ++ [FilePlan.copy(source, entry.target, entry.kind, if(mutable, do: :copy, else: :link_or_copy))]
+        mutable =
+          Enum.any?(entry.roles, &(&1 in [:native, :metadata, :lock, :structure, :generation]))
+
+        operations ++
+          [
+            FilePlan.copy(
+              source,
+              entry.target,
+              entry.kind,
+              if(mutable, do: :copy, else: :link_or_copy)
+            )
+          ]
 
       %{sources: sources, content: nil} ->
         unless source in sources, do: raise(Error, "declared input collision at #{entry.target}")
@@ -161,7 +193,11 @@ defmodule Weld.Core.Inputs do
     paths
     |> Enum.uniq()
     |> Enum.filter(fn path ->
-      Map.get(overrides, path, Enum.any?(patterns, &(path == &1 or String.starts_with?(path, &1 <> "/"))))
+      Map.get(
+        overrides,
+        path,
+        Enum.any?(patterns, &(path == &1 or String.starts_with?(path, &1 <> "/")))
+      )
     end)
     |> Enum.sort()
   end

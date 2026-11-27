@@ -17,9 +17,11 @@ defmodule Weld.Workspace.Discovery do
   def discover(%Manifest{} = manifest, facts \\ nil) do
     root = manifest.repo_root
     facts = facts || Snapshot.observe!(root)
-    globs = Enum.map(manifest.workspace.project_globs, fn pattern ->
-      pattern |> Path.expand(manifest.workspace.root) |> Path.relative_to(root)
-    end)
+
+    globs =
+      Enum.map(manifest.workspace.project_globs, fn pattern ->
+        pattern |> Path.expand(manifest.workspace.root) |> Path.relative_to(root)
+      end)
 
     projects =
       globs
@@ -28,7 +30,9 @@ defmodule Weld.Workspace.Discovery do
       |> Enum.reject(fn id -> Enum.any?(Path.split(id), &(&1 in @ignored)) end)
       |> Enum.filter(fn id ->
         project = if id == ".", do: root, else: Facts.source!(facts, root, id)
-        Facts.dir?(facts, project) and Facts.regular?(facts, Facts.source!(facts, project, "mix.exs"))
+
+        Facts.dir?(facts, project) and
+          Facts.regular?(facts, Facts.source!(facts, project, "mix.exs"))
       end)
       |> Enum.sort()
 
@@ -36,7 +40,9 @@ defmodule Weld.Workspace.Discovery do
          |> Enum.filter(fn {_id, count} -> count > 1 end)
          |> Enum.sort() do
       [{duplicate, _} | _] ->
-        raise Error, code: :overlapping_globs, phase: :manifest,
+        raise Error,
+          code: :overlapping_globs,
+          phase: :manifest,
           message: "workspace.projects globs overlap at #{duplicate}",
           details: %{path: "workspace.projects", project: duplicate}
 
@@ -44,8 +50,14 @@ defmodule Weld.Workspace.Discovery do
         :ok
     end
 
-    if projects == [], do: raise(Error, code: :missing_project, phase: :manifest,
-      message: "workspace.projects matched no Mix projects", details: %{path: "workspace.projects"})
+    if projects == [],
+      do:
+        raise(Error,
+          code: :missing_project,
+          phase: :manifest,
+          message: "workspace.projects matched no Mix projects",
+          details: %{path: "workspace.projects"}
+        )
 
     %{
       source: :manifest,

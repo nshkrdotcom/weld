@@ -11,6 +11,7 @@ defmodule Weld.HexConsumptionContractTest do
     root = Path.join(FixtureCase.unique_tmp_dir("exact_hex_matrix"), "results")
     results = Weld.QC.matrix!(root)
     assert Enum.map(results, & &1["layout"]) == ~w(components flat preserve native)
+
     for result <- results do
       assert result["original_source_removed"]
       assert result["canonical_checkout_root_isolated"]
@@ -20,6 +21,7 @@ defmodule Weld.HexConsumptionContractTest do
       assert result["ordinary_hex_consumer"].application_started
       refute File.exists?(Path.join([root, result["layout"], "source"]))
     end
+
     assert List.last(results)["ordinary_hex_consumer"].offline_rebuild
   end
 end

@@ -11,7 +11,9 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
 
   test "generated docs options include the manifest-driven exdoc:loaded mermaid hook" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
-    {opts, []} = manifest |> Weld.Plan.build!() |> Support.render_docs_options() |> Code.eval_string()
+
+    {opts, []} =
+      manifest |> Weld.Plan.build!() |> Support.render_docs_options() |> Code.eval_string()
 
     assert opts[:main] == "readme"
     hook_fn = Keyword.fetch!(opts, :before_closing_body_tag)
@@ -76,8 +78,12 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     report = Diff.compare(plan, proj, :full)
 
     assert Map.new(report.entries, &{&1.target, &1.state}) ==
-             %{"mix.exs" => :modified, "only.txt" => :unexpected, "same.txt" => :identical,
-               "weld.provenance.json" => :unexpected}
+             %{
+               "mix.exs" => :modified,
+               "only.txt" => :unexpected,
+               "same.txt" => :identical,
+               "weld.provenance.json" => :unexpected
+             }
   end
 
   test "GC.prune/2 keeps newest qualification runs and supports dry_run", %{tmp_dir: dir} do
@@ -87,8 +93,12 @@ defmodule Weld.ErgonomicsAndDocsSmokeTest do
     for idx <- 1..3 do
       Weld.Output.with_lease(dir, "verify", "demo", "verify", [], fn lease ->
         run = Weld.Output.run!(dir, "verify", "demo", lease)
-        Weld.Output.update_run!(run, %{"phase" => "completed", "started_at" => "2026-11-25T10:00:00Z",
-          "finished_at" => "2026-11-25T10:00:0#{idx}Z"})
+
+        Weld.Output.update_run!(run, %{
+          "phase" => "completed",
+          "started_at" => "2026-11-25T10:00:00Z",
+          "finished_at" => "2026-11-25T10:00:0#{idx}Z"
+        })
       end)
     end
 

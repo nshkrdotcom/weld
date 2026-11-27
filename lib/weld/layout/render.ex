@@ -5,9 +5,12 @@ defmodule Weld.Layout.Render do
 
   def mix(plan, application, spec, opts) do
     package = plan.artifact.package
-    links = if map_size(package.links) == 0,
-      do: %{"Source" => plan.facts.remote_url || "https://github.com/nshkrdotcom/weld"},
-      else: package.links
+
+    links =
+      if map_size(package.links) == 0,
+        do: %{"Source" => plan.facts.remote_url || "https://github.com/nshkrdotcom/weld"},
+        else: package.links
+
     """
     defmodule #{Macro.camelize(to_string(package.otp_app))}.MixProject do
       use Mix.Project
@@ -43,14 +46,23 @@ defmodule Weld.Layout.Render do
 
   def dependencies(runtime, test, development) do
     apps = MapSet.new(Enum.map(runtime, & &1.app))
-    tests = for dep <- test, not MapSet.member?(apps, dep.app) do
-      opts = Keyword.put_new(dep.opts, :only, :test)
-      if dep.requirement, do: {dep.app, dep.requirement, opts}, else: {dep.app, opts}
-    end
+
+    tests =
+      for dep <- test, not MapSet.member?(apps, dep.app) do
+        opts = Keyword.put_new(dep.opts, :only, :test)
+        if dep.requirement, do: {dep.app, dep.requirement, opts}, else: {dep.app, opts}
+      end
+
     deps = Enum.map(runtime, & &1.original) ++ tests ++ development
-    deps = if Enum.any?(deps, &(elem(&1, 0) == :ex_doc)), do: deps,
-      else: deps ++ [{:ex_doc, "~> 0.40", only: :dev, runtime: false}]
-    deps |> Enum.group_by(&elem(&1, 0)) |> Enum.sort_by(&elem(&1, 0))
+
+    deps =
+      if Enum.any?(deps, &(elem(&1, 0) == :ex_doc)),
+        do: deps,
+        else: deps ++ [{:ex_doc, "~> 0.40", only: :dev, runtime: false}]
+
+    deps
+    |> Enum.group_by(&elem(&1, 0))
+    |> Enum.sort_by(&elem(&1, 0))
     |> Enum.map(fn {app, declarations} ->
       unique = Enum.uniq(declarations)
       if length(unique) != 1, do: raise(Error, "conflicting generated dependency: #{app}")
@@ -60,18 +72,27 @@ defmodule Weld.Layout.Render do
 
   def application(%{} = plan, opts) do
     selected_apps = Enum.map(plan.selected_projects, & &1.app)
+
     children =
       plan.selected_projects
       |> Enum.map(& &1.application.mod)
       |> Enum.reject(&is_nil/1)
 
-    duplicate_children = children |> Enum.frequencies_by(&elem(&1, 0))
+    duplicate_children =
+      children
+      |> Enum.frequencies_by(&elem(&1, 0))
       |> Enum.filter(fn {_module, count} -> count > 1 end)
-    if duplicate_children != [], do: raise(Error, "conflicting application child modules: #{inspect(duplicate_children)}")
+
+    if duplicate_children != [],
+      do: raise(Error, "conflicting application child modules: #{inspect(duplicate_children)}")
 
     registered = Enum.flat_map(plan.selected_projects, & &1.application.registered)
-    duplicates = registered |> Enum.frequencies() |> Enum.filter(fn {_name, count} -> count > 1 end)
-    if duplicates != [], do: raise(Error, "conflicting registered application names: #{inspect(duplicates)}")
+
+    duplicates =
+      registered |> Enum.frequencies() |> Enum.filter(fn {_name, count} -> count > 1 end)
+
+    if duplicates != [],
+      do: raise(Error, "conflicting registered application names: #{inspect(duplicates)}")
 
     bootstrapped_apps =
       opts
@@ -129,14 +150,14 @@ defmodule Weld.Layout.Render do
   defp maybe_put_config(config, key, value), do: Keyword.put(config, key, value)
 
   def application_source(
-         %{
-           module: module,
-           bootstrapped_apps: bootstrapped_apps,
-           bootstrapped_sources: bootstrapped_sources,
-           children: children
-         },
-         artifact_otp_app
-       ) do
+        %{
+          module: module,
+          bootstrapped_apps: bootstrapped_apps,
+          bootstrapped_sources: bootstrapped_sources,
+          children: children
+        },
+        artifact_otp_app
+      ) do
     rendered_children =
       children
       |> Enum.map_join(",\n      ", fn {child_module, args} ->
@@ -225,5 +246,4 @@ defmodule Weld.Layout.Render do
     end
     """
   end
-
 end

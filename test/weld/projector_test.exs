@@ -40,7 +40,10 @@ defmodule Weld.ProjectorTest do
       assert Weld.Commands.project!(manifest, options).reused?
       plan = Weld.Plan.build!(manifest)
       kind = if options[:live], do: "live", else: "full"
-      marker = Weld.Output.path(plan.manifest.repo_root, ["views", plan.artifact.id, kind <> ".json"])
+
+      marker =
+        Weld.Output.path(plan.manifest.repo_root, ["views", plan.artifact.id, kind <> ".json"])
+
       original = File.read!(marker)
       File.write!(marker, original <> "\n")
       refute Weld.Commands.project!(manifest, options).reused?
@@ -82,12 +85,15 @@ defmodule Weld.ProjectorTest do
     assert File.read!(application_file) =~ "Fixture.State.Application"
     assert File.read!(application_file) =~ "@moduledoc false"
   end
+
   test "full cache validates empty directories and normalized output permissions" do
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
     root = Weld.Manifest.load!(manifest).repo_root
+
     for directory <- ["empty", "a/x", "a-foo"] do
       File.mkdir_p!(Path.join(root, "core/contracts/lib/" <> directory))
     end
+
     projection = Weld.Commands.project!(manifest)
     empty = Path.join(projection.build_path, "components/core/contracts/lib/empty")
     assert File.dir?(empty)
@@ -107,5 +113,4 @@ defmodule Weld.ProjectorTest do
     refute Weld.Commands.project!(manifest).reused?
     assert Bitwise.band(File.stat!(target).mode, 0o777) == 0o644
   end
-
 end

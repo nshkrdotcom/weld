@@ -59,7 +59,9 @@ defmodule Weld.Layout.Support do
               [project.erlc_include_path] ++ suite_paths
           ) do
       relative = Path.relative_to(Path.expand(dir, project.abs_path), project.abs_path)
-      Facts.source!(project.facts, project.abs_path, relative) |> then(&Facts.reject_tree_links!(project.facts, &1))
+
+      Facts.source!(project.facts, project.abs_path, relative)
+      |> then(&Facts.reject_tree_links!(project.facts, &1))
     end
   end
 
@@ -104,8 +106,11 @@ defmodule Weld.Layout.Support do
   @doc false
   def mermaid_hook(%{artifact: _} = plan) do
     case plan.artifact.package.docs.hook_file do
-      nil -> mermaid_hook()
-      relative -> Facts.read!(plan.facts, Facts.source!(plan.facts, plan.manifest.repo_root, relative))
+      nil ->
+        mermaid_hook()
+
+      relative ->
+        Facts.read!(plan.facts, Facts.source!(plan.facts, plan.manifest.repo_root, relative))
     end
   end
 

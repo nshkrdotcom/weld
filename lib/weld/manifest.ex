@@ -210,12 +210,16 @@ defmodule Weld.Manifest do
     config = CoreManifest.normalize!(raw)
     manifest_dir = Path.dirname(manifest_path)
     workspace = normalize_workspace(config[:workspace], manifest_dir)
+
     unless match?({:ok, %{type: :directory}}, File.lstat(workspace.root)),
       do: raise(Error, "workspace.root must be an existing regular directory")
+
     git_root = Weld.Git.root(manifest_dir) || Weld.Git.root(workspace.root)
     explicit_root = if opts[:checkout_root], do: Path.expand(opts[:checkout_root])
+
     if git_root && explicit_root && git_root != explicit_root,
       do: raise(Error, "explicit checkout root does not match Git")
+
     repo_root = git_root || explicit_root || workspace.root
     validate_workspace_root!(manifest_path, workspace.root, repo_root)
 
@@ -268,9 +272,11 @@ defmodule Weld.Manifest do
     for {path, label} <- [{root, "workspace.root"}, {manifest_path, "manifest"}] do
       unless path == checkout or String.starts_with?(path, checkout <> "/"),
         do: raise(Error, "#{label} escapes the source checkout")
+
       relative = Path.relative_to(path, checkout)
       if relative != ".", do: Weld.Output.source!(checkout, relative)
     end
+
     for {directory, label} <- [{root, "workspace.root"}, {checkout, "checkout root"}] do
       case File.lstat(directory) do
         {:ok, %{type: :directory}} -> :ok
@@ -280,7 +286,6 @@ defmodule Weld.Manifest do
   end
 
   defp normalize_classify(classify) do
-
     %{
       tooling: classify[:tooling] |> MapSet.new(),
       proofs: classify[:proofs] |> MapSet.new(),
@@ -289,7 +294,6 @@ defmodule Weld.Manifest do
   end
 
   defp normalize_publication(publication) do
-
     %{
       internal_only: publication[:internal_only] |> MapSet.new(),
       separate: publication[:separate] |> MapSet.new(),
@@ -495,7 +499,6 @@ defmodule Weld.Manifest do
   end
 
   defp normalize_docs(docs, legacy_main) do
-
     %Docs{
       main: docs[:main] || legacy_main,
       logo: docs[:logo],
@@ -503,7 +506,8 @@ defmodule Weld.Manifest do
       source_url: docs[:source_url],
       source_ref: docs[:source_ref],
       assets: normalize_string_map!(docs[:assets] || %{}, "package.docs.assets"),
-      extra_titles: normalize_string_map!(docs[:extra_titles] || %{}, "package.docs.extra_titles"),
+      extra_titles:
+        normalize_string_map!(docs[:extra_titles] || %{}, "package.docs.extra_titles"),
       groups_for_extras: normalize_extra_groups!(docs[:groups_for_extras] || []),
       mermaid: docs[:mermaid] || false,
       hook_file: docs[:hook_file]

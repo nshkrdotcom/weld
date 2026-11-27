@@ -82,12 +82,16 @@ defmodule Weld.ErgonomicsContractTest do
   test "gc preserves active runs independently of completed-run retention", %{tmp_dir: dir} do
     Weld.Git.run!(dir, ["init", "--quiet"])
     Weld.Output.setup!(dir)
-    completed = Weld.Output.with_lease(dir, "stage", "demo", "review", [], fn lease ->
-      run = Weld.Output.run!(dir, "stage", "demo", lease)
-      Weld.Output.finish_run!(run, "completed")
-      run.path
-    end)
+
+    completed =
+      Weld.Output.with_lease(dir, "stage", "demo", "review", [], fn lease ->
+        run = Weld.Output.run!(dir, "stage", "demo", lease)
+        Weld.Output.finish_run!(run, "completed")
+        run.path
+      end)
+
     lease = Weld.Output.reserve!(dir, "verify", "demo", "verify", [])
+
     try do
       active = Weld.Output.run!(dir, "verify", "demo", lease).path
       report = GC.prune(dir, keep: 0, dry_run: false)
@@ -157,8 +161,10 @@ defmodule Weld.ErgonomicsContractTest do
     %{
       artifact: %{id: "demo", mode: :source_project},
       manifest: %{repo_root: root},
-      layout: %{live: Enum.map(entries, &%{target: &1.target, content: nil}),
-        live_roots: [%{target: "lib", source: "lib"}]},
+      layout: %{
+        live: Enum.map(entries, &%{target: &1.target, content: nil}),
+        live_roots: [%{target: "lib", source: "lib"}]
+      },
       output_inventory: entries
     }
   end

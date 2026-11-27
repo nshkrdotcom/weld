@@ -49,90 +49,243 @@ defmodule Weld.FixtureCase do
     File.mkdir!(project)
     File.mkdir!(docs)
     File.cp!(Path.join(root, "README.md"), Path.join(project, "README.md"))
-    File.write!(Path.join(docs, "index.html"), "<html>" <> Keyword.get(opts, :docs, "Fixture docs") <> "</html>")
+
+    File.write!(
+      Path.join(docs, "index.html"),
+      "<html>" <> Keyword.get(opts, :docs, "Fixture docs") <> "</html>"
+    )
+
     hex? = Keyword.get(opts, :hex, false)
     compiler = Identity.raw("test-only strict bundle fixture compiler")
     observed = Hash.observation(project)
     docs_observed = Hash.observation(docs)
-    inputs = for file <- observed["entries"] do
-      %{"id" => "file:" <> file["path"], "kind" => "file", "roles" => ["metadata"], "owners" => ["fixture"],
-        "fact" => Map.put(file, "mode", if(file["executable"], do: 0o755, else: 0o644))}
-    end
-    entries = for file <- observed["entries"] do
-      variant = %{"strategy" => "copy", "source" => "file:" <> file["path"], "content_sha256" => file["sha256"],
-        "size" => file["size"], "executable" => file["executable"], "group" => nil}
-      %{"target" => file["path"], "kind" => "file", "roles" => ["metadata"], "owners" => ["fixture"],
-        "origins" => ["file:" <> file["path"]], "full" => variant, "live" => variant, "package" => true, "verify" => true}
-    end
-    package = if hex? do
-      metadata = %{"name" => "fixture_bundle", "app" => "fixture_bundle", "version" => "0.1.0",
-        "files" => Enum.map(observed["entries"], & &1["path"]), "requirements" => %{}, "build_tools" => ["mix"]}
-      files = for file <- observed["entries"], do: {String.to_charlist(file["path"]), File.read!(Path.join(project, file["path"]))}
-      {:ok, %{tarball: bytes}} = :hex_tarball.create(metadata, files)
-      File.write!(Path.join(stage, "package.tar"), bytes)
-      Hex.package_observation!(Path.join(stage, "package.tar"))
-    end
+
+    inputs =
+      for file <- observed["entries"] do
+        %{
+          "id" => "file:" <> file["path"],
+          "kind" => "file",
+          "roles" => ["metadata"],
+          "owners" => ["fixture"],
+          "fact" => Map.put(file, "mode", if(file["executable"], do: 0o755, else: 0o644))
+        }
+      end
+
+    entries =
+      for file <- observed["entries"] do
+        variant = %{
+          "strategy" => "copy",
+          "source" => "file:" <> file["path"],
+          "content_sha256" => file["sha256"],
+          "size" => file["size"],
+          "executable" => file["executable"],
+          "group" => nil
+        }
+
+        %{
+          "target" => file["path"],
+          "kind" => "file",
+          "roles" => ["metadata"],
+          "owners" => ["fixture"],
+          "origins" => ["file:" <> file["path"]],
+          "full" => variant,
+          "live" => variant,
+          "package" => true,
+          "verify" => true
+        }
+      end
+
+    package =
+      if hex? do
+        metadata = %{
+          "name" => "fixture_bundle",
+          "app" => "fixture_bundle",
+          "version" => "0.1.0",
+          "files" => Enum.map(observed["entries"], & &1["path"]),
+          "requirements" => %{},
+          "build_tools" => ["mix"]
+        }
+
+        files =
+          for file <- observed["entries"],
+              do: {String.to_charlist(file["path"]), File.read!(Path.join(project, file["path"]))}
+
+        {:ok, %{tarball: bytes}} = :hex_tarball.create(metadata, files)
+        File.write!(Path.join(stage, "package.tar"), bytes)
+        Hex.package_observation!(Path.join(stage, "package.tar"))
+      end
+
     docs_archive = if hex?, do: Hex.freeze_docs!(docs, Path.join(stage, "docs.tar.gz"))
     manifest_path = Path.relative_to(manifest, root)
     [manifest_file] = Hash.entries(root, [manifest_path])
-    manifest_input = %{"id" => "file:" <> manifest_path, "kind" => "file", "roles" => ["structure"],
-      "owners" => [], "fact" => Map.put(manifest_file, "mode", Bitwise.band(File.stat!(manifest).mode, 0o777))}
+
+    manifest_input = %{
+      "id" => "file:" <> manifest_path,
+      "kind" => "file",
+      "roles" => ["structure"],
+      "owners" => [],
+      "fact" => Map.put(manifest_file, "mode", Bitwise.band(File.stat!(manifest).mode, 0o777))
+    }
+
     inputs = Enum.sort_by([manifest_input | inputs], & &1["id"])
     artifact = Weld.Manifest.load!(manifest).artifacts["fixture_bundle"]
-    normalized_artifact = %{"id" => artifact.id, "mode" => Atom.to_string(artifact.mode),
-      "package" => %{"name" => artifact.package.name, "version" => artifact.package.version}}
-    inventory = %{
-      "schema" => "weld.inventory/2", "artifact" => "fixture_bundle", "compiler_id" => compiler,
-      "input_id" => nil, "plan_id" => nil, "normalized_metadata" => %{"artifact" => normalized_artifact}, "contexts" => %{},
-      "selection" => %{"dependency_members" => ["fixture"], "compiled_owners" => ["fixture"],
-        "verification_only" => [], "inventory_only" => [], "excluded" => [], "reasons" => []},
-      "dependencies" => [], "inputs" => inputs, "watches" => [manifest_input["id"]], "entries" => entries,
-      "layout" => %{"name" => "components", "empty_dirs" => observed["empty_dirs"]},
-      "qualification_policy" => %{"artifact_tests" => [], "component_tests" => false, "hex_build" => hex?,
-        "hex_publish_check" => false, "smoke" => nil, "context" => []},
-      "lock_slot" => %{"path" => "mix.lock", "policy" => "none"}, "frozen_project" => observed["entries"],
-      "empty_dirs" => observed["empty_dirs"], "package_entries" => package && package.entries,
-      "package_metadata" => package && package.metadata, "docs_entries" => docs_observed["entries"], "docs_empty_dirs" => docs_observed["empty_dirs"]
+
+    normalized_artifact = %{
+      "id" => artifact.id,
+      "mode" => Atom.to_string(artifact.mode),
+      "package" => %{"name" => artifact.package.name, "version" => artifact.package.version}
     }
+
+    inventory = %{
+      "schema" => "weld.inventory/2",
+      "artifact" => "fixture_bundle",
+      "compiler_id" => compiler,
+      "input_id" => nil,
+      "plan_id" => nil,
+      "normalized_metadata" => %{"artifact" => normalized_artifact},
+      "contexts" => %{},
+      "selection" => %{
+        "dependency_members" => ["fixture"],
+        "compiled_owners" => ["fixture"],
+        "verification_only" => [],
+        "inventory_only" => [],
+        "excluded" => [],
+        "reasons" => []
+      },
+      "dependencies" => [],
+      "inputs" => inputs,
+      "watches" => [manifest_input["id"]],
+      "entries" => entries,
+      "layout" => %{"name" => "components", "empty_dirs" => observed["empty_dirs"]},
+      "qualification_policy" => %{
+        "artifact_tests" => [],
+        "component_tests" => false,
+        "hex_build" => hex?,
+        "hex_publish_check" => false,
+        "smoke" => nil,
+        "context" => []
+      },
+      "lock_slot" => %{"path" => "mix.lock", "policy" => "none"},
+      "frozen_project" => observed["entries"],
+      "empty_dirs" => observed["empty_dirs"],
+      "package_entries" => package && package.entries,
+      "package_metadata" => package && package.metadata,
+      "docs_entries" => docs_observed["entries"],
+      "docs_empty_dirs" => docs_observed["empty_dirs"]
+    }
+
     inventory = Map.put(inventory, "input_id", Inventory.input_id(inventory))
-    inventory = Map.put(inventory, "plan_id", Inventory.plan_id(inventory)) |> Inventory.validate_portable!()
-    source = %{"git_algorithm" => Git.object_format(root), "commit" => Git.revision(root),
-      "manifest_path" => manifest_path, "manifest_sha256" => manifest_file["sha256"]}
-    package_id = if package, do: Identity.digest("package", %{"entries" => package.entries, "metadata" => package.metadata})
+
+    inventory =
+      Map.put(inventory, "plan_id", Inventory.plan_id(inventory))
+      |> Inventory.validate_portable!()
+
+    source = %{
+      "git_algorithm" => Git.object_format(root),
+      "commit" => Git.revision(root),
+      "manifest_path" => manifest_path,
+      "manifest_sha256" => manifest_file["sha256"]
+    }
+
+    package_id =
+      if package,
+        do:
+          Identity.digest("package", %{
+            "entries" => package.entries,
+            "metadata" => package.metadata
+          })
+
     archive_sha256 = if hex?, do: Hash.sha256_file(Path.join(stage, "package.tar"))
     docs_id = Identity.digest("docs", docs_observed)
-    gates = for number <- 1..12 do
-      id = "G" <> String.pad_leading(to_string(number), 2, "0")
-      skip = id in ["G03", "G07", "G09"] or (not hex? and id in ["G08", "G10"])
-      facts = case id do
-        "G08" when hex? -> %{"archive_sha256" => archive_sha256, "package_id" => package_id, "entries" => length(package.entries)}
-        "G11" -> %{"docs_id" => docs_id, "docs_archive_sha256" => docs_archive && docs_archive.sha256,
-          "roundtrip_verified" => hex?, "archive_policy" => if(hex?, do: "exact_frozen_payload", else: "non_hex_docs_tree")}
-        _ -> %{"synthetic_fixture" => true}
+
+    gates =
+      for number <- 1..12 do
+        id = "G" <> String.pad_leading(to_string(number), 2, "0")
+        skip = id in ["G03", "G07", "G09"] or (not hex? and id in ["G08", "G10"])
+
+        facts =
+          case id do
+            "G08" when hex? ->
+              %{
+                "archive_sha256" => archive_sha256,
+                "package_id" => package_id,
+                "entries" => length(package.entries)
+              }
+
+            "G11" ->
+              %{
+                "docs_id" => docs_id,
+                "docs_archive_sha256" => docs_archive && docs_archive.sha256,
+                "roundtrip_verified" => hex?,
+                "archive_policy" =>
+                  if(hex?, do: "exact_frozen_payload", else: "non_hex_docs_tree")
+              }
+
+            _ ->
+              %{"synthetic_fixture" => true}
+          end
+
+        %{
+          "id" => id,
+          "status" => if(skip, do: "skip", else: "pass"),
+          "facts" => facts,
+          "skip_reason" => if(skip, do: "fixture policy disables this gate")
+        }
       end
-      %{"id" => id, "status" => if(skip, do: "skip", else: "pass"), "facts" => facts,
-        "skip_reason" => if(skip, do: "fixture policy disables this gate")}
-    end
+
     proof = %{
-      "schema" => "weld.qualification/2", "plan_id" => inventory["plan_id"], "project_id" => Identity.digest("project", observed),
-      "package_id" => package_id, "archive_sha256" => archive_sha256,
-      "docs_id" => docs_id, "docs_archive_sha256" => docs_archive && docs_archive.sha256,
-      "gate_schema" => "weld.gates/2", "gates" => gates, "lock_sha256" => nil,
-      "toolchain" => %{"compiler_id" => compiler, "fixture" => true}, "trust" => %{"verified" => true, "policy" => "synthetic-test-fixture/2"},
-      "context_digest" => nil, "source" => source
+      "schema" => "weld.qualification/2",
+      "plan_id" => inventory["plan_id"],
+      "project_id" => Identity.digest("project", observed),
+      "package_id" => package_id,
+      "archive_sha256" => archive_sha256,
+      "docs_id" => docs_id,
+      "docs_archive_sha256" => docs_archive && docs_archive.sha256,
+      "gate_schema" => "weld.gates/2",
+      "gates" => gates,
+      "lock_sha256" => nil,
+      "toolchain" => %{"compiler_id" => compiler, "fixture" => true},
+      "trust" => %{"verified" => true, "policy" => "synthetic-test-fixture/2"},
+      "context_digest" => nil,
+      "source" => source
     }
+
     proof = Map.put(proof, "qualification_id", Identity.digest("qualification", proof))
     File.write!(Path.join(stage, "inventory.json"), Identity.canonical(inventory))
     File.write!(Path.join(stage, "qualification.json"), Identity.canonical(proof))
-    descriptor = fn name -> %{"path" => name, "sha256" => Hash.sha256_file(Path.join(stage, name)), "size" => File.stat!(Path.join(stage, name)).size} end
+
+    descriptor = fn name ->
+      %{
+        "path" => name,
+        "sha256" => Hash.sha256_file(Path.join(stage, name)),
+        "size" => File.stat!(Path.join(stage, name)).size
+      }
+    end
+
     metadata = %{
-      "schema" => "weld.bundle/2", "artifact" => "fixture_bundle", "layout" => "components", "package" => "fixture_bundle", "version" => "0.1.0",
-      "compiler_id" => compiler, "input_id" => inventory["input_id"], "plan_id" => inventory["plan_id"],
-      "project_id" => proof["project_id"], "qualification_id" => proof["qualification_id"], "package_id" => proof["package_id"],
-      "archive_sha256" => proof["archive_sha256"], "docs_id" => proof["docs_id"], "docs_archive_sha256" => proof["docs_archive_sha256"],
-      "source" => source, "files" => %{"inventory" => descriptor.("inventory.json"), "qualification" => descriptor.("qualification.json"),
-        "package" => if(hex?, do: descriptor.("package.tar")), "docs_archive" => if(hex?, do: descriptor.("docs.tar.gz"))}
+      "schema" => "weld.bundle/2",
+      "artifact" => "fixture_bundle",
+      "layout" => "components",
+      "package" => "fixture_bundle",
+      "version" => "0.1.0",
+      "compiler_id" => compiler,
+      "input_id" => inventory["input_id"],
+      "plan_id" => inventory["plan_id"],
+      "project_id" => proof["project_id"],
+      "qualification_id" => proof["qualification_id"],
+      "package_id" => proof["package_id"],
+      "archive_sha256" => proof["archive_sha256"],
+      "docs_id" => proof["docs_id"],
+      "docs_archive_sha256" => proof["docs_archive_sha256"],
+      "source" => source,
+      "files" => %{
+        "inventory" => descriptor.("inventory.json"),
+        "qualification" => descriptor.("qualification.json"),
+        "package" => if(hex?, do: descriptor.("package.tar")),
+        "docs_archive" => if(hex?, do: descriptor.("docs.tar.gz"))
+      }
     }
+
     id = Weld.Release.identity(metadata)
     metadata = Map.put(metadata, "bundle_id", id)
     File.write!(Path.join(stage, "bundle.json"), Identity.canonical(metadata))
@@ -140,10 +293,24 @@ defmodule Weld.FixtureCase do
     bundle = Output.path(root, ["bundles", "fixture_bundle", id])
     File.mkdir_p!(Path.dirname(bundle))
     if File.exists?(bundle), do: File.rm_rf!(stage), else: File.rename!(stage, bundle)
-    Output.write_atomic!(Output.path(root, ["current", "fixture_bundle"]),
-      Identity.canonical(%{"schema" => "weld.current/2", "artifact" => "fixture_bundle", "bundle_id" => id}))
-    %{identity: id, bundle_path: bundle, tarball_path: if(hex?, do: Path.join(bundle, "package.tar")),
-      archive_sha256: metadata["archive_sha256"], docs_id: metadata["docs_id"], metadata: metadata}
+
+    Output.write_atomic!(
+      Output.path(root, ["current", "fixture_bundle"]),
+      Identity.canonical(%{
+        "schema" => "weld.current/2",
+        "artifact" => "fixture_bundle",
+        "bundle_id" => id
+      })
+    )
+
+    %{
+      identity: id,
+      bundle_path: bundle,
+      tarball_path: if(hex?, do: Path.join(bundle, "package.tar")),
+      archive_sha256: metadata["archive_sha256"],
+      docs_id: metadata["docs_id"],
+      metadata: metadata
+    }
   end
 
   def init_git!(repo_root) do

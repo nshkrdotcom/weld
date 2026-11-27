@@ -6,6 +6,12 @@ defmodule WeldNativeProbe do
     |> :filename.join(~c"weld_native_probe")
     |> :erlang.load_nif(0)
   end
+
   def value, do: :erlang.nif_error(:not_loaded)
-  def bootstrap, do: Application.app_dir(:weld_native_probe, "priv/bootstrap.txt") |> File.read!() |> String.trim()
+
+  def bootstrap,
+    do:
+      Application.app_dir(:weld_native_probe, "priv/bootstrap.txt")
+      |> File.read!()
+      |> String.trim()
 end

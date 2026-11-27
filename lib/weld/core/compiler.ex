@@ -54,7 +54,10 @@ defmodule Weld.Core.Compiler do
 
     source_member_ids =
       if artifact.mode == :source_project do
-        Selection.sorted_difference(compiled, dependency_ids ++ Enum.map(verification_projects, & &1.id))
+        Selection.sorted_difference(
+          compiled,
+          dependency_ids ++ Enum.map(verification_projects, & &1.id)
+        )
       else
         Enum.uniq(compiled) |> Enum.sort()
       end
@@ -64,7 +67,10 @@ defmodule Weld.Core.Compiler do
     test_owners = Selection.owners(source_roots ++ source_inventory, [:test, :artifact_test])
 
     verification_ids =
-      Selection.sorted_difference(Enum.map(verification_projects, & &1.id) ++ test_owners, selected_ids)
+      Selection.sorted_difference(
+        Enum.map(verification_projects, & &1.id) ++ test_owners,
+        selected_ids
+      )
 
     inventory_member_ids =
       source_roots
@@ -93,8 +99,17 @@ defmodule Weld.Core.Compiler do
         )
       )
       |> Kernel.++(merge_result.violations)
-      |> Kernel.++(Selection.portable_dependency_violations(manifest, artifact, artifact_graph, dependency_ids))
-      |> Kernel.++(Selection.publication_dependency_violations(artifact, artifact_graph, dependency_ids))
+      |> Kernel.++(
+        Selection.portable_dependency_violations(
+          manifest,
+          artifact,
+          artifact_graph,
+          dependency_ids
+        )
+      )
+      |> Kernel.++(
+        Selection.publication_dependency_violations(artifact, artifact_graph, dependency_ids)
+      )
       |> Kernel.++(Selection.verification_violations(artifact, test_graph, test_ids))
       |> Kernel.++(Selection.source_dependency_violations(artifact, artifact_graph, known_seeds))
       |> Kernel.++(
@@ -138,10 +153,18 @@ defmodule Weld.Core.Compiler do
       violations: violations
     }
 
-    probe_inputs = for id <- Enum.uniq(selected_ids ++ verification_ids ++ artifact.external_projects),
-      project = Map.get(workspace.projects, id), not is_nil(project),
-      path <- Map.get(project, :probe_inputs, []), do: path
-    plan = %{plan | structural_inputs: Enum.sort(Enum.uniq(plan.structural_inputs ++ probe_inputs))}
+    probe_inputs =
+      for id <- Enum.uniq(selected_ids ++ verification_ids ++ artifact.external_projects),
+          project = Map.get(workspace.projects, id),
+          not is_nil(project),
+          path <- Map.get(project, :probe_inputs, []),
+          do: path
+
+    plan = %{
+      plan
+      | structural_inputs: Enum.sort(Enum.uniq(plan.structural_inputs ++ probe_inputs))
+    }
+
     watches = Inputs.collect(plan)
 
     plan = %{
@@ -154,23 +177,39 @@ defmodule Weld.Core.Compiler do
   end
 
   defp finalize_layout!(%{violations: []} = plan) do
-    layout = case plan.artifact.mode do
-      :monolith -> Flat.plan!(plan)
-      :package_projection -> Components.plan!(plan)
-      :source_project -> Preserve.plan!(plan)
-    end
-    empty = for entry <- plan.source_roots, entry.directory,
-      source = Path.join(plan.manifest.repo_root, entry.source),
-      {path, :directory} <- Facts.topology(plan.facts, source), Facts.ls!(plan.facts, path) == [],
-      do: if(path == source, do: entry.target, else: Path.join(entry.target, Path.relative_to(path, source)))
-    empty = empty |> Enum.uniq() |> Enum.reject(fn path ->
-      Enum.any?(layout.full, &Inventory.covered?(&1.target, path))
-    end) |> Enum.sort()
+    layout =
+      case plan.artifact.mode do
+        :monolith -> Flat.plan!(plan)
+        :package_projection -> Components.plan!(plan)
+        :source_project -> Preserve.plan!(plan)
+      end
+
+    empty =
+      for entry <- plan.source_roots,
+          entry.directory,
+          source = Path.join(plan.manifest.repo_root, entry.source),
+          {path, :directory} <- Facts.topology(plan.facts, source),
+          Facts.ls!(plan.facts, path) == [],
+          do:
+            if(path == source,
+              do: entry.target,
+              else: Path.join(entry.target, Path.relative_to(path, source))
+            )
+
+    empty =
+      empty
+      |> Enum.uniq()
+      |> Enum.reject(fn path ->
+        Enum.any?(layout.full, &Inventory.covered?(&1.target, path))
+      end)
+      |> Enum.sort()
+
     layout = Map.put(layout, :empty_dirs, empty)
     {sources, outputs} = Inventory.layout_inventory(plan, layout)
     outputs = CoreInventory.validate!(outputs)
     %{plan | layout: layout, source_inventory: sources, output_inventory: outputs}
   end
+
   defp finalize_layout!(plan), do: plan
 
   defp structural_inputs!(facts, manifest, artifact, _source_projects, project_ids) do
@@ -184,7 +223,9 @@ defmodule Weld.Core.Compiler do
     end
 
     smoke_inputs = List.wrap(artifact.verify.smoke.entry_file)
-    declared_inputs = hook_inputs ++ smoke_inputs ++ [".formatter.exs", ".credo.exs", ".dialyzer_ignore.exs"]
+
+    declared_inputs =
+      hook_inputs ++ smoke_inputs ++ [".formatter.exs", ".credo.exs", ".dialyzer_ignore.exs"]
 
     project_metadata =
       for id <- Enum.uniq(["." | project_ids]), path <- ["mix.exs", "mix.lock"] do
@@ -193,6 +234,4 @@ defmodule Weld.Core.Compiler do
 
     Enum.uniq(declared_inputs ++ project_metadata) |> Enum.sort()
   end
-
-
 end

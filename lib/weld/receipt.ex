@@ -23,6 +23,7 @@ defmodule Weld.Receipt do
   def write!(path, record) do
     unless Enum.sort(Map.keys(record)) == Enum.sort(@keys),
       do: raise(Error, "invalid projection cache record")
+
     Output.write_atomic!(path, Identity.canonical(record))
   end
 
@@ -31,14 +32,31 @@ defmodule Weld.Receipt do
   def tree(path, links? \\ false) do
     case File.lstat(path) do
       {:ok, %{type: :regular, mode: mode, size: size}} ->
-        %{"type" => "file", "executable" => Bitwise.band(mode, 0o111) != 0,
-          "size" => size, "sha256" => Hash.sha256_file(path)}
+        %{
+          "type" => "file",
+          "executable" => Bitwise.band(mode, 0o111) != 0,
+          "size" => size,
+          "sha256" => Hash.sha256_file(path)
+        }
+
       {:ok, %{type: :directory}} ->
-        %{"type" => "directory", "children" => path |> File.ls!() |> Enum.sort()
-          |> Enum.map(&%{"name" => &1, "entry" => tree(Path.join(path, &1), links?)})}
-      {:ok, %{type: :symlink}} when links? -> %{"type" => "link", "target" => File.read_link!(path)}
-      {:error, :enoent} -> %{"type" => "missing"}
-      _ -> raise Error, "unsafe cache observation: #{path}"
+        %{
+          "type" => "directory",
+          "children" =>
+            path
+            |> File.ls!()
+            |> Enum.sort()
+            |> Enum.map(&%{"name" => &1, "entry" => tree(Path.join(path, &1), links?)})
+        }
+
+      {:ok, %{type: :symlink}} when links? ->
+        %{"type" => "link", "target" => File.read_link!(path)}
+
+      {:error, :enoent} ->
+        %{"type" => "missing"}
+
+      _ ->
+        raise Error, "unsafe cache observation: #{path}"
     end
   end
 end

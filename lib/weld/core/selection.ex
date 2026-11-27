@@ -3,6 +3,7 @@ defmodule Weld.Core.Selection do
   alias Weld.{Error, Graph, Violation}
   alias Weld.Graph.View
   alias Weld.Workspace.Project
+
   def source_projects!(%{mode: :source_project, roots: [root], package: package}, projects) do
     case Map.get(projects, root) do
       %{app: app, version: version, package_name: name} = project
@@ -46,11 +47,11 @@ defmodule Weld.Core.Selection do
   # Each selected component runs as a test owner. Its test-only dependencies
   # contribute their package dependencies, without recursively selecting their suites.
   def graph_for_view(
-         graph,
-         %{mode: :package_projection, verify: %{component_tests: true}},
-         ids,
-         :test
-       ) do
+        graph,
+        %{mode: :package_projection, verify: %{component_tests: true}},
+        ids,
+        :test
+      ) do
     owners = MapSet.new(ids)
     keep? = fn id, kind -> MapSet.member?(owners, id) or View.allowed?(kind, :package) end
 
@@ -105,21 +106,29 @@ defmodule Weld.Core.Selection do
   end
 
   def portable_dependency_violations(manifest, artifact, graph, ids) do
-    dependencies = for id <- Enum.sort(ids), dep <- Graph.external_deps(graph, id),
-      View.allowed?(dep.kind, :docs), do: {id, dep, :generated}
+    dependencies =
+      for id <- Enum.sort(ids),
+          dep <- Graph.external_deps(graph, id),
+          View.allowed?(dep.kind, :docs),
+          do: {id, dep, :generated}
+
     test_dependencies =
       if artifact.mode == :monolith or artifact.verify.component_tests do
         test_graph = graph_for_view(graph, artifact, ids, :test)
+
         for id <- Graph.reachable_from(test_graph, ids, :test),
             dep <- Graph.external_deps(test_graph, id),
-            View.allowed?(dep.kind, :test), do: {id, dep, :generated}
+            View.allowed?(dep.kind, :test),
+            do: {id, dep, :generated}
       else
         []
       end
+
     forced =
       if artifact.mode == :monolith do
         for app <- artifact.monolith_opts[:extra_test_deps] || [],
-            policy = manifest.dependencies[app], not is_nil(policy),
+            policy = manifest.dependencies[app],
+            not is_nil(policy),
             do: {nil, %{app: app, opts: policy.opts}, :flat_extra_test}
       else
         []
@@ -134,26 +143,43 @@ defmodule Weld.Core.Selection do
   end
 
   defp local_git_violation(id, app, kind) do
-    hint = if kind == :native,
-      do: "replace the Git source in native mix.exs with a remote Git or versioned package dependency",
-      else: "declare a canonical remote Git or versioned Hex dependency"
-    Violation.new(:nonportable_git_dependency,
+    hint =
+      if kind == :native,
+        do:
+          "replace the Git source in native mix.exs with a remote Git or versioned package dependency",
+        else: "declare a canonical remote Git or versioned Hex dependency"
+
+    Violation.new(
+      :nonportable_git_dependency,
       "standalone dependency uses a local Git repository; " <> hint,
-      project: id, dependency: app,
-      details: %{option: :git, source_kind: kind,
+      project: id,
+      dependency: app,
+      details: %{
+        option: :git,
+        source_kind: kind,
         declaration: if(kind == :flat_extra_test, do: "flat.extra_test_deps", else: "deps"),
-        hint: hint})
+        hint: hint
+      }
+    )
   end
 
   def publication_dependency_violations(%{verify: %{hex_build: false}}, _graph, _ids), do: []
+
   def publication_dependency_violations(_artifact, graph, ids) do
-    for id <- Enum.sort(ids), dep <- Graph.external_deps(graph, id),
+    for id <- Enum.sort(ids),
+        dep <- Graph.external_deps(graph, id),
         View.allowed?(dep.kind, :package),
         not is_nil(dep.opts[:git]) or not is_nil(dep.opts[:github]) or not is_nil(dep.opts[:path]) do
-      Violation.new(:unsupported_publication_dependency,
+      Violation.new(
+        :unsupported_publication_dependency,
         "Hex publication requires a versioned package dependency; use a canonical Hex declaration or a non-Hex artifact",
-        project: id, dependency: dep.app,
-        details: %{requirement: dep.requirement, source: if(dep.opts[:path], do: :path, else: :git)})
+        project: id,
+        dependency: dep.app,
+        details: %{
+          requirement: dep.requirement,
+          source: if(dep.opts[:path], do: :path, else: :git)
+        }
+      )
     end
   end
 
@@ -246,17 +272,30 @@ defmodule Weld.Core.Selection do
 
   def merge_external_dep(dep, current) do
     case Map.get(current.external_deps, dep.app) do
-      nil -> %{current | external_deps: Map.put(current.external_deps, dep.app, dep)}
+      nil ->
+        %{current | external_deps: Map.put(current.external_deps, dep.app, dep)}
+
       existing ->
         case Graph.merge_dependency_scopes(existing, dep) do
-          {:ok, merged} -> %{current | external_deps: Map.put(current.external_deps, dep.app, merged)}
+          {:ok, merged} ->
+            %{current | external_deps: Map.put(current.external_deps, dep.app, merged)}
+
           :error ->
-            violation = Violation.new(:conflicting_external_dependency,
-              "selected projects declare incompatible external dependency requirements or sources",
-              dependency: dep.app,
-              details: %{requirements: [existing.requirement, dep.requirement],
-                origins: Enum.sort(Enum.uniq(Map.get(existing, :origins, []) ++ Map.get(dep, :origins, []))),
-                hint: "Declare one compatible requirement/source; scopes alone may be merged."})
+            violation =
+              Violation.new(
+                :conflicting_external_dependency,
+                "selected projects declare incompatible external dependency requirements or sources",
+                dependency: dep.app,
+                details: %{
+                  requirements: [existing.requirement, dep.requirement],
+                  origins:
+                    Enum.sort(
+                      Enum.uniq(Map.get(existing, :origins, []) ++ Map.get(dep, :origins, []))
+                    ),
+                  hint: "Declare one compatible requirement/source; scopes alone may be merged."
+                }
+              )
+
             %{current | violations: [violation | current.violations]}
         end
     end
@@ -292,9 +331,9 @@ defmodule Weld.Core.Selection do
   def project_level_violations(%Project{}), do: []
 
   def maybe_tooling_violation(edge, %Project{
-         classification: :tooling,
-         publication_role: :internal_only
-       }) do
+        classification: :tooling,
+        publication_role: :internal_only
+      }) do
     if View.allowed?(edge.kind, :docs) do
       [
         Violation.new(

@@ -37,6 +37,7 @@ defmodule Weld.Core.IdentityTest do
     assert_raise ArgumentError, fn -> Inventory.validate!([entry, entry]) end
     assert_raise ArgumentError, fn -> Inventory.validate!([entry, %{entry | target: "lib"}]) end
     assert_raise ArgumentError, fn -> Inventory.validate_path!("../secret") end
+
     assert_raise ArgumentError, ~r/file\/directory collision/, fn ->
       Inventory.validate!([%{entry | target: "lib/A"}, %{entry | target: "lib/a/b.ex"}])
     end

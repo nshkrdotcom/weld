@@ -22,6 +22,7 @@ defmodule Weld.DocsPreview do
     for entry <- File.ls!(source), Path.extname(entry) != ".epub" do
       from = Path.join(source, entry)
       to = Path.join(target, entry)
+
       if File.dir?(from) do
         File.mkdir!(to)
         copy_html_payload!(from, to)

@@ -82,6 +82,7 @@ defmodule Weld.ReleaseTest do
 
     assert Weld.Git.project_id(repo_root, tracked.commit_sha) ==
              Jason.decode!(File.read!(prepared.release_metadata_path))["project_id"]
+
     refute File.exists?(Path.join(prepared.project_path, "projection.lock.json"))
     refute File.exists?(Path.join(prepared.project_path, "weld.provenance.json"))
     assert_release_metadata(manifest_path, prepared)
@@ -100,20 +101,39 @@ defmodule Weld.ReleaseTest do
     # A new committed provenance identity keeps identical project bytes possible.
     File.write!(Path.join(root, "UNRELATED_RELEASE_NOTE"), "new committed provenance\n")
     FixtureCase.commit_all!(root, "advance qualification provenance")
-    for boundary <- [:prepare_snapshot, :prepare_qualified, :prepare_copied, :prepare_sealed,
-                     :reserved, :bundle_inserted, :before_pointer, :pointer_replaced, :committed] do
+
+    for boundary <- [
+          :prepare_snapshot,
+          :prepare_qualified,
+          :prepare_copied,
+          :prepare_sealed,
+          :reserved,
+          :bundle_inserted,
+          :before_pointer,
+          :pointer_replaced,
+          :committed
+        ] do
       assert_raise Weld.Error, ~r/injected failure/, fn ->
         Weld.Commands.release_prepare!(manifest, fresh: true, failpoint: boundary)
       end
+
       assert File.read!(pointer) == old
-      assert Weld.ReleaseStatus.validate_bundle_integrity!(first.bundle_path, first.identity)["bundle_id"] == first.identity
+
+      assert Weld.ReleaseStatus.validate_bundle_integrity!(first.bundle_path, first.identity)[
+               "bundle_id"
+             ] == first.identity
     end
+
     assert_raise Weld.Error, ~r/frozen|changed/, fn ->
-      Weld.Commands.release_prepare!(manifest, fresh: true, after_gate: fn
-        "G02", project -> File.write!(Path.join(project, "mix.exs"), "mutated by a gate")
-        _, _ -> :ok
-      end)
+      Weld.Commands.release_prepare!(manifest,
+        fresh: true,
+        after_gate: fn
+          "G02", project -> File.write!(Path.join(project, "mix.exs"), "mutated by a gate")
+          _, _ -> :ok
+        end
+      )
     end
+
     assert File.read!(pointer) == old
   end
 
@@ -141,19 +161,31 @@ defmodule Weld.ReleaseTest do
     assert metadata["source"]["manifest_path"] == "packaging/weld/fixture_bundle.exs"
     refute Path.type(metadata["source"]["manifest_path"]) == :absolute
     assert metadata["bundle_id"] == Weld.Release.identity(metadata)
-    assert evidence.qualification["lock_sha256"] == Weld.Hash.sha256_file(Path.join(prepared.project_path, "mix.lock"))
-    assert Enum.map(evidence.qualification["gates"], & &1["id"]) == for(number <- 1..12, do: "G" <> String.pad_leading(to_string(number), 2, "0"))
+
+    assert evidence.qualification["lock_sha256"] ==
+             Weld.Hash.sha256_file(Path.join(prepared.project_path, "mix.lock"))
+
+    assert Enum.map(evidence.qualification["gates"], & &1["id"]) ==
+             for(number <- 1..12, do: "G" <> String.pad_leading(to_string(number), 2, "0"))
+
     refute File.exists?(Path.join(prepared.project_path, "weld.provenance.json"))
     refute File.exists?(Path.join(prepared.project_path, "projection.lock.json"))
   end
 
   defp assert_bundle_metadata(root, prepared) do
-    metadata = Weld.ReleaseStatus.validate_bundle_integrity!(prepared.bundle_path, prepared.identity)
+    metadata =
+      Weld.ReleaseStatus.validate_bundle_integrity!(prepared.bundle_path, prepared.identity)
+
     assert metadata["schema"] == "weld.bundle/2"
     assert metadata["package"] == "fixture_bundle"
     assert metadata["source"]["commit"] =~ ~r/^[0-9a-f]{40}$/
-    assert metadata["source"]["manifest_sha256"] == Weld.Hash.sha256_file(Path.join(root, metadata["source"]["manifest_path"]))
-    assert metadata["project_id"] == Weld.Core.Identity.digest("project", Weld.Hash.observation(prepared.project_path))
+
+    assert metadata["source"]["manifest_sha256"] ==
+             Weld.Hash.sha256_file(Path.join(root, metadata["source"]["manifest_path"]))
+
+    assert metadata["project_id"] ==
+             Weld.Core.Identity.digest("project", Weld.Hash.observation(prepared.project_path))
+
     assert metadata["files"]["package"]["path"] == "package.tar"
     assert metadata["archive_sha256"] == Weld.Hash.sha256_file(prepared.tarball_path)
   end
@@ -315,9 +347,11 @@ defmodule Weld.ReleaseTest do
     assert metadata["files"]["package"] == nil
 
     proof = Weld.ReleaseStatus.evidence!(prepared.bundle_path).qualification
+
     assert Enum.any?(proof["gates"], fn result ->
-      result["id"] == "G08" and result["status"] == "skip" and is_binary(result["skip_reason"])
-    end)
+             result["id"] == "G08" and result["status"] == "skip" and
+               is_binary(result["skip_reason"])
+           end)
 
     archived = Weld.Commands.release_archive!(manifest_path, current: true)
 

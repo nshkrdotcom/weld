@@ -1,7 +1,19 @@
 defmodule Weld.Verifier do
   @moduledoc "One isolated G01–G12 qualification path for verify and release preparation."
   alias Weld.Core.Identity
-  alias Weld.{DocsPreview, DocsSmoke, Error, Hash, Output, Plan, Projector, ReleaseInputs, SmokeApp}
+
+  alias Weld.{
+    DocsPreview,
+    DocsSmoke,
+    Error,
+    Hash,
+    Output,
+    Plan,
+    Projector,
+    ReleaseInputs,
+    SmokeApp
+  }
+
   alias Weld.Shell.{Hex, Runner}
   alias Weld.Workspace.Probe
 
@@ -12,22 +24,41 @@ defmodule Weld.Verifier do
   def verify!(%Plan{} = plan, opts \\ []) do
     case opts[:parent_lease] do
       nil ->
-        Output.with_lease(plan.manifest.repo_root, "verify", plan.artifact.id,
-          "verify:" <> plan.artifact.id, [], &verify_with_lease!(plan, &1, opts))
+        Output.with_lease(
+          plan.manifest.repo_root,
+          "verify",
+          plan.artifact.id,
+          "verify:" <> plan.artifact.id,
+          [],
+          &verify_with_lease!(plan, &1, opts)
+        )
+
       lease ->
         root = Output.checkout(plan.manifest.repo_root)
+
         unless lease.root == root and lease.record["artifact"] == plan.artifact.id and
-          lease.record["operation"] == "prepare" and
-          Enum.any?(Output.leases(root), fn {path, record} -> path == lease.path and record == lease.record end),
-          do: raise(Error, "qualification requires the active parent prepare lease for this artifact")
+                 lease.record["operation"] == "prepare" and
+                 Enum.any?(Output.leases(root), fn {path, record} ->
+                   path == lease.path and record == lease.record
+                 end),
+               do:
+                 raise(
+                   Error,
+                   "qualification requires the active parent prepare lease for this artifact"
+                 )
+
         verify_with_lease!(plan, lease, opts)
     end
   end
 
   defp verify_with_lease!(plan, lease, opts) do
-    run = Output.run!(plan.manifest.repo_root, "verify", plan.artifact.id, lease,
-      plan_id: Weld.Plan.Inventory.portable(plan)["plan_id"])
+    run =
+      Output.run!(plan.manifest.repo_root, "verify", plan.artifact.id, lease,
+        plan_id: Weld.Plan.Inventory.portable(plan)["plan_id"]
+      )
+
     Output.update_run!(run, %{"phase" => "executing"})
+
     try do
       result = verify_run!(plan, run.path, opts)
       Output.finish_run!(run, "completed")
@@ -35,7 +66,14 @@ defmodule Weld.Verifier do
     rescue
       error ->
         record_failure!(run.path)
-        Output.finish_run!(run, "failed", [%{"code" => "qualification_failed", "message" => Runner.sanitize(Exception.message(error))}])
+
+        Output.finish_run!(run, "failed", [
+          %{
+            "code" => "qualification_failed",
+            "message" => Runner.sanitize(Exception.message(error))
+          }
+        ])
+
         reraise error, __STACKTRACE__
     end
   end
@@ -48,23 +86,41 @@ defmodule Weld.Verifier do
     smoke? = plan.artifact.mode != :monolith and plan.artifact.verify.smoke.enabled
     hex? = plan.artifact.verify.hex_build
     preflight? = hex? and plan.artifact.verify.hex_publish
+
     specs = [
       {"G01", "all", [], true, ["project"], nil},
       {"G02", "dev,test", ["deps.get"], true, ["resolved_lock", "metadata"], nil},
-      {"G03", "test", @test_args, baseline?, ["source_test_identities"], "no_selected_source_suites"},
-      {"G04", "dev", ["deps.compile", "compile --warnings-as-errors --no-compile-deps"], true, ["compiled_project"], nil},
+      {"G03", "test", @test_args, baseline?, ["source_test_identities"],
+       "no_selected_source_suites"},
+      {"G04", "dev", ["deps.compile", "compile --warnings-as-errors --no-compile-deps"], true,
+       ["compiled_project"], nil},
       {"G05", "test", @test_args, true, ["executed_test_identities"], nil},
-      {"G06", "dev", ["docs", "--warnings-as-errors", "--output", "doc"], true, ["docs_tree", "static_docs_check"], nil},
-      {"G07", "dev", ["deps.get", "compile --warnings-as-errors"], smoke?, ["configured_smoke"], "smoke_not_configured"},
-      {"G08", "dev", ["hex.build"], hex?, ["package.tar", "package_entries", "package_metadata"], "hex_build_disabled"},
-      {"G09", "dev", ["hex.publish", "--dry-run", "--yes"], preflight?, ["matching_rebuilt_archive"], if(hex?, do: "hex_publish_check_disabled", else: "hex_build_disabled")},
-      {"G10", "test", ["signed_registry_install", "deps.compile", "compile", "test"], hex?, ["exact_hex_consumer"], "hex_build_disabled"},
+      {"G06", "dev", ["docs", "--warnings-as-errors", "--output", "doc"], true,
+       ["docs_tree", "static_docs_check"], nil},
+      {"G07", "dev", ["deps.get", "compile --warnings-as-errors"], smoke?, ["configured_smoke"],
+       "smoke_not_configured"},
+      {"G08", "dev", ["hex.build"], hex?, ["package.tar", "package_entries", "package_metadata"],
+       "hex_build_disabled"},
+      {"G09", "dev", ["hex.publish", "--dry-run", "--yes"], preflight?,
+       ["matching_rebuilt_archive"],
+       if(hex?, do: "hex_publish_check_disabled", else: "hex_build_disabled")},
+      {"G10", "test", ["signed_registry_install", "deps.compile", "compile", "test"], hex?,
+       ["exact_hex_consumer"], "hex_build_disabled"},
       {"G11", "all", [], true, ["frozen_docs", "docs.tar.gz_if_hex"], nil},
-      {"G12", "all", [], true, ["complete_frozen_inventory", "source_provenance", "all_gates"], nil}
+      {"G12", "all", [], true, ["complete_frozen_inventory", "source_provenance", "all_gates"],
+       nil}
     ]
+
     Enum.map(specs, fn {id, env, args, required, expected_outputs, reason} ->
-      %{id: id, env: env, args: args, required: required, expected_outputs: expected_outputs,
-        timeout: 900, skip_reason: if(required, do: nil, else: reason)}
+      %{
+        id: id,
+        env: env,
+        args: args,
+        required: required,
+        expected_outputs: expected_outputs,
+        timeout: 900,
+        skip_reason: if(required, do: nil, else: reason)
+      }
     end)
   end
 
@@ -76,162 +132,390 @@ defmodule Weld.Verifier do
     specs = Map.new(gate_specs(plan), &{&1.id, &1})
     projection = Projector.materialize_verification!(plan, project)
     initial = observe_project!(project, [])
+
     unless Enum.map(initial.entries, & &1["path"]) == Enum.sort(projection.verification_files),
       do: raise(Error, "G01: complete materialization membership differs from compiled inventory")
-    gates = [pass("G01", %{"project_id" => tree_id("project", initial), "files" => length(initial.entries)})]
+
+    gates = [
+      pass("G01", %{
+        "project_id" => tree_id("project", initial),
+        "files" => length(initial.entries)
+      })
+    ]
+
     :ok = Projector.recheck_inputs!(plan, source_id)
     write_gates!(run_root, gates)
     before_resolution = observe_project!(project, ["mix.lock"])
     before_metadata = probe!(project, run_root)
-    operations = for env <- [:dev, :test], do: run_mix!(project, run_root, env, ["deps.get"], "G02-#{env}")
+
+    operations =
+      for env <- [:dev, :test], do: run_mix!(project, run_root, env, ["deps.get"], "G02-#{env}")
+
     after_metadata = probe!(project, run_root)
-    unless before_metadata == after_metadata, do: raise(Error, "G02: effective Mix metadata changed after resolving the standalone lock")
+
+    unless before_metadata == after_metadata,
+      do: raise(Error, "G02: effective Mix metadata changed after resolving the standalone lock")
+
     unless before_resolution == observe_project!(project, ["mix.lock"]),
-      do: raise(Error, "G02: dependency resolution modified project bytes, modes or membership outside the lock slot")
+      do:
+        raise(
+          Error,
+          "G02: dependency resolution modified project bytes, modes or membership outside the lock slot"
+        )
+
     frozen = observe_project!(project, [])
     lock_sha = optional_sha(Path.join(project, "mix.lock"))
-    if is_nil(lock_sha) and Enum.any?(after_metadata, fn {_env, facts} -> facts.config[:deps] != [] end),
-      do: raise(Error, "G02: dependency closure has no frozen standalone mix.lock")
+
+    if is_nil(lock_sha) and
+         Enum.any?(after_metadata, fn {_env, facts} -> facts.config[:deps] != [] end),
+       do: raise(Error, "G02: dependency closure has no frozen standalone mix.lock")
+
     package_files = Enum.sort(projection.package_files)
-    expected_metadata = if specs["G08"].required, do: package_metadata!(after_metadata.dev.config, package_files)
-    package_empty_dirs = package_empty_dirs!(project, after_metadata.dev.config, frozen.empty_dirs)
-    state = %{plan: plan, root: run_root, project: project, frozen: frozen,
-      package_files: package_files, source_id: source_id, opts: opts, lock_sha: lock_sha}
-    gates = gates ++ [pass("G02", %{"lock_sha256" => lock_sha, "metadata_sha256" => Identity.raw(Identity.canonical(portable(after_metadata, project)))})]
+
+    expected_metadata =
+      if specs["G08"].required, do: package_metadata!(after_metadata.dev.config, package_files)
+
+    package_empty_dirs =
+      package_empty_dirs!(project, after_metadata.dev.config, frozen.empty_dirs)
+
+    state = %{
+      plan: plan,
+      root: run_root,
+      project: project,
+      frozen: frozen,
+      package_files: package_files,
+      source_id: source_id,
+      opts: opts,
+      lock_sha: lock_sha
+    }
+
+    gates =
+      gates ++
+        [
+          pass("G02", %{
+            "lock_sha256" => lock_sha,
+            "metadata_sha256" =>
+              Identity.raw(Identity.canonical(portable(after_metadata, project)))
+          })
+        ]
+
     boundary!(state, "G02", gates)
 
-    {baseline, baseline_operation, gate} = if specs["G03"].required do
-      {baseline, result} = baseline!(state)
-      {baseline, [result], pass("G03", %{"tests" => baseline, "count" => length(baseline)})}
-    else
-      {[], [], skip(specs["G03"])}
-    end
+    {baseline, baseline_operation, gate} =
+      if specs["G03"].required do
+        {baseline, result} = baseline!(state)
+        {baseline, [result], pass("G03", %{"tests" => baseline, "count" => length(baseline)})}
+      else
+        {[], [], skip(specs["G03"])}
+      end
+
     gates = gates ++ [gate]
     operations = operations ++ baseline_operation
     boundary!(state, "G03", gates)
 
-    compile_ops = [run_mix!(project, run_root, :dev, ["deps.compile"], "G04-deps"),
-      run_mix!(project, run_root, :dev, ["compile", "--warnings-as-errors", "--no-compile-deps"], "G04-compile")]
+    compile_ops = [
+      run_mix!(project, run_root, :dev, ["deps.compile"], "G04-deps"),
+      run_mix!(
+        project,
+        run_root,
+        :dev,
+        ["compile", "--warnings-as-errors", "--no-compile-deps"],
+        "G04-compile"
+      )
+    ]
+
     gates = gates ++ [pass("G04", %{"dependency_compile" => true, "warnings_as_errors" => true})]
     boundary!(state, "G04", gates)
     {test_operation, tests} = run_tests!(project, run_root, "G05")
     validate_test_mapping!(plan, baseline, tests)
-    declared_tests = declared_test_files!(project, after_metadata.test.config, projection.verification_files)
-    if tests == [] and declared_tests != [], do: raise(Error, "G05: declared test files produced no execution identities")
-    gates = gates ++ [pass("G05", %{"tests" => tests, "count" => length(tests), "source_mapping_verified" => true,
-      "zero_tests_reason" => if(tests == [], do: "no_declared_or_discovered_tests", else: nil)})]
+
+    declared_tests =
+      declared_test_files!(project, after_metadata.test.config, projection.verification_files)
+
+    if tests == [] and declared_tests != [],
+      do: raise(Error, "G05: declared test files produced no execution identities")
+
+    gates =
+      gates ++
+        [
+          pass("G05", %{
+            "tests" => tests,
+            "count" => length(tests),
+            "source_mapping_verified" => true,
+            "zero_tests_reason" =>
+              if(tests == [], do: "no_declared_or_discovered_tests", else: nil)
+          })
+        ]
+
     operations = operations ++ compile_ops ++ [test_operation]
     boundary!(state, "G05", gates)
 
-    docs_operation = run_mix!(project, run_root, :dev, ["docs", "--warnings-as-errors", "--output", "doc"], "G06")
+    docs_operation =
+      run_mix!(
+        project,
+        run_root,
+        :dev,
+        ["docs", "--warnings-as-errors", "--output", "doc"],
+        "G06"
+      )
+
     docs = Path.join(run_root, "docs")
     DocsPreview.copy!(Path.join(project, "doc"), docs)
-    docs_check = case DocsSmoke.check(docs) do
-      {:ok, summary} -> Map.take(summary, [:html_count, :mermaid_pages])
-      {:error, errors} -> raise Error, "G06: documentation smoke failed: #{Enum.join(errors, "; ")}"
-    end
+
+    docs_check =
+      case DocsSmoke.check(docs) do
+        {:ok, summary} ->
+          Map.take(summary, [:html_count, :mermaid_pages])
+
+        {:error, errors} ->
+          raise Error, "G06: documentation smoke failed: #{Enum.join(errors, "; ")}"
+      end
+
     docs_frozen = observe_tree!(docs)
-    gates = gates ++ [pass("G06", Map.merge(portable(docs_check, docs), %{"browser_rendering" => "not_claimed", "policy" => "html_stable_groups_no_epub/2"}))]
+
+    gates =
+      gates ++
+        [
+          pass(
+            "G06",
+            Map.merge(portable(docs_check, docs), %{
+              "browser_rendering" => "not_claimed",
+              "policy" => "html_stable_groups_no_epub/2"
+            })
+          )
+        ]
+
     operations = operations ++ [docs_operation]
     boundary!(state, "G06", gates)
 
-    smoke_source = if plan.artifact.verify.smoke.entry_file,
-      do: File.read!(Output.source!(plan.manifest.repo_root, plan.artifact.verify.smoke.entry_file))
-    {smoke_ops, smoke_gate} = if specs["G07"].required do
-      result = SmokeApp.verify_project!(plan, project, Path.join(run_root, "project-smoke"))
-      {[result], pass("G07", %{"consumer" => "ordinary_mix_path", "entry_sha256" => Identity.raw(smoke_source)})}
-    else
-      {[], skip(specs["G07"])}
-    end
+    smoke_source =
+      if plan.artifact.verify.smoke.entry_file,
+        do:
+          File.read!(
+            Output.source!(plan.manifest.repo_root, plan.artifact.verify.smoke.entry_file)
+          )
+
+    {smoke_ops, smoke_gate} =
+      if specs["G07"].required do
+        result = SmokeApp.verify_project!(plan, project, Path.join(run_root, "project-smoke"))
+
+        {[result],
+         pass("G07", %{
+           "consumer" => "ordinary_mix_path",
+           "entry_sha256" => Identity.raw(smoke_source)
+         })}
+      else
+        {[], skip(specs["G07"])}
+      end
+
     gates = gates ++ [smoke_gate]
     operations = operations ++ smoke_ops
     boundary!(state, "G07", gates)
 
-    {tarball, package, hex_ops, gate} = if specs["G08"].required do
-      operation = run_mix!(project, run_root, :dev, ["hex.build"], "G08")
-      produced = Path.join(project, archive_name(plan))
-      :ok = Hex.check_package!(produced, project, package_files, expected_metadata, empty_dirs: package_empty_dirs)
-      package = Hex.package_observation!(produced)
-      :ok = Hex.validate_dependency_metadata!(package.metadata, Weld.Plan.Inventory.portable(plan)["dependencies"])
-      target = Path.join(run_root, "package.tar")
-      File.rename!(produced, target)
-      {target, package, [operation], pass("G08", %{"archive_sha256" => Hash.sha256_file(target), "package_id" => package_id(package), "entries" => length(package.entries)})}
-    else
-      {nil, nil, [disabled("hex.build", :artifact_opted_out)], skip(specs["G08"])}
-    end
+    {tarball, package, hex_ops, gate} =
+      if specs["G08"].required do
+        operation = run_mix!(project, run_root, :dev, ["hex.build"], "G08")
+        produced = Path.join(project, archive_name(plan))
+
+        :ok =
+          Hex.check_package!(produced, project, package_files, expected_metadata,
+            empty_dirs: package_empty_dirs
+          )
+
+        package = Hex.package_observation!(produced)
+
+        :ok =
+          Hex.validate_dependency_metadata!(
+            package.metadata,
+            Weld.Plan.Inventory.portable(plan)["dependencies"]
+          )
+
+        target = Path.join(run_root, "package.tar")
+        File.rename!(produced, target)
+
+        {target, package, [operation],
+         pass("G08", %{
+           "archive_sha256" => Hash.sha256_file(target),
+           "package_id" => package_id(package),
+           "entries" => length(package.entries)
+         })}
+      else
+        {nil, nil, [disabled("hex.build", :artifact_opted_out)], skip(specs["G08"])}
+      end
+
     gates = gates ++ [gate]
     operations = operations ++ hex_ops
     boundary!(state, "G08", gates)
 
-    {preflight, gate} = if specs["G09"].required do
-      result = preflight!(state, tarball)
-      {[result], pass("G09", %{"isolated" => true, "archive_sha256" => Hash.sha256_file(tarball), "matching_rebuild" => true})}
-    else
-      {[disabled("hex.publish --dry-run --yes", if(tarball, do: :artifact_opted_out, else: :hex_build_disabled))], skip(specs["G09"])}
-    end
+    {preflight, gate} =
+      if specs["G09"].required do
+        result = preflight!(state, tarball)
+
+        {[result],
+         pass("G09", %{
+           "isolated" => true,
+           "archive_sha256" => Hash.sha256_file(tarball),
+           "matching_rebuild" => true
+         })}
+      else
+        {[
+           disabled(
+             "hex.publish --dry-run --yes",
+             if(tarball, do: :artifact_opted_out, else: :hex_build_disabled)
+           )
+         ], skip(specs["G09"])}
+      end
+
     gates = gates ++ [gate]
     operations = operations ++ preflight
     boundary!(state, "G09", gates)
 
-    {consumer, gate} = if specs["G10"].required do
-      result = SmokeApp.verify_archive!(plan, tarball, Path.join(run_root, "hex-consumer"), smoke_source)
-      {[result], pass("G10", portable(Map.drop(result, [:task, :env, :status]), run_root))}
-    else
-      {[], skip(specs["G10"])}
-    end
+    {consumer, gate} =
+      if specs["G10"].required do
+        result =
+          SmokeApp.verify_archive!(
+            plan,
+            tarball,
+            Path.join(run_root, "hex-consumer"),
+            smoke_source
+          )
+
+        {[result], pass("G10", portable(Map.drop(result, [:task, :env, :status]), run_root))}
+      else
+        {[], skip(specs["G10"])}
+      end
+
     gates = gates ++ [gate]
     operations = operations ++ consumer
     boundary!(state, "G10", gates)
 
-    unless docs_frozen == observe_tree!(docs), do: raise(Error, "G11: docs payload changed after generation")
+    unless docs_frozen == observe_tree!(docs),
+      do: raise(Error, "G11: docs payload changed after generation")
+
     docs_archive = if tarball, do: Hex.freeze_docs!(docs, Path.join(run_root, "docs.tar.gz"))
-    gates = gates ++ [pass("G11", %{"docs_id" => tree_id("docs", docs_frozen), "docs_archive_sha256" => docs_archive && docs_archive.sha256,
-      "roundtrip_verified" => not is_nil(docs_archive), "archive_policy" => if(tarball, do: "exact_frozen_payload", else: "non_hex_docs_tree")})]
+
+    gates =
+      gates ++
+        [
+          pass("G11", %{
+            "docs_id" => tree_id("docs", docs_frozen),
+            "docs_archive_sha256" => docs_archive && docs_archive.sha256,
+            "roundtrip_verified" => not is_nil(docs_archive),
+            "archive_policy" => if(tarball, do: "exact_frozen_payload", else: "non_hex_docs_tree")
+          })
+        ]
+
     boundary!(state, "G11", gates)
+
     if tarball do
-      unless package == Hex.package_observation!(tarball), do: raise(Error, "G12: frozen package archive changed")
+      unless package == Hex.package_observation!(tarball),
+        do: raise(Error, "G12: frozen package archive changed")
     end
+
     unless docs_frozen == observe_tree!(docs), do: raise(Error, "G12: frozen docs tree changed")
+
     if docs_archive && Hash.sha256_file(docs_archive.path) != docs_archive.sha256,
       do: raise(Error, "G12: frozen docs archive changed")
-    gates = gates ++ [pass("G12", %{"complete_inventory_rechecked" => true, "source_provenance_rechecked" => true, "lock_sha256" => lock_sha})]
+
+    gates =
+      gates ++
+        [
+          pass("G12", %{
+            "complete_inventory_rechecked" => true,
+            "source_provenance_rechecked" => true,
+            "lock_sha256" => lock_sha
+          })
+        ]
+
     validate_gates!(gates, gate_specs(plan))
     boundary!(state, "G12", gates)
     observations = ReleaseInputs.observations(plan, opts[:context] || opts[:reuse])
-    qualification = %{"gate_schema" => "weld.gates/2", "gates" => gates,
-      "project_id" => tree_id("project", frozen), "package_id" => package && package_id(package),
-      "archive_sha256" => tarball && Hash.sha256_file(tarball), "docs_id" => tree_id("docs", docs_frozen),
-      "docs_archive_sha256" => docs_archive && docs_archive.sha256, "lock_sha256" => lock_sha,
-      "toolchain" => observations.toolchain, "trust" => observations.trust, "context_digest" => observations.context_digest}
+
+    qualification = %{
+      "gate_schema" => "weld.gates/2",
+      "gates" => gates,
+      "project_id" => tree_id("project", frozen),
+      "package_id" => package && package_id(package),
+      "archive_sha256" => tarball && Hash.sha256_file(tarball),
+      "docs_id" => tree_id("docs", docs_frozen),
+      "docs_archive_sha256" => docs_archive && docs_archive.sha256,
+      "lock_sha256" => lock_sha,
+      "toolchain" => observations.toolchain,
+      "trust" => observations.trust,
+      "context_digest" => observations.context_digest
+    }
+
     report = Path.join(run_root, "verification.json")
-    File.write!(report, Jason.encode!(%{schema: "weld.verification-report/2", gates: gates, operations: operations}, pretty: true), [:exclusive])
-    %{build_path: project, lockfile_path: report, package_files: package_files,
-      verification_files: Enum.map(frozen.entries, & &1["path"]), frozen_project: frozen.entries, empty_dirs: frozen.empty_dirs,
-      package_entries: package && package.entries, package_metadata: package && package.metadata,
-      docs_path: docs, docs_entries: docs_frozen.entries, docs_empty_dirs: docs_frozen.empty_dirs,
-      tarball_path: tarball, docs_archive_path: docs_archive && docs_archive.path,
-      archive_sha256: qualification["archive_sha256"], docs_archive_sha256: qualification["docs_archive_sha256"],
-      qualification: qualification, gates: gates, verification_results: operations}
+
+    File.write!(
+      report,
+      Jason.encode!(%{schema: "weld.verification-report/2", gates: gates, operations: operations},
+        pretty: true
+      ),
+      [:exclusive]
+    )
+
+    %{
+      build_path: project,
+      lockfile_path: report,
+      package_files: package_files,
+      verification_files: Enum.map(frozen.entries, & &1["path"]),
+      frozen_project: frozen.entries,
+      empty_dirs: frozen.empty_dirs,
+      package_entries: package && package.entries,
+      package_metadata: package && package.metadata,
+      docs_path: docs,
+      docs_entries: docs_frozen.entries,
+      docs_empty_dirs: docs_frozen.empty_dirs,
+      tarball_path: tarball,
+      docs_archive_path: docs_archive && docs_archive.path,
+      archive_sha256: qualification["archive_sha256"],
+      docs_archive_sha256: qualification["docs_archive_sha256"],
+      qualification: qualification,
+      gates: gates,
+      verification_results: operations
+    }
   end
 
   defp boundary!(state, gate, gates) do
     if callback = state.opts[:after_gate], do: callback.(gate, state.project)
     actual = observe_project!(state.project, ["doc", archive_name(state.plan)])
-    unless actual == state.frozen, do: raise(Error, "#{gate}: frozen project bytes, modes, lock or complete membership changed")
+
+    unless actual == state.frozen,
+      do:
+        raise(Error, "#{gate}: frozen project bytes, modes, lock or complete membership changed")
+
     unless optional_sha(Path.join(state.project, "mix.lock")) == state.lock_sha,
       do: raise(Error, "#{gate}: resolved lock changed during qualification")
+
     :ok = Projector.recheck_inputs!(state.plan, state.source_id)
     write_gates!(state.root, gates)
   end
-  defp archive_name(plan), do: "#{plan.artifact.package.name}-#{plan.artifact.package.version}.tar"
+
+  defp archive_name(plan),
+    do: "#{plan.artifact.package.name}-#{plan.artifact.package.version}.tar"
+
   defp probe!(project, root) do
-    Map.new(Probe.environments(), fn env -> {env, Probe.project!(project, env, env: Runner.mix_env(project, Path.join(root, "cache"), env))} end)
+    Map.new(Probe.environments(), fn env ->
+      {env,
+       Probe.project!(project, env, env: Runner.mix_env(project, Path.join(root, "cache"), env))}
+    end)
   end
+
   defp run_mix!(project, root, env, args, label) do
     IO.puts(:stderr, "Weld: #{label} MIX_ENV=#{env} mix #{Enum.join(args, " ")}")
-    {output, status} = Runner.run!("mix", args, cd: project, seconds: 900,
-      env: Runner.mix_env(project, Path.join(root, "cache"), env), log_path: Path.join(root, "logs/#{label}.log"))
-    unless status == 0, do: raise(Error, "#{label}: Mix command failed (exit #{status})\n#{output}")
+
+    {output, status} =
+      Runner.run!("mix", args,
+        cd: project,
+        seconds: 900,
+        env: Runner.mix_env(project, Path.join(root, "cache"), env),
+        log_path: Path.join(root, "logs/#{label}.log")
+      )
+
+    unless status == 0,
+      do: raise(Error, "#{label}: Mix command failed (exit #{status})\n#{output}")
+
     %{task: Enum.join(args, " "), env: env, status: :ok}
   end
 
@@ -244,17 +528,47 @@ defmodule Weld.Verifier do
     hook = Path.join(root, "capture.exs")
     File.write!(hook, preflight_capture(capture), [:exclusive])
     hex_beam = :code.where_is_file(~c"Elixir.Hex.Tar.beam")
-    unless is_list(hex_beam), do: raise(Error, "G09 requires the installed Hex.Tar instrumentation point")
-    {output, status} = Runner.run!("elixir", ["-pa", Path.dirname(to_string(hex_beam)), "-r", hook,
-      "-S", "mix", "hex.publish", "--dry-run", "--yes"], cd: project, seconds: 900,
-      env: Runner.mix_env(project, Path.join(root, "cache"), :dev), log_path: Path.join(root, "logs/G09.log"))
-    unless status == 0, do: raise(Error, "G09: isolated Hex dry run failed (exit #{status})\n#{output}")
+
+    unless is_list(hex_beam),
+      do: raise(Error, "G09 requires the installed Hex.Tar instrumentation point")
+
+    {output, status} =
+      Runner.run!(
+        "elixir",
+        [
+          "-pa",
+          Path.dirname(to_string(hex_beam)),
+          "-r",
+          hook,
+          "-S",
+          "mix",
+          "hex.publish",
+          "--dry-run",
+          "--yes"
+        ],
+        cd: project,
+        seconds: 900,
+        env: Runner.mix_env(project, Path.join(root, "cache"), :dev),
+        log_path: Path.join(root, "logs/G09.log")
+      )
+
+    unless status == 0,
+      do: raise(Error, "G09: isolated Hex dry run failed (exit #{status})\n#{output}")
+
     unless File.regular?(capture) and Hash.sha256_file(capture) == Hash.sha256_file(tarball),
       do: raise(Error, "G09: Hex preflight rebuilt bytes that differ from G08")
-    docs_output = Probe.project!(project, :dev, env: Runner.mix_env(project, Path.join(root, "cache"), :dev)).config[:docs][:output] || "doc"
+
+    docs_output =
+      Probe.project!(project, :dev, env: Runner.mix_env(project, Path.join(root, "cache"), :dev)).config[
+        :docs
+      ][:output] || "doc"
+
     Weld.Core.Inventory.validate_path!(docs_output)
-    unless observe_project!(project, Enum.uniq(["doc", docs_output, archive_name(state.plan)])) == state.frozen,
-      do: raise(Error, "G09: isolated preflight modified the frozen project")
+
+    unless observe_project!(project, Enum.uniq(["doc", docs_output, archive_name(state.plan)])) ==
+             state.frozen,
+           do: raise(Error, "G09: isolated preflight modified the frozen project")
+
     %{task: "hex.publish --dry-run --yes", env: :dev, status: :ok}
   end
 
@@ -289,18 +603,38 @@ defmodule Weld.Verifier do
     mirror = Path.join(state.root, "source-baseline")
     mirror_source_tree!(state.plan.manifest.repo_root, mirror)
     projects = Enum.sort_by(state.plan.selected_projects, & &1.id)
-    {tests, counts} = Enum.reduce(projects, {[], []}, fn project, {tests, counts} ->
-      root = Path.join([state.root, "baseline-work", Identity.raw(project.id)])
-      project_root = if project.id == ".", do: mirror, else: Path.join(mirror, project.id)
-      _ = run_mix!(project_root, root, :test, ["deps.get"], "G03-resolve")
-      frozen = observe_tree!(mirror)
-      {result, records} = run_tests!(project_root, root, "G03")
-      unless frozen == observe_tree!(mirror), do: raise(Error, "G03: source baseline modified frozen source mirror")
-      records = Enum.map(records, &Map.update!(&1, "file", fn path -> if project.id == ".", do: path, else: project.id <> "/" <> path end))
-      {tests ++ records, counts ++ [%{project_id: project.id, app: project.app, test_count: result.test_count}]}
-    end)
-    {Enum.sort_by(tests, &test_key/1), %{task: "selected_tests_baseline", env: :test, status: :ok,
-      test_count: length(tests), project_test_counts: counts}}
+
+    {tests, counts} =
+      Enum.reduce(projects, {[], []}, fn project, {tests, counts} ->
+        root = Path.join([state.root, "baseline-work", Identity.raw(project.id)])
+        project_root = if project.id == ".", do: mirror, else: Path.join(mirror, project.id)
+        _ = run_mix!(project_root, root, :test, ["deps.get"], "G03-resolve")
+        frozen = observe_tree!(mirror)
+        {result, records} = run_tests!(project_root, root, "G03")
+
+        unless frozen == observe_tree!(mirror),
+          do: raise(Error, "G03: source baseline modified frozen source mirror")
+
+        records =
+          Enum.map(
+            records,
+            &Map.update!(&1, "file", fn path ->
+              if project.id == ".", do: path, else: project.id <> "/" <> path
+            end)
+          )
+
+        {tests ++ records,
+         counts ++ [%{project_id: project.id, app: project.app, test_count: result.test_count}]}
+      end)
+
+    {Enum.sort_by(tests, &test_key/1),
+     %{
+       task: "selected_tests_baseline",
+       env: :test,
+       status: :ok,
+       test_count: length(tests),
+       project_test_counts: counts
+     }}
   end
 
   defp run_tests!(project, root, gate) do
@@ -308,51 +642,109 @@ defmodule Weld.Verifier do
     event_path = Path.join(root, "#{gate}-test-events.tsv")
     formatter = Path.join(root, "#{gate}-formatter.exs")
     File.write!(formatter, formatter_source(event_path), [:exclusive])
-    args = ["-r", formatter, "-S", "mix"] ++ @test_args ++ ["--formatter", "ExUnit.CLIFormatter", "--formatter", "WeldQualificationFormatter"]
-    {output, status} = Runner.run!("elixir", args, cd: project, seconds: 900,
-      env: Runner.mix_env(project, Path.join(root, "cache"), :test), log_path: Path.join(root, "logs/#{gate}.log"))
-    unless status == 0, do: raise(Error, "#{gate}: test execution failed (exit #{status})\n#{output}")
+
+    args =
+      ["-r", formatter, "-S", "mix"] ++
+        @test_args ++
+        ["--formatter", "ExUnit.CLIFormatter", "--formatter", "WeldQualificationFormatter"]
+
+    {output, status} =
+      Runner.run!("elixir", args,
+        cd: project,
+        seconds: 900,
+        env: Runner.mix_env(project, Path.join(root, "cache"), :test),
+        log_path: Path.join(root, "logs/#{gate}.log")
+      )
+
+    unless status == 0,
+      do: raise(Error, "#{gate}: test execution failed (exit #{status})\n#{output}")
+
     tests = read_test_events!(event_path, project, output)
-    {%{task: "test --warnings-as-errors", env: :test, status: :ok, test_count: length(tests),
-      failure_count: 0, test_identities: tests, seed: 0}, tests}
+
+    {%{
+       task: "test --warnings-as-errors",
+       env: :test,
+       status: :ok,
+       test_count: length(tests),
+       failure_count: 0,
+       test_identities: tests,
+       seed: 0
+     }, tests}
   end
 
   @doc false
   def validate_test_mapping!(plan, baseline, actual) do
-    mapping = for entry <- plan.output_inventory, input <- entry.inputs, reduce: %{} do
-      acc -> Map.update(acc, input.source, [entry.target], &[entry.target | &1])
-    end
+    mapping =
+      for entry <- plan.output_inventory, input <- entry.inputs, reduce: %{} do
+        acc -> Map.update(acc, input.source, [entry.target], &[entry.target | &1])
+      end
+
     actual = Map.new(actual, &{test_key(&1), &1["state"]})
+
     for test <- baseline do
       targets = Map.get(mapping, test["file"], []) |> Enum.uniq()
-      matches = for target <- targets, key = {target, test["module"], test["name"]}, Map.has_key?(actual, key), do: key
+
+      matches =
+        for target <- targets,
+            key = {target, test["module"], test["name"]},
+            Map.has_key?(actual, key),
+            do: key
+
       unless length(matches) == 1 and Map.fetch!(actual, hd(matches)) == test["state"],
-        do: raise(Error, "source test identity disappeared or changed execution state: #{inspect(test_key(test))}")
+        do:
+          raise(
+            Error,
+            "source test identity disappeared or changed execution state: #{inspect(test_key(test))}"
+          )
     end
+
     :ok
   end
+
   defp test_key(test), do: {test["file"], test["module"], test["name"]}
+
   defp read_test_events!(path, project, output) do
     case File.read(path) do
       {:ok, bytes} when byte_size(bytes) <= 16 * 1024 * 1024 ->
         lines = String.split(bytes, "\n", trim: true)
-        unless List.first(lines) == "suite_started" and List.last(lines) == "suite_finished", do: raise(Error, "incomplete ExUnit execution evidence")
-        tests = Enum.map(Enum.slice(lines, 1, max(length(lines) - 2, 0)), fn line ->
-          case String.split(line, "\t") do
-            ["test", file, module, name, state] when state in ~w(pass skip excluded) ->
-              file = file |> Base.decode64!() |> Path.relative_to(project)
-              Weld.Core.Inventory.validate_path!(file)
-              %{"file" => file, "module" => Base.decode64!(module), "name" => Base.decode64!(name), "state" => state}
-            _ -> raise Error, "unsupported or failed ExUnit test identity"
-          end
-        end)
-        unless length(Enum.uniq_by(tests, &test_key/1)) == length(tests), do: raise(Error, "ambiguous duplicate ExUnit test identities")
+
+        unless List.first(lines) == "suite_started" and List.last(lines) == "suite_finished",
+          do: raise(Error, "incomplete ExUnit execution evidence")
+
+        tests =
+          Enum.map(Enum.slice(lines, 1, max(length(lines) - 2, 0)), fn line ->
+            case String.split(line, "\t") do
+              ["test", file, module, name, state] when state in ~w(pass skip excluded) ->
+                file = file |> Base.decode64!() |> Path.relative_to(project)
+                Weld.Core.Inventory.validate_path!(file)
+
+                %{
+                  "file" => file,
+                  "module" => Base.decode64!(module),
+                  "name" => Base.decode64!(name),
+                  "state" => state
+                }
+
+              _ ->
+                raise Error, "unsupported or failed ExUnit test identity"
+            end
+          end)
+
+        unless length(Enum.uniq_by(tests, &test_key/1)) == length(tests),
+          do: raise(Error, "ambiguous duplicate ExUnit test identities")
+
         Enum.sort_by(tests, &test_key/1)
+
       {:error, :enoent} ->
-        if output =~ "There are no tests to run", do: [], else: raise(Error, "missing ExUnit execution evidence")
-      _ -> raise Error, "invalid bounded ExUnit execution evidence"
+        if output =~ "There are no tests to run",
+          do: [],
+          else: raise(Error, "missing ExUnit execution evidence")
+
+      _ ->
+        raise Error, "invalid bounded ExUnit execution evidence"
     end
   end
+
   defp formatter_source(path) do
     """
     defmodule WeldQualificationFormatter do
@@ -386,21 +778,31 @@ defmodule Weld.Verifier do
     observed = Hash.observation(root)
     %{entries: observed["entries"], empty_dirs: observed["empty_dirs"]}
   end
+
   defp observe_project!(project, excluded) do
     tree = observe_tree!(project)
-    ignored? = fn path -> Enum.any?(excluded, &(path == &1 or String.starts_with?(path, &1 <> "/"))) end
+
+    ignored? = fn path ->
+      Enum.any?(excluded, &(path == &1 or String.starts_with?(path, &1 <> "/")))
+    end
+
     entries = Enum.reject(tree.entries, &ignored?.(&1["path"]))
+
     for entry <- entries do
       expected = if entry["executable"], do: 0o755, else: 0o644
       actual = File.lstat!(Output.source!(project, entry["path"]))
+
       unless actual.type == :regular and Bitwise.band(actual.mode, 0o777) == expected,
         do: raise(Error, "frozen project contains non-normalized mode: #{entry["path"]}")
     end
+
     %{entries: entries, empty_dirs: Enum.reject(tree.empty_dirs, ignored?)}
   end
+
   defp copy_exact!(source, target, tree) do
     File.mkdir_p!(target)
     for directory <- tree.empty_dirs, do: File.mkdir_p!(Path.join(target, directory))
+
     for entry <- tree.entries do
       from = Output.source!(source, entry["path"])
       to = Path.join(target, entry["path"])
@@ -409,50 +811,99 @@ defmodule Weld.Verifier do
       File.chmod!(to, if(entry["executable"], do: 0o755, else: 0o644))
     end
   end
+
   defp mirror_source_tree!(source, target) do
     case File.lstat!(source) do
       %{type: :directory} ->
         File.mkdir!(target)
-        for name <- File.ls!(source), name not in ~w(.git .weld _build deps doc node_modules),
-          do: mirror_source_tree!(Path.join(source, name), Path.join(target, name))
+
+        for name <- File.ls!(source),
+            name not in ~w(.git .weld _build deps doc node_modules),
+            do: mirror_source_tree!(Path.join(source, name), Path.join(target, name))
+
       %{type: :regular, mode: mode} ->
         File.cp!(source, target)
         File.chmod!(target, Bitwise.band(mode, 0o777))
-      _ -> raise Error, "baseline requires regular source files: #{source}"
+
+      _ ->
+        raise Error, "baseline requires regular source files: #{source}"
     end
   end
 
   defp package_metadata!(config, files) do
     package = config[:package] || []
-    requirements = (config[:deps] || []) |> Enum.reduce(%{}, fn dep, acc ->
-      {app, requirement, opts} = case dep do
-        {app, requirement, opts} -> {app, requirement, opts}
-        {app, opts} when is_list(opts) -> {app, nil, opts}
-        {app, requirement} -> {app, requirement, []}
-      end
-      if is_nil(opts[:only]) or :prod in List.wrap(opts[:only]) do
-        unless is_binary(requirement) and is_nil(opts[:path]) and is_nil(opts[:git]) and is_nil(opts[:github]),
-          do: raise(Error, "Hex qualification requires ordinary registry publication dependencies")
-        name = to_string(opts[:hex] || app)
-        if Map.has_key?(acc, name), do: raise(Error, "duplicate Hex publication dependency")
-        repo = (opts[:repo] || if(opts[:organization], do: "hexpm:" <> opts[:organization], else: "hexpm")) |> to_string() |> String.split(":", parts: 2) |> List.last()
-        Map.put(acc, name, %{"app" => to_string(app), "requirement" => requirement, "optional" => opts[:optional] || false, "repository" => repo})
-      else
-        acc
-      end
-    end)
-    %{"name" => to_string(package[:name] || config[:app]), "version" => config[:version], "app" => to_string(config[:app]),
-      "elixir" => config[:elixir], "description" => trim_description(package[:description] || config[:description]), "licenses" => package[:licenses], "links" => package[:links],
-      "build_tools" => package[:build_tools] || build_tools(files), "requirements" => requirements, "files" => files,
-      "extra" => package[:extra], "secret_scan" => package[:secret_scan]}
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end) |> Map.new()
+
+    requirements =
+      (config[:deps] || [])
+      |> Enum.reduce(%{}, fn dep, acc ->
+        {app, requirement, opts} =
+          case dep do
+            {app, requirement, opts} -> {app, requirement, opts}
+            {app, opts} when is_list(opts) -> {app, nil, opts}
+            {app, requirement} -> {app, requirement, []}
+          end
+
+        if is_nil(opts[:only]) or :prod in List.wrap(opts[:only]) do
+          unless is_binary(requirement) and is_nil(opts[:path]) and is_nil(opts[:git]) and
+                   is_nil(opts[:github]),
+                 do:
+                   raise(
+                     Error,
+                     "Hex qualification requires ordinary registry publication dependencies"
+                   )
+
+          name = to_string(opts[:hex] || app)
+          if Map.has_key?(acc, name), do: raise(Error, "duplicate Hex publication dependency")
+
+          repo =
+            (opts[:repo] ||
+               if(opts[:organization], do: "hexpm:" <> opts[:organization], else: "hexpm"))
+            |> to_string()
+            |> String.split(":", parts: 2)
+            |> List.last()
+
+          Map.put(acc, name, %{
+            "app" => to_string(app),
+            "requirement" => requirement,
+            "optional" => opts[:optional] || false,
+            "repository" => repo
+          })
+        else
+          acc
+        end
+      end)
+
+    %{
+      "name" => to_string(package[:name] || config[:app]),
+      "version" => config[:version],
+      "app" => to_string(config[:app]),
+      "elixir" => config[:elixir],
+      "description" => trim_description(package[:description] || config[:description]),
+      "licenses" => package[:licenses],
+      "links" => package[:links],
+      "build_tools" => package[:build_tools] || build_tools(files),
+      "requirements" => requirements,
+      "files" => files,
+      "extra" => package[:extra],
+      "secret_scan" => package[:secret_scan]
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
+
   defp package_empty_dirs!(project, config, empty_dirs) do
     package = config[:package] || []
-    patterns = package[:files] || ~w(lib priv .formatter.exs mix.exs README* readme* LICENSE* license* CHANGELOG* changelog* src c_src Makefile*)
-    matches = Enum.flat_map(patterns, fn pattern ->
-      Path.wildcard(Path.join(project, pattern), match_dot: true) |> Enum.map(&Path.relative_to(&1, project))
-    end)
+
+    patterns =
+      package[:files] ||
+        ~w(lib priv .formatter.exs mix.exs README* readme* LICENSE* license* CHANGELOG* changelog* src c_src Makefile*)
+
+    matches =
+      Enum.flat_map(patterns, fn pattern ->
+        Path.wildcard(Path.join(project, pattern), match_dot: true)
+        |> Enum.map(&Path.relative_to(&1, project))
+      end)
+
     Enum.filter(empty_dirs, fn directory ->
       Enum.any?(matches, &(directory == &1 or String.starts_with?(directory, &1 <> "/"))) and
         not Enum.any?(package[:exclude_patterns] || [], &(directory =~ &1))
@@ -461,10 +912,19 @@ defmodule Weld.Verifier do
 
   defp trim_description(nil), do: nil
   defp trim_description(description), do: String.trim(description)
+
   defp build_tools(files) do
-    pairs = [{"mix.exs", "mix"}, {"rebar", "rebar3"}, {"rebar.lock", "rebar3"},
-      {"rebar.config", "rebar3"}, {"rebar.config.script", "rebar3"}, {"erlang.mk", "make"},
-      {"Makefile", "make"}, {"Makefile.win", "make"}]
+    pairs = [
+      {"mix.exs", "mix"},
+      {"rebar", "rebar3"},
+      {"rebar.lock", "rebar3"},
+      {"rebar.config", "rebar3"},
+      {"rebar.config.script", "rebar3"},
+      {"erlang.mk", "make"},
+      {"Makefile", "make"},
+      {"Makefile.win", "make"}
+    ]
+
     case Enum.uniq(for {file, tool} <- pairs, file in files, do: tool) do
       [] -> ["mix"]
       tools -> tools
@@ -472,64 +932,121 @@ defmodule Weld.Verifier do
   end
 
   defp declared_test_files!(project, config, inventory) do
-    paths = config[:test_paths] || if(File.dir?(Path.join(project, "test")), do: ["test"], else: [])
+    paths =
+      config[:test_paths] || if(File.dir?(Path.join(project, "test")), do: ["test"], else: [])
+
     pattern = config[:test_pattern]
-    unless is_nil(pattern) or is_binary(pattern), do: raise(Error, "unsupported test discovery pattern")
-    discovered = for directory <- paths, file <- inventory,
-      String.starts_with?(file, directory <> "/") and Path.extname(file) in [".ex", ".exs"] and
-      not String.ends_with?(file, "_helper.exs"), do: file
+
+    unless is_nil(pattern) or is_binary(pattern),
+      do: raise(Error, "unsupported test discovery pattern")
+
+    discovered =
+      for directory <- paths,
+          file <- inventory,
+          String.starts_with?(file, directory <> "/") and Path.extname(file) in [".ex", ".exs"] and
+            not String.ends_with?(file, "_helper.exs"),
+          do: file
+
     # A custom loader may select files that do not end in _test.exs. Treat all
     # candidate source files conservatively when no tests actually execute.
     if pattern do
-      Enum.uniq(discovered ++ Enum.flat_map(paths, fn directory ->
-        Path.wildcard(Path.join([project, directory, "**", pattern])) |> Enum.map(&Path.relative_to(&1, project))
-      end))
+      Enum.uniq(
+        discovered ++
+          Enum.flat_map(paths, fn directory ->
+            Path.wildcard(Path.join([project, directory, "**", pattern]))
+            |> Enum.map(&Path.relative_to(&1, project))
+          end)
+      )
     else
       discovered
     end
   end
 
   defp record_failure!(root) do
-    completed = case File.read(Path.join(root, "gates.json")) do
-      {:ok, bytes} -> Jason.decode!(bytes)["gates"]
-      _ -> []
-    end
+    completed =
+      case File.read(Path.join(root, "gates.json")) do
+        {:ok, bytes} -> Jason.decode!(bytes)["gates"]
+        _ -> []
+      end
+
     completed = if length(completed) == 12, do: Enum.take(completed, 11), else: completed
     failed_id = Enum.at(@gate_ids, length(completed))
-    remaining = Enum.drop(@gate_ids, length(completed)) |> Enum.map(fn id ->
-      %{"id" => id, "status" => "fail", "skip_reason" => nil,
-        "facts" => if(id == failed_id, do: %{"code" => "qualification_failed"},
-          else: %{"code" => "not_executed", "blocked_by" => failed_id})}
-    end)
+
+    remaining =
+      Enum.drop(@gate_ids, length(completed))
+      |> Enum.map(fn id ->
+        %{
+          "id" => id,
+          "status" => "fail",
+          "skip_reason" => nil,
+          "facts" =>
+            if(id == failed_id,
+              do: %{"code" => "qualification_failed"},
+              else: %{"code" => "not_executed", "blocked_by" => failed_id}
+            )
+        }
+      end)
+
     write_gates!(root, completed ++ remaining)
   rescue
     _ -> :ok
   end
 
-  defp tree_id(domain, tree), do: Identity.digest(domain, %{"entries" => tree.entries, "empty_dirs" => tree.empty_dirs})
-  defp package_id(package), do: Identity.digest("package", %{"metadata" => package.metadata, "entries" => package.entries})
+  defp tree_id(domain, tree),
+    do: Identity.digest(domain, %{"entries" => tree.entries, "empty_dirs" => tree.empty_dirs})
+
+  defp package_id(package),
+    do:
+      Identity.digest("package", %{"metadata" => package.metadata, "entries" => package.entries})
+
   defp optional_sha(path), do: if(File.regular?(path), do: Hash.sha256_file(path))
-  defp pass(id, facts), do: %{"id" => id, "status" => "pass", "facts" => facts, "skip_reason" => nil}
-  defp skip(spec), do: %{"id" => spec.id, "status" => "skip", "facts" => %{}, "skip_reason" => spec.skip_reason}
+
+  defp pass(id, facts),
+    do: %{"id" => id, "status" => "pass", "facts" => facts, "skip_reason" => nil}
+
+  defp skip(spec),
+    do: %{"id" => spec.id, "status" => "skip", "facts" => %{}, "skip_reason" => spec.skip_reason}
+
   defp disabled(task, reason), do: %{task: task, env: :dev, status: :skipped, reason: reason}
-  defp write_gates!(root, gates), do: File.write!(Path.join(root, "gates.json"), Identity.canonical(%{"schema" => "weld.gates/2", "gates" => gates}))
+
+  defp write_gates!(root, gates),
+    do:
+      File.write!(
+        Path.join(root, "gates.json"),
+        Identity.canonical(%{"schema" => "weld.gates/2", "gates" => gates})
+      )
 
   @doc false
   def validate_gates!(gates, specs) do
-    unless Enum.map(gates, & &1["id"]) == @gate_ids, do: raise(Error, "qualification must record G01–G12 exactly once in order")
+    unless Enum.map(gates, & &1["id"]) == @gate_ids,
+      do: raise(Error, "qualification must record G01–G12 exactly once in order")
+
     for {gate, spec} <- Enum.zip(gates, specs) do
-      unless Enum.sort(Map.keys(gate)) == ~w(facts id skip_reason status) and is_map(gate["facts"]) and
-        ((gate["status"] == "pass" and is_nil(gate["skip_reason"])) or
-          (gate["status"] == "skip" and not spec.required and gate["skip_reason"] == spec.skip_reason)),
-        do: raise(Error, "invalid or skipped mandatory qualification gate #{spec.id}")
+      unless Enum.sort(Map.keys(gate)) == ~w(facts id skip_reason status) and
+               is_map(gate["facts"]) and
+               ((gate["status"] == "pass" and is_nil(gate["skip_reason"])) or
+                  (gate["status"] == "skip" and not spec.required and
+                     gate["skip_reason"] == spec.skip_reason)),
+             do: raise(Error, "invalid or skipped mandatory qualification gate #{spec.id}")
     end
+
     :ok
   end
-  defp portable(%Regex{} = regex, _root), do: %{"regex" => Regex.source(regex), "options" => Regex.opts(regex)}
-  defp portable(value, root) when is_map(value), do: Map.new(value, fn {key, item} -> {to_string(key), portable(item, root)} end)
+
+  defp portable(%Regex{} = regex, _root),
+    do: %{"regex" => Regex.source(regex), "options" => Regex.opts(regex)}
+
+  defp portable(value, root) when is_map(value),
+    do: Map.new(value, fn {key, item} -> {to_string(key), portable(item, root)} end)
+
   defp portable(value, root) when is_list(value), do: Enum.map(value, &portable(&1, root))
-  defp portable(value, root) when is_tuple(value), do: value |> Tuple.to_list() |> Enum.map(&portable(&1, root))
-  defp portable(value, root) when is_binary(value), do: if(Path.type(value) == :absolute, do: Path.relative_to(value, root), else: value)
+
+  defp portable(value, root) when is_tuple(value),
+    do: value |> Tuple.to_list() |> Enum.map(&portable(&1, root))
+
+  defp portable(value, root) when is_binary(value),
+    do: if(Path.type(value) == :absolute, do: Path.relative_to(value, root), else: value)
+
   defp portable(value, _root) when value in [nil, true, false], do: value
   defp portable(value, _root) when is_atom(value), do: to_string(value)
   defp portable(value, _root) when is_integer(value), do: value

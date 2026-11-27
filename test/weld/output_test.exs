@@ -83,9 +83,11 @@ defmodule Weld.OutputTest do
     File.mkdir_p!(previous)
     File.write!(Path.join(previous, "value"), "prior projection")
     missing = Output.path(root, ["staging", "missing"])
+
     assert_raise Error, ~r/stage missing/, fn ->
       Output.activate!(missing, target, fn _ -> true end)
     end
+
     assert File.read!(Path.join(previous, "value")) == "prior projection"
     refute File.exists?(target)
   end

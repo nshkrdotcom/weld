@@ -4,7 +4,6 @@ defmodule Weld.Plan do
   """
 
   alias Weld.Graph
-  alias Weld.Graph.View
   alias Weld.Manifest
   alias Weld.Violation
   alias Weld.Workspace
@@ -85,14 +84,20 @@ defmodule Weld.Plan do
   @spec build!(Path.t() | Manifest.t(), keyword()) :: t()
   def build!(source, opts \\ [])
   def build!(path, opts) when is_binary(path), do: path |> Manifest.load!() |> build!(opts)
+
   def build!(%Manifest{} = manifest, opts) do
     build_from_workspace!(manifest, Workspace.load!(manifest, opts), opts)
   end
 
   def build_from_workspace!(manifest, workspace, opts) do
-    artifact = manifest |> Manifest.artifact!(opts[:artifact]) |> Manifest.bind_native(workspace.projects)
+    artifact =
+      manifest |> Manifest.artifact!(opts[:artifact]) |> Manifest.bind_native(workspace.projects)
+
     facts = workspace.facts || Weld.Shell.Snapshot.collect!(manifest, opts)
-    projects = Map.new(workspace.projects, fn {id, project} -> {id, Map.put(project, :facts, facts)} end)
+
+    projects =
+      Map.new(workspace.projects, fn {id, project} -> {id, Map.put(project, :facts, facts)} end)
+
     workspace = %{workspace | facts: facts, projects: projects}
     compiled = Weld.Core.Compiler.compile!(manifest, workspace, artifact, opts)
     struct!(__MODULE__, compiled)

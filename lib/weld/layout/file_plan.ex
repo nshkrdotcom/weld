@@ -37,9 +37,12 @@ defmodule Weld.Layout.FilePlan do
     else
       if kind == :native or String.starts_with?(target, "include/") or
            (kind == :compiled and Path.extname(target) in ~w(.ex .exs .erl .hrl .c .h .cpp .cc)),
-        do: raise(Error, "conflicting source files at #{target}")
+         do: raise(Error, "conflicting source files at #{target}")
+
       {destination, collisions} = remap_target(target, slug, operations, existing.sources)
-      {operations ++ [copy(source, destination, kind, source_operation(kind))], destination, collisions ++ [source]}
+
+      {operations ++ [copy(source, destination, kind, source_operation(kind))], destination,
+       collisions ++ [source]}
     end
   end
 
@@ -49,8 +52,9 @@ defmodule Weld.Layout.FilePlan do
   defp equal_source?(facts, left, right) do
     left = Facts.stat!(facts, left)
     right = Facts.stat!(facts, right)
+
     left.sha256 == right.sha256 and left.size == right.size and
-      (Bitwise.band(left.mode, 0o111) != 0) == (Bitwise.band(right.mode, 0o111) != 0)
+      Bitwise.band(left.mode, 0o111) != 0 == (Bitwise.band(right.mode, 0o111) != 0)
   end
 
   defp replace_target(operations, replacement) do
@@ -125,5 +129,4 @@ defmodule Weld.Layout.FilePlan do
       slug -> slug
     end
   end
-
 end

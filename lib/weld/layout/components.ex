@@ -21,10 +21,12 @@ defmodule Weld.Layout.Components do
         Enum.map(project.elixirc_paths, &Path.expand(&1, project.abs_path))
       end)
 
-    compiler_roots |> Enum.flat_map(&Facts.list_files(plan.facts, &1))
+    compiler_roots
+    |> Enum.flat_map(&Facts.list_files(plan.facts, &1))
     |> Enum.filter(&(Path.extname(&1) == ".ex"))
     |> Enum.map(&{&1, Facts.read!(plan.facts, &1)})
     |> Modules.validate_module_sources!()
+
     root = plan.manifest.repo_root
     repos = Support.detect_repo_infos(plan.selected_projects)
 
@@ -72,14 +74,21 @@ defmodule Weld.Layout.Components do
     generated_inputs = Enum.uniq(inputs ++ Enum.flat_map(config.operations, & &1.sources))
     full = FilePlan.validate!(operations ++ generated_operations(plan, opts, generated_inputs))
 
-    roots = Enum.filter(roots, fn entry ->
-      children = Enum.filter(full, &Inventory.covered?(&1.target, entry.target))
-      children != [] and Enum.all?(children, &(&1.operation == :link_or_copy and is_nil(&1.content)))
-    end)
-    links = Enum.map(roots, &{&1.target, &1.source}) ++
-      (for op <- full, op.operation == :link_or_copy,
-        not Enum.any?(roots, &Inventory.covered?(op.target, &1.target)),
-        do: {op.target, Path.relative_to(hd(op.sources), root)})
+    roots =
+      Enum.filter(roots, fn entry ->
+        children = Enum.filter(full, &Inventory.covered?(&1.target, entry.target))
+
+        children != [] and
+          Enum.all?(children, &(&1.operation == :link_or_copy and is_nil(&1.content)))
+      end)
+
+    links =
+      Enum.map(roots, &{&1.target, &1.source}) ++
+        for op <- full,
+            op.operation == :link_or_copy,
+            not Enum.any?(roots, &Inventory.covered?(op.target, &1.target)),
+            do: {op.target, Path.relative_to(hd(op.sources), root)}
+
     guard =
       Live.guard_source(plan,
         links: links,
@@ -114,8 +123,8 @@ defmodule Weld.Layout.Components do
           if (entry.kind == :artifact_test and not plan.artifact.verify.component_tests) or
                entry.kind in [:native, :metadata] or entry.source in plan.structural_inputs or
                Enum.any?(Path.split(entry.target), &(&1 in ["c_src", "priv", "config"])),
-            do: :copy,
-            else: :link_or_copy
+             do: :copy,
+             else: :link_or_copy
 
         FilePlan.copy(Path.join(root, entry.source), entry.target, entry.kind, operation)
       end
@@ -227,8 +236,6 @@ defmodule Weld.Layout.Components do
     Enum.uniq(components ++ artifacts)
   end
 
-  defp component_test_compile_paths(%{artifact: %{verify: %{component_tests: false}}}), do: []
-
   defp component_test_compile_paths(plan) do
     Selection.projects_for_view(plan, :test)
     |> Enum.flat_map(fn project ->
@@ -253,7 +260,9 @@ defmodule Weld.Layout.Components do
     Selection.projects_for_view(plan, :test)
     |> Enum.flat_map(fn project ->
       paths =
-        if Selection.selected?(plan, project.id), do: project.test_erlc_paths, else: project.erlc_paths
+        if Selection.selected?(plan, project.id),
+          do: project.test_erlc_paths,
+          else: project.erlc_paths
 
       project
       |> Inventory.normalize_paths(paths)
@@ -311,18 +320,31 @@ defmodule Weld.Layout.Components do
     elixirc = component_paths(plan.selected_projects, & &1.elixirc_paths, plan, opts)
     erlc = component_paths(plan.selected_projects, & &1.erlc_paths)
     include = component_include_paths(plan.selected_projects)
+
     spec = %{
       elixirc_paths: elixirc,
-      test_elixirc_paths: if(plan.artifact.verify.component_tests,
-        do: Enum.uniq(generated_root_paths(plan, opts) ++ component_test_compile_paths(plan)),
-        else: elixirc),
-      erlc_paths: erlc, test_erlc_paths: component_test_erlc_paths(plan, erlc),
+      test_elixirc_paths:
+        if(plan.artifact.verify.component_tests,
+          do: Enum.uniq(generated_root_paths(plan, opts) ++ component_test_compile_paths(plan)),
+          else: elixirc
+        ),
+      erlc_paths: erlc,
+      test_erlc_paths: component_test_erlc_paths(plan, erlc),
       include_paths: include,
-      test_include_paths: if(plan.artifact.verify.component_tests,
-        do: component_include_paths(Selection.projects_for_view(plan, :test)), else: include),
+      test_include_paths:
+        if(plan.artifact.verify.component_tests,
+          do: component_include_paths(Selection.projects_for_view(plan, :test)),
+          else: include
+        ),
       test_paths: projected_test_paths(plan),
-      deps: Render.dependencies(package_external_deps(plan), [], plan.artifact.package.development_dependencies)
+      deps:
+        Render.dependencies(
+          package_external_deps(plan),
+          [],
+          plan.artifact.package.development_dependencies
+        )
     }
+
     Render.mix(plan, app, spec, opts)
   end
 
