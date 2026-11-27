@@ -299,7 +299,7 @@ defmodule Weld.Git do
       case Port.info(port, :os_pid) do
         {:os_pid, pid} ->
           _ = System.cmd("kill", ["-TERM", "--", "-#{pid}"], stderr_to_stdout: true)
-          Port.close(port)
+          Runner.close_port(port)
 
         nil ->
           :ok

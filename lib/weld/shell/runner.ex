@@ -285,7 +285,17 @@ defmodule Weld.Shell.Runner do
       nil -> :ok
     end
 
-    if Port.info(port), do: Port.close(port)
+    close_port(port)
+  end
+
+  @doc false
+  def close_port(port) when is_port(port) do
+    Port.close(port)
+    :ok
+  rescue
+    error in ArgumentError ->
+      # The subprocess can exit after a liveness check or group signal.
+      if Port.info(port), do: reraise(error, __STACKTRACE__), else: :ok
   end
 
   defp terminate_group(pid),

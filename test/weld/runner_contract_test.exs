@@ -3,6 +3,14 @@ defmodule Weld.RunnerContractTest do
   alias Weld.{Error, FixtureCase}
   alias Weld.Shell.Runner
 
+  test "port cleanup is idempotent after subprocess exit" do
+    port = Port.open({:spawn_executable, System.find_executable("true")}, [:exit_status])
+    assert_receive {^port, {:exit_status, 0}}, 2_000
+    assert :ok = Runner.close_port(port)
+    assert Port.info(port) == nil
+    assert :ok = Runner.close_port(port)
+  end
+
   test "streamed logs and tails redact credentials, including split output" do
     root = FixtureCase.unique_tmp_dir("runner-redaction")
     log = Path.join(root, "command.log")
