@@ -74,15 +74,7 @@ defmodule Weld.Workspace.Probe do
          {:ok, %{"schema" => "weld.project-facts/2", "value" => value} = envelope} <-
            Jason.decode(response),
          true <- Enum.sort(Map.keys(envelope)) == ["schema", "value"] do
-      if opts[:verbose] do
-        logs =
-          output
-          |> String.split("\n")
-          |> Enum.reject(&String.starts_with?(&1, @marker))
-          |> Enum.join("\n")
-
-        if String.trim(logs) != "", do: IO.puts(:stderr, excerpt(logs))
-      end
+      if opts[:verbose], do: log_probe_output(output)
 
       {facts, _remaining} = decode(value, @max_nodes, 0)
       validate!(facts, id, env)
@@ -94,6 +86,16 @@ defmodule Weld.Workspace.Probe do
           message: "Mix metadata probe failed for #{id} in #{env} (exit #{status})",
           details: %{project: id, environment: env, exit_status: status, excerpt: excerpt(output)}
     end
+  end
+
+  defp log_probe_output(output) do
+    logs =
+      output
+      |> String.split("\n")
+      |> Enum.reject(&String.starts_with?(&1, @marker))
+      |> Enum.join("\n")
+
+    if String.trim(logs) != "", do: IO.puts(:stderr, excerpt(logs))
   end
 
   defp excerpt(output) do
@@ -114,10 +116,8 @@ defmodule Weld.Workspace.Probe do
          env
        ) do
     unless map_size(value) == 5 and environment == env and is_atom(target) and
-             Keyword.keyword?(config) and Keyword.keyword?(application) and is_list(files) and
-             Enum.all?(files, &is_binary/1) and is_atom(config[:app]) and
-             config[:app] not in [nil, true, false] and
-             is_binary(config[:version]) and match?({:ok, _}, Version.parse(config[:version])) do
+             Keyword.keyword?(config) and Keyword.keyword?(application) and valid_files?(files) and
+             valid_project_identity?(config) do
       raise Error,
         code: :invalid_project_facts,
         phase: :snapshot,
@@ -128,6 +128,13 @@ defmodule Weld.Workspace.Probe do
   end
 
   defp validate!(_, id, env), do: raise(Error, "invalid project facts for #{id} in #{env}")
+
+  defp valid_files?(files), do: is_list(files) and Enum.all?(files, &is_binary/1)
+
+  defp valid_project_identity?(config) do
+    is_atom(config[:app]) and config[:app] not in [nil, true, false] and
+      is_binary(config[:version]) and match?({:ok, _}, Version.parse(config[:version]))
+  end
 
   # This is a finite typed JSON codec, not an external-term decoder. Its only
   # atom allocations are bounded source-declared metadata identifiers. Arbitrary

@@ -103,22 +103,26 @@ defmodule Weld.Git do
       {{:ok, "tag"}, {:ok, target}} ->
         object = raw!(root, ["cat-file", "tag", ref])
 
-        case String.split(object, "\n\n", parts: 2) do
-          [header, message] ->
-            unless String.contains?(header, "\ntype commit\n"),
-              do: raise(Error, "tag must directly reference a commit")
-
-            {:ok, %{type: :annotated, target_sha: target, message: message}}
-
-          _ ->
-            raise Error, "invalid annotated tag object"
-        end
+        annotated_tag!(object, target)
 
       {{:ok, _}, {:ok, target}} ->
         {:ok, %{type: :lightweight, target_sha: target, message: nil}}
 
       _ ->
         :missing
+    end
+  end
+
+  defp annotated_tag!(object, target) do
+    case String.split(object, "\n\n", parts: 2) do
+      [header, message] ->
+        unless String.contains?(header, "\ntype commit\n"),
+          do: raise(Error, "tag must directly reference a commit")
+
+        {:ok, %{type: :annotated, target_sha: target, message: message}}
+
+      _ ->
+        raise Error, "invalid annotated tag object"
     end
   end
 
@@ -260,6 +264,15 @@ defmodule Weld.Git do
         "update #{ref} #{new} #{old || zeros}\n"
       end)
 
+    write_ref_transaction!(root, commands)
+
+    unless Enum.all?(updates, fn {ref, oid, _} -> ref_oid(root, ref) == oid end),
+      do: raise(Error, "Git ref transaction result is unknown; inspect refs before retry")
+
+    :ok
+  end
+
+  defp write_ref_transaction!(root, commands) do
     executable = System.find_executable("git") || raise(Error, "Git executable unavailable")
 
     timeout =
@@ -292,11 +305,6 @@ defmodule Weld.Git do
           :ok
       end
     end
-
-    unless Enum.all?(updates, fn {ref, oid, _} -> ref_oid(root, ref) == oid end),
-      do: raise(Error, "Git ref transaction result is unknown; inspect refs before retry")
-
-    :ok
   end
 
   defp await_transaction!(port, output, deadline) do

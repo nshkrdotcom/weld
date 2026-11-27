@@ -62,30 +62,27 @@ defmodule Weld.Output do
     base = path(root, [])
     File.mkdir_p!(base)
 
-    with_metadata_lock(
-      root,
-      fn ->
-        marker = Path.join(base, "OWNER")
-        reject_link!(marker)
-
-        case File.read(marker) do
-          {:ok, @owner} ->
-            :ok
-
-          {:error, :enoent} ->
-            unless Enum.sort(File.ls!(base)) == ["lock"],
-              do: raise(Error, "unmanaged Weld output: #{base}")
-
-            File.write!(marker, @owner, [:exclusive, :sync])
-
-          _ ->
-            raise Error, "unmanaged Weld output: #{base}"
-        end
-      end,
-      []
-    )
-
+    with_metadata_lock(root, fn -> initialize_owner!(base) end, [])
     ensure_ignore!(root, base)
+  end
+
+  defp initialize_owner!(base) do
+    marker = Path.join(base, "OWNER")
+    reject_link!(marker)
+
+    case File.read(marker) do
+      {:ok, @owner} ->
+        :ok
+
+      {:error, :enoent} ->
+        unless Enum.sort(File.ls!(base)) == ["lock"],
+          do: raise(Error, "unmanaged Weld output: #{base}")
+
+        File.write!(marker, @owner, [:exclusive, :sync])
+
+      _ ->
+        raise Error, "unmanaged Weld output: #{base}"
+    end
   end
 
   @doc "Run only a bounded metadata operation; this function is not reentrant."
@@ -209,74 +206,76 @@ defmodule Weld.Output do
 
     with_lock(
       root,
-      fn ->
-        leases = leases(root)
-
-        if Enum.any?(leases, fn {_path, record} -> record["resource"] == resource end),
-          do: raise(Error, "resource is reserved; inspect its owner before recovery: #{resource}")
-
-        id = nonce()
-        stage = path(root, ["staging", id])
-        File.mkdir_p!(stage)
-
-        record = %{
-          "schema" => "weld.lease/2",
-          "id" => id,
-          "operation" => operation,
-          "artifact" => artifact,
-          "owner" => owner(),
-          "resource" => resource,
-          "stage" => "staging/" <> id,
-          "pinned_ids" => Enum.sort(Enum.uniq(pinned_ids)),
-          "phase" => "reserved",
-          "created_at" => now()
-        }
-
-        target = path(root, ["leases", id <> ".json"])
-        File.mkdir_p!(Path.dirname(target))
-        File.write!(target, Identity.canonical(record), [:exclusive, :sync])
-        %{root: root, path: target, stage: stage, record: record}
-      end,
+      fn -> reserve_resource!(root, operation, artifact, resource, pinned_ids) end,
       opts
     )
   end
 
+  defp reserve_resource!(root, operation, artifact, resource, pinned_ids) do
+    leases = leases(root)
+
+    if Enum.any?(leases, fn {_path, record} -> record["resource"] == resource end),
+      do: raise(Error, "resource is reserved; inspect its owner before recovery: #{resource}")
+
+    id = nonce()
+    stage = path(root, ["staging", id])
+    File.mkdir_p!(stage)
+
+    record = %{
+      "schema" => "weld.lease/2",
+      "id" => id,
+      "operation" => operation,
+      "artifact" => artifact,
+      "owner" => owner(),
+      "resource" => resource,
+      "stage" => "staging/" <> id,
+      "pinned_ids" => Enum.sort(Enum.uniq(pinned_ids)),
+      "phase" => "reserved",
+      "created_at" => now()
+    }
+
+    target = path(root, ["leases", id <> ".json"])
+    File.mkdir_p!(Path.dirname(target))
+    File.write!(target, Identity.canonical(record), [:exclusive, :sync])
+    %{root: root, path: target, stage: stage, record: record}
+  end
+
   def release!(%{root: root, path: target, record: record}) do
-    with_lock(root, fn ->
-      case read_record(target, @lease_keys, "weld.lease/2") do
-        {:ok, ^record} ->
-          File.rm!(target)
+    with_lock(root, fn -> release_record!(target, record) end)
+  end
 
-        {:ok, other} ->
-          if other["owner"] == record["owner"] and other["id"] == record["id"],
-            do: File.rm!(target),
-            else: raise(Error, "lease ownership changed: #{target}")
+  defp release_record!(target, record) do
+    case read_record(target, @lease_keys, "weld.lease/2") do
+      {:ok, ^record} ->
+        File.rm!(target)
 
-        _ ->
-          raise Error, "lease disappeared or is corrupt: #{target}"
-      end
-    end)
+      {:ok, other} ->
+        if other["owner"] == record["owner"] and other["id"] == record["id"],
+          do: File.rm!(target),
+          else: raise(Error, "lease ownership changed: #{target}")
+
+      _ ->
+        raise Error, "lease disappeared or is corrupt: #{target}"
+    end
   end
 
   def leases(root) do
-    directory = path(root, ["leases"])
+    root |> path(["leases"]) |> children() |> Enum.map(&read_lease!/1)
+  end
 
-    for file <- children(directory), reduce: [] do
-      records ->
-        case read_record(file, @lease_keys, "weld.lease/2") do
-          {:ok, record} ->
-            validate_lease!(record)
+  defp read_lease!(file) do
+    case read_record(file, @lease_keys, "weld.lease/2") do
+      {:ok, record} ->
+        validate_lease!(record)
 
-            unless Path.basename(file) == record["id"] <> ".json",
-              do: raise(Error, "lease filename does not match identity")
+        unless Path.basename(file) == record["id"] <> ".json",
+          do: raise(Error, "lease filename does not match identity")
 
-            [{file, record} | records]
+        {file, record}
 
-          _ ->
-            raise Error, "corrupt lease; ownership is unknown: #{file}"
-        end
+      _ ->
+        raise Error, "corrupt lease; ownership is unknown: #{file}"
     end
-    |> Enum.reverse()
   end
 
   defp validate_lease!(record) do
@@ -287,13 +286,18 @@ defmodule Weld.Output do
     unless record["operation"] in @operations and record["stage"] == "staging/" <> record["id"] and
              record["phase"] in ["reserved", "executing", "completed", "failed"] and
              is_binary(record["resource"]) and record["resource"] != "" and
-             is_list(record["pinned_ids"]) and Enum.all?(record["pinned_ids"], &Identity.valid?/1) and
-             record["pinned_ids"] == Enum.sort(Enum.uniq(record["pinned_ids"])) and
+             valid_pinned_ids?(record["pinned_ids"]) and
              valid_time?(record["created_at"]),
            do: raise(Error, "invalid lease record")
 
     record
   end
+
+  defp valid_pinned_ids?(ids) when is_list(ids) do
+    Enum.all?(ids, &Identity.valid?/1) and ids == Enum.sort(Enum.uniq(ids))
+  end
+
+  defp valid_pinned_ids?(_), do: false
 
   def run!(root, operation, artifact, lease, opts \\ []) do
     unless operation in ~w(verify prepare publish stage),
@@ -370,7 +374,7 @@ defmodule Weld.Output do
              record["phase"] in ~w(reserved executing completed failed interrupted) and
              Enum.all?(
                [record["plan_id"], record["bundle_id"]],
-               &(is_nil(&1) or Identity.valid?(&1))
+               &optional_identity?/1
              ) and
              valid_time?(record["started_at"]) and
              (is_nil(record["finished_at"]) or valid_time?(record["finished_at"])) and
@@ -379,6 +383,9 @@ defmodule Weld.Output do
 
     record
   end
+
+  defp optional_identity?(nil), do: true
+  defp optional_identity?(id), do: Identity.valid?(id)
 
   def run_path(root, artifact, id) do
     segment!(id)
@@ -472,21 +479,7 @@ defmodule Weld.Output do
     journal = Path.join(journal_dir, "journal.json")
 
     try do
-      with_lock(
-        root,
-        fn ->
-          active_lease!(root, opts[:lease])
-          same_node!(target, old_node)
-          same_node!(stage, stage_node)
-          journal!(journal, record, "reserved", opts)
-          File.mkdir_p!(Path.dirname(target))
-          if old, do: File.rename!(target, backup)
-          journal!(journal, record, "backed_up", opts)
-          File.rename!(stage, target)
-          journal!(journal, record, "activated", opts)
-        end,
-        opts
-      )
+      install_view!(root, stage, target, backup, record, journal, old_node, stage_node, opts)
 
       unless tree_record(target) == record["new"], do: raise(Error, "activated view changed")
       if old && tree_record(backup) != old, do: raise(Error, "activation backup changed")
@@ -511,6 +504,24 @@ defmodule Weld.Output do
     end
   end
 
+  defp install_view!(root, stage, target, backup, record, journal, old_node, stage_node, opts) do
+    with_lock(
+      root,
+      fn ->
+        active_lease!(root, opts[:lease])
+        same_node!(target, old_node)
+        same_node!(stage, stage_node)
+        journal!(journal, record, "reserved", opts)
+        File.mkdir_p!(Path.dirname(target))
+        if record["old"], do: File.rename!(target, backup)
+        journal!(journal, record, "backed_up", opts)
+        File.rename!(stage, target)
+        journal!(journal, record, "activated", opts)
+      end,
+      opts
+    )
+  end
+
   defp rollback_view!(root, base, stage, target, backup, record, journal, opts) do
     actual_node = node_token!(target)
     saved_node = node_token!(backup)
@@ -524,33 +535,36 @@ defmodule Weld.Output do
         same_node!(target, actual_node)
         same_node!(backup, saved_node)
 
-        cond do
-          actual == record["old"] and is_nil(saved) ->
-            :ok
-
-          actual == record["new"] and is_nil(saved) and record["old"] != nil ->
-            :ok
-
-          actual == record["new"] and (saved == record["old"] or is_nil(record["old"])) ->
-            confine!(base, stage)
-            if File.exists?(stage), do: raise(Error, "activation rollback stage is occupied")
-            File.rename!(target, stage)
-            if saved, do: File.rename!(backup, target)
-
-          is_nil(actual) and saved == record["old"] and not is_nil(saved) ->
-            File.rename!(backup, target)
-
-          is_nil(actual) and is_nil(record["old"]) ->
-            :ok
-
-          true ->
-            raise Error, "activation rollback is ambiguous; retain journal for recovery"
-        end
-
+        action = rollback_view_action!(actual, saved, record)
+        apply_view_rollback!(action, base, stage, target, backup, saved)
         atomic_write!(journal, Identity.canonical(Map.put(record, "phase", "cleaned")))
       end,
       opts
     )
+  end
+
+  defp rollback_view_action!(actual, saved, %{"old" => old, "new" => new}) do
+    case {actual, saved} do
+      {^old, nil} -> :none
+      {^new, nil} when old != nil -> :none
+      {^new, ^old} -> :move_candidate
+      {^new, _} when is_nil(old) -> :move_candidate
+      {nil, ^old} -> :restore_backup
+      {nil, _} when is_nil(old) -> :none
+      _ -> raise Error, "activation rollback is ambiguous; retain journal for recovery"
+    end
+  end
+
+  defp apply_view_rollback!(:none, _base, _stage, _target, _backup, _saved), do: :ok
+
+  defp apply_view_rollback!(:restore_backup, _base, _stage, target, backup, _saved),
+    do: File.rename!(backup, target)
+
+  defp apply_view_rollback!(:move_candidate, base, stage, target, backup, saved) do
+    confine!(base, stage)
+    if File.exists?(stage), do: raise(Error, "activation rollback stage is occupied")
+    File.rename!(target, stage)
+    if saved, do: File.rename!(backup, target)
   end
 
   defp remove_observed!(base, target, expected) do
@@ -1223,25 +1237,22 @@ defmodule Weld.Output do
     old = if before, do: elem(before, 0), else: ""
     updated = normalize_ignore!(old, base)
 
-    if updated != old do
-      with_metadata_lock(
-        checkout,
-        fn ->
-          current = read_regular!(target)
-
-          unless current && elem(current, 0) == updated do
-            replace_ignore!(target, base, before, updated)
-          end
-        end,
-        []
-      )
-    end
+    if updated != old,
+      do:
+        with_metadata_lock(checkout, fn -> update_ignore!(target, base, before, updated) end, [])
 
     if Git.root(checkout) do
       for path <- ~w(.weld/v2/live/probe .weld/v2/full/probe/project .weld/v2/cache/probe) do
         Git.run!(checkout, ["check-ignore", "--quiet", "--no-index", "--", path])
       end
     end
+  end
+
+  defp update_ignore!(target, base, before, updated) do
+    current = read_regular!(target)
+
+    unless current && elem(current, 0) == updated,
+      do: replace_ignore!(target, base, before, updated)
   end
 
   defp normalize_ignore!(old, base) do
@@ -1386,17 +1397,21 @@ defmodule Weld.Output do
       marker = Path.join(directory, "OWNER")
       reject_link!(marker)
 
-      if File.exists?(directory) do
-        unless File.read(marker) == {:ok, @owner},
-          do: raise(Error, "unmanaged cache: #{directory}")
-      else
-        File.mkdir_p!(directory)
-        File.write!(marker, @owner, [:exclusive, :sync])
-      end
+      ensure_cache_owner!(directory, marker)
 
       for child <- ["build", "deps"], do: reject_link!(Path.join(directory, child))
       directory
     end)
+  end
+
+  defp ensure_cache_owner!(directory, marker) do
+    if File.exists?(directory) do
+      unless File.read(marker) == {:ok, @owner},
+        do: raise(Error, "unmanaged cache: #{directory}")
+    else
+      File.mkdir_p!(directory)
+      File.write!(marker, @owner, [:exclusive, :sync])
+    end
   end
 
   def temporary!(root, category) do

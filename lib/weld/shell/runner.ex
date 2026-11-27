@@ -23,51 +23,64 @@ defmodule Weld.Shell.Runner do
   def capture!(command, arguments, opts), do: execute!(command, arguments, opts, true)
 
   defp execute!(command, arguments, opts, raw?) when is_list(arguments) do
-    timeout = executable!("timeout")
-    executable = executable!(command)
     seconds = Keyword.get(opts, :seconds, 900)
     unless is_integer(seconds) and seconds > 0, do: raise(Error, "invalid subprocess timeout")
-    env = Map.new(@overrides, &{&1, nil}) |> Map.merge(Map.new(opts[:env] || []))
+    timeout = executable!("timeout")
+    executable = executable!(command)
     log = if raw?, do: nil, else: open_log(opts[:log_path])
 
-    port =
-      Port.open({:spawn_executable, timeout}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        :use_stdio,
-        {:args, ["--signal=TERM", "--kill-after=2s", "#{seconds}s", executable | arguments]},
-        {:cd, Keyword.fetch!(opts, :cd)},
-        {:env, Enum.map(env, fn {key, value} -> {to_charlist(key), chars(value)} end)}
-      ])
+    try do
+      state = state(opts, raw?, log, seconds)
+      supervise!(open_port(timeout, executable, arguments, seconds, opts), state)
+    after
+      if log, do: File.close(log)
+    end
+  end
 
-    guard =
-      case Port.info(port, :os_pid) do
-        {:os_pid, pid} -> monitor_owner(self(), pid)
-        nil -> nil
-      end
+  defp open_port(timeout, executable, arguments, seconds, opts) do
+    env = Map.new(@overrides, &{&1, nil}) |> Map.merge(Map.new(opts[:env] || []))
 
-    state = %{
+    Port.open({:spawn_executable, timeout}, [
+      :binary,
+      :exit_status,
+      :stderr_to_stdout,
+      :use_stdio,
+      {:args, ["--signal=TERM", "--kill-after=2s", "#{seconds}s", executable | arguments]},
+      {:cd, Keyword.fetch!(opts, :cd)},
+      {:env, Enum.map(env, fn {key, value} -> {to_charlist(key), chars(value)} end)}
+    ])
+  end
+
+  defp state(opts, raw?, log, seconds) do
+    maximum = opts[:max_bytes] || @max_log_bytes
+
+    %{
       raw: raw?,
-      maximum: opts[:max_bytes] || @max_log_bytes,
+      maximum: maximum,
       tail: "",
       pending: "",
       discarded: false,
       total: 0,
       logged: 0,
       log: log,
-      limit:
-        if(raw?, do: opts[:max_bytes] || @max_log_bytes, else: opts[:tail_bytes] || @tail_bytes),
+      limit: if(raw?, do: maximum, else: opts[:tail_bytes] || @tail_bytes),
       secrets: opts[:redact] || [],
       deadline: System.monotonic_time(:millisecond) + seconds * 1000 + 3000
     }
+  end
+
+  defp supervise!(port, state) do
+    guard =
+      case Port.info(port, :os_pid) do
+        {:os_pid, pid} -> monitor_owner(self(), pid)
+        nil -> nil
+      end
 
     try do
       collect(port, state)
     after
       if guard, do: send(guard, :finished)
       if Port.info(port), do: terminate(port)
-      if log, do: File.close(log)
     end
   end
 

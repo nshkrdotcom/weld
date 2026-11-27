@@ -152,54 +152,53 @@ defmodule Weld.Shell.Hex do
 
   @doc false
   def validate_dependency_metadata!(metadata, dependencies) do
-    expected =
-      Enum.reduce(dependencies, %{}, fn dep, acc ->
-        {app, requirement, options} =
-          case dep do
-            %{"app" => app, "requirement" => requirement, "opts" => opts} ->
-              {app, requirement, opts}
-
-            [app, requirement, opts] ->
-              {app, requirement, opts}
-
-            _ ->
-              raise Error, "unsupported publication dependency record"
-          end
-
-        opts =
-          if is_list(options),
-            do: Map.new(options, fn [key, value] -> {key, value} end),
-            else: options
-
-        if is_nil(opts["only"]) or "prod" in List.wrap(opts["only"]) do
-          unless is_binary(requirement) and is_nil(opts["path"]) and is_nil(opts["git"]) and
-                   is_nil(opts["github"]),
-                 do: raise(Error, "non-Hex dependency in publishable package")
-
-          name = opts["hex"] || app
-          if Map.has_key?(acc, name), do: raise(Error, "duplicate publication dependency alias")
-
-          repository =
-            (opts["repo"] ||
-               if(opts["organization"], do: "hexpm:" <> opts["organization"], else: "hexpm"))
-            |> String.split(":", parts: 2)
-            |> List.last()
-
-          Map.put(acc, name, %{
-            "app" => app,
-            "requirement" => requirement,
-            "optional" => opts["optional"] || false,
-            "repository" => repository
-          })
-        else
-          acc
-        end
-      end)
+    expected = Enum.reduce(dependencies, %{}, &put_publication_requirement!/2)
 
     unless normalize_requirements!(metadata["requirements"] || %{}) == expected,
       do: raise(Error, "archive dependencies differ from compiler inventory")
 
     :ok
+  end
+
+  defp put_publication_requirement!(dep, acc) do
+    {app, requirement, options} = publication_dependency!(dep)
+    opts = publication_options(options)
+
+    if is_nil(opts["only"]) or "prod" in List.wrap(opts["only"]) do
+      validate_publication_source!(requirement, opts)
+      name = opts["hex"] || app
+      if Map.has_key?(acc, name), do: raise(Error, "duplicate publication dependency alias")
+
+      Map.put(acc, name, %{
+        "app" => app,
+        "requirement" => requirement,
+        "optional" => opts["optional"] || false,
+        "repository" => publication_repository(opts)
+      })
+    else
+      acc
+    end
+  end
+
+  defp publication_dependency!(%{"app" => app, "requirement" => requirement, "opts" => opts}),
+    do: {app, requirement, opts}
+
+  defp publication_dependency!([app, requirement, opts]), do: {app, requirement, opts}
+  defp publication_dependency!(_), do: raise(Error, "unsupported publication dependency record")
+
+  defp publication_options(options) when is_list(options),
+    do: Map.new(options, fn [key, value] -> {key, value} end)
+
+  defp publication_options(options), do: options
+
+  defp validate_publication_source!(requirement, opts) do
+    unless is_binary(requirement) and Enum.all?(~w(path git github), &is_nil(opts[&1])),
+      do: raise(Error, "non-Hex dependency in publishable package")
+  end
+
+  defp publication_repository(opts) do
+    default = if opts["organization"], do: "hexpm:" <> opts["organization"], else: "hexpm"
+    (opts["repo"] || default) |> String.split(":", parts: 2) |> List.last()
   end
 
   defp expected_metadata(%{otp_app: app, name: name, version: version}),
@@ -297,15 +296,7 @@ defmodule Weld.Shell.Hex do
   defp raw_terms!(chars, seen) do
     case :safe_erl_term.tokens([], chars) do
       {:done, {:ok, tokens, _}, rest} ->
-        case :erl_parse.parse_term(tokens) do
-          {:ok, {key, value}} when is_binary(key) ->
-            if MapSet.member?(seen, key), do: raise(Error, "duplicate Hex metadata key")
-            validate_raw_value!(value)
-            raw_terms!(rest, MapSet.put(seen, key))
-
-          _ ->
-            raise Error, "invalid Hex metadata term"
-        end
+        raw_term!(tokens, rest, seen)
 
       {:more, continuation} ->
         unless match?({:done, {:eof, _}, _}, :safe_erl_term.tokens(continuation, :eof)),
@@ -318,6 +309,18 @@ defmodule Weld.Shell.Hex do
 
       _ ->
         raise Error, "invalid safe Hex metadata tokens"
+    end
+  end
+
+  defp raw_term!(tokens, rest, seen) do
+    case :erl_parse.parse_term(tokens) do
+      {:ok, {key, value}} when is_binary(key) ->
+        if MapSet.member?(seen, key), do: raise(Error, "duplicate Hex metadata key")
+        validate_raw_value!(value)
+        raw_terms!(rest, MapSet.put(seen, key))
+
+      _ ->
+        raise Error, "invalid Hex metadata term"
     end
   end
 
@@ -341,88 +344,91 @@ defmodule Weld.Shell.Hex do
 
   defp archive_observation!(plain, contents) do
     case :erl_tar.table({:binary, plain}, [:verbose]) do
-      {:ok, headers} ->
-        names = Enum.map(headers, &header_name!/1)
-
-        unless length(Enum.uniq(names)) == length(names),
-          do: raise(Error, "duplicate archive member")
-
-        content_names = Enum.map(contents, fn {name, _} -> to_string(name) end)
-
-        unless length(Enum.uniq(content_names)) == length(content_names),
-          do: raise(Error, "duplicate archive content")
-
-        content = Map.new(contents, fn {name, bytes} -> {to_string(name), bytes} end)
-
-        {entries, directories} =
-          Enum.reduce(headers, {[], []}, fn header, {files, dirs} ->
-            {name, type, size, _time, mode, _uid, _gid} = header
-            path = header_name!(header)
-
-            case type do
-              :regular ->
-                bytes = Map.get(content, to_string(name))
-
-                unless is_binary(bytes) and byte_size(bytes) == size and
-                         Bitwise.band(mode, 0o7777) in [0o644, 0o755],
-                       do:
-                         raise(
-                           Error,
-                           "archive member has invalid size or normalized mode: #{path}"
-                         )
-
-                entry = %{
-                  "path" => path,
-                  "sha256" => Identity.raw(bytes),
-                  "size" => size,
-                  "executable" => Bitwise.band(mode, 0o111) != 0
-                }
-
-                {[entry | files], dirs}
-
-              :directory ->
-                unless size == 0 and Bitwise.band(mode, 0o7777) == 0o755,
-                  do: raise(Error, "archive directory has invalid mode or size: #{path}")
-
-                {files, [path | dirs]}
-
-              _ ->
-                raise Error, "archive contains a link or unsupported entry: #{path}"
-            end
-          end)
-
-        unless Enum.sort(content_names) == Enum.sort(Enum.map(entries, & &1["path"])),
-          do: raise(Error, "archive table and extracted content disagree")
-
-        _ =
-          Inventory.validate!(
-            Enum.map(entries, fn entry -> Map.put(entry, :target, entry["path"]) end)
-          )
-
-        files = MapSet.new(Enum.map(entries, & &1["path"]))
-
-        for directory <- directories do
-          if MapSet.member?(files, directory) or
-               Enum.any?(files, &String.starts_with?(directory, &1 <> "/")),
-             do: raise(Error, "archive file/directory collision")
-        end
-
-        empty =
-          Enum.reject(directories, fn directory ->
-            Enum.any?(names, &String.starts_with?(&1, directory <> "/"))
-          end)
-
-        %{
-          entries: Enum.sort_by(entries, & &1["path"]),
-          empty_dirs: Enum.sort(empty),
-          directories: Enum.sort(directories)
-        }
-
-      _ ->
-        raise Error, "malformed archive headers or checksum"
+      {:ok, headers} -> observe_archive_headers!(headers, contents)
+      _ -> raise Error, "malformed archive headers or checksum"
     end
   rescue
     error in ArgumentError -> reraise Error, [message: Exception.message(error)], __STACKTRACE__
+  end
+
+  defp observe_archive_headers!(headers, contents) do
+    names = Enum.map(headers, &header_name!/1)
+
+    unless length(Enum.uniq(names)) == length(names),
+      do: raise(Error, "duplicate archive member")
+
+    content_names = Enum.map(contents, fn {name, _} -> to_string(name) end)
+
+    unless length(Enum.uniq(content_names)) == length(content_names),
+      do: raise(Error, "duplicate archive content")
+
+    content = Map.new(contents, fn {name, bytes} -> {to_string(name), bytes} end)
+
+    {entries, directories} =
+      Enum.reduce(headers, {[], []}, &observe_archive_member!(&1, content, &2))
+
+    files = Enum.map(entries, & &1["path"])
+
+    unless Enum.sort(content_names) == Enum.sort(files),
+      do: raise(Error, "archive table and extracted content disagree")
+
+    validate_archive_structure!(files, directories)
+
+    empty =
+      Enum.reject(directories, fn directory ->
+        Enum.any?(names, &String.starts_with?(&1, directory <> "/"))
+      end)
+
+    %{
+      entries: Enum.sort_by(entries, & &1["path"]),
+      empty_dirs: Enum.sort(empty),
+      directories: Enum.sort(directories)
+    }
+  end
+
+  defp observe_archive_member!(
+         {name, :regular, size, _, mode, _, _} = header,
+         content,
+         {files, dirs}
+       ) do
+    path = header_name!(header)
+    bytes = Map.get(content, to_string(name))
+
+    unless is_binary(bytes) and byte_size(bytes) == size and
+             Bitwise.band(mode, 0o7777) in [0o644, 0o755],
+           do: raise(Error, "archive member has invalid size or normalized mode: #{path}")
+
+    entry = %{
+      "path" => path,
+      "sha256" => Identity.raw(bytes),
+      "size" => size,
+      "executable" => Bitwise.band(mode, 0o111) != 0
+    }
+
+    {[entry | files], dirs}
+  end
+
+  defp observe_archive_member!({_, :directory, size, _, mode, _, _} = header, _, {files, dirs}) do
+    path = header_name!(header)
+
+    unless size == 0 and Bitwise.band(mode, 0o7777) == 0o755,
+      do: raise(Error, "archive directory has invalid mode or size: #{path}")
+
+    {files, [path | dirs]}
+  end
+
+  defp observe_archive_member!(header, _, _),
+    do: raise(Error, "archive contains a link or unsupported entry: #{header_name!(header)}")
+
+  defp validate_archive_structure!(files, directories) do
+    _ = Inventory.validate!(Enum.map(files, &%{target: &1}))
+    files = MapSet.new(files)
+
+    for directory <- directories do
+      if MapSet.member?(files, directory) or
+           Enum.any?(files, &String.starts_with?(directory, &1 <> "/")),
+         do: raise(Error, "archive file/directory collision")
+    end
   end
 
   defp header_name!({name, type, _size, _time, _mode, _uid, _gid}) do
@@ -587,14 +593,7 @@ defmodule Weld.Shell.Hex do
     unless is_function(transport[:read], 3) and is_function(transport[:write], 4),
       do: raise(Error, "invalid exact-byte Hex transport")
 
-    trust = transport[:trust]
-
-    unless is_map(trust) and trust[:authenticated] == true and trust[:authoritative] == true and
-             trust[:adapter] == "hex_core/0.21.1",
-           do:
-             raise(Error, "remote evidence requires authenticated, authoritative Hex trust facts")
-
-    _ = safe_endpoint!(trust.destination, trust[:conformance] == :loopback)
+    trust = transport_trust!(transport[:trust])
 
     if operation == :write and not qualified_transport?(trust),
       do:
@@ -605,6 +604,16 @@ defmodule Weld.Shell.Hex do
 
     transport
   end
+
+  defp transport_trust!(
+         %{authenticated: true, authoritative: true, adapter: "hex_core/0.21.1"} = trust
+       ) do
+    _ = safe_endpoint!(trust.destination, trust[:conformance] == :loopback)
+    trust
+  end
+
+  defp transport_trust!(_),
+    do: raise(Error, "remote evidence requires authenticated, authoritative Hex trust facts")
 
   defp qualified_transport?(%{conformance: :loopback, destination: destination}) do
     URI.parse(destination).host in ["127.0.0.1", "::1", "localhost"]
@@ -784,20 +793,7 @@ defmodule Weld.Shell.Hex do
     case transport.read.(part, candidate.name, candidate.version) do
       {:ok, %{state: state, authoritative: true} = value}
       when state in ["confirmed", "absent", "rejected", "staged"] ->
-        cond do
-          state == "confirmed" and not Identity.valid?(value[:sha256]) ->
-            observation("unknown", "missing_trusted_digest")
-
-          state == "confirmed" and value.sha256 != expected ->
-            observation("conflict", "remote_checksum_conflict", value)
-
-          state == "staged" and is_binary(value[:sha256]) and value.sha256 != expected ->
-            observation("conflict", "staged_checksum_conflict", value)
-
-          true ->
-            observation(state, value[:code] || "authoritative_readback", value)
-            |> safe_location(transport.trust.destination)
-        end
+        readback_observation(state, value, expected, transport.trust.destination)
 
       _ ->
         observation("unknown", "untrusted_or_unsupported_readback")
@@ -806,6 +802,26 @@ defmodule Weld.Shell.Hex do
     _ -> observation("unknown", "remote_read_failed")
   catch
     _, _ -> observation("unknown", "remote_read_interrupted")
+  end
+
+  defp readback_observation("confirmed", value, expected, destination) do
+    cond do
+      not Identity.valid?(value[:sha256]) -> observation("unknown", "missing_trusted_digest")
+      value.sha256 != expected -> observation("conflict", "remote_checksum_conflict", value)
+      true -> trusted_readback("confirmed", value, destination)
+    end
+  end
+
+  defp readback_observation("staged", %{sha256: sha} = value, expected, _destination)
+       when is_binary(sha) and sha != expected,
+       do: observation("conflict", "staged_checksum_conflict", value)
+
+  defp readback_observation(state, value, _expected, destination),
+    do: trusted_readback(state, value, destination)
+
+  defp trusted_readback(state, value, destination) do
+    observation(state, value[:code] || "authoritative_readback", value)
+    |> safe_location(destination)
   end
 
   defp ensure_retry!(prior, remote, metadata) do
@@ -969,13 +985,7 @@ defmodule Weld.Shell.Hex do
         Output.reject_tree_links!(root)
 
         Path.wildcard(Path.join(root, "*/*/*.json"))
-        |> Enum.map(fn path ->
-          bytes = File.read!(path)
-          if byte_size(bytes) > 1024 * 1024, do: raise(Error, "oversized publication outcome")
-          record = Jason.decode!(bytes)
-          validate_outcome!(record, path, bytes)
-          record
-        end)
+        |> Enum.map(&read_outcome!/1)
         |> Enum.filter(fn record ->
           record["destination"] == destination and record["package"] == candidate.name and
             record["version"] == candidate.version
@@ -985,6 +995,14 @@ defmodule Weld.Shell.Hex do
       end
 
     order_outcomes!(records, nil, [])
+  end
+
+  defp read_outcome!(path) do
+    bytes = File.read!(path)
+    if byte_size(bytes) > 1024 * 1024, do: raise(Error, "oversized publication outcome")
+    record = Jason.decode!(bytes)
+    validate_outcome!(record, path, bytes)
+    record
   end
 
   defp validate_outcome!(record, path, bytes) do
