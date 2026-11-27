@@ -1,7 +1,7 @@
 # Weld 0.20.0 acceptance and evidence
 
 This ledger maps the complete Part 2 acceptance contract to the current source.
-This is the implementation and coverage map. The original editing environment
+The original editing environment
 had no Elixir, Erlang or Mix. Runtime QC records execution results separately,
 with the exact source commit and command exit status for each run.
 

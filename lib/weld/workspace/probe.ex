@@ -16,9 +16,12 @@ defmodule Weld.Workspace.Probe do
     |> Task.async_stream(
       fn {id, env} ->
         path = if id == ".", do: root, else: Path.join(root, id)
-        {:observed, {{id, env}, run!(root, path, id, env, opts)}}
-      rescue
-        error -> {:raised, error, __STACKTRACE__}
+
+        try do
+          {:observed, {{id, env}, run!(root, path, id, env, opts)}}
+        rescue
+          error -> {:raised, error, __STACKTRACE__}
+        end
       end,
       max_concurrency: 4,
       ordered: true,
