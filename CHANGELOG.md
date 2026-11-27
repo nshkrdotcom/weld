@@ -76,6 +76,8 @@ pending. Historical checkpoint results do not qualify these changes.
   components and flat. Preserve native Mix callbacks and nested path behavior
   through the common executor. Keep checked-in docs hooks and installed `priv`
   bootstrap independent of the original checkout.
+- Relocated bootstrap config imports the observed environment companion when
+  present. A missing optional environment companion leaves base config intact.
 - Keep ordinary live code linked where safe; copy native, configuration,
   metadata and mutable runtime inputs. Require refresh for copied input,
   structural, discovery and flat topology changes. Validate exact expected

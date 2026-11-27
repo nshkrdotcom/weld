@@ -131,17 +131,10 @@ defmodule Weld.Config.Generator do
     end
   end
 
-  defp sanitize_config_source!(facts, contents, source_path, source_root, opts) do
-    strip_imports? = Keyword.get(opts, :strip_imports?, false)
-
-    case Code.string_to_quoted(contents, file: source_path) do
-      {:ok, ast} ->
-        ast
-        |> sanitize_config_ast(strip_imports?, facts, source_path, source_root)
-        |> sanitized_config_source()
-
-      {:error, error} ->
-        raise Error, "unable to parse #{source_path}: #{format_parse_error(error)}"
+  defp parse_config!(facts, source) do
+    case Code.string_to_quoted(Facts.read!(facts, source), file: source) do
+      {:ok, ast} -> ast
+      {:error, error} -> raise Error, "unable to parse #{source}: #{format_parse_error(error)}"
     end
   end
 
@@ -323,29 +316,44 @@ defmodule Weld.Config.Generator do
     static_target = Path.join(static_root, relative)
     runtime_target = Path.join(runtime_root, relative)
 
-    static =
-      case Path.extname(source) do
-        ".exs" ->
-          content =
-            sanitize_config_source!(facts, Facts.read!(facts, source), source, source_root,
-              strip_imports?: relative == "config.exs"
-            )
+    private_target = if private_root, do: Path.join(private_root, relative)
 
-          FilePlan.generated(static_target, content, :metadata, [source], :transform)
+    {static, private} =
+      if Path.extname(source) == ".exs" do
+        ast = parse_config!(facts, source)
+        root_config? = relative == "config.exs"
+        ast_mode = if root_config?, do: :static_root, else: :static
 
-        _ ->
-          FilePlan.copy(source, static_target, :metadata, :copy)
+        content =
+          ast |> sanitize_config_ast(ast_mode, facts, source, source_root) |> config_source()
+
+        {FilePlan.generated(static_target, content, :metadata, [source], :transform),
+         bootstrap_config(ast, root_config?, facts, source, source_root, private_target)}
+      else
+        {FilePlan.copy(source, static_target, :metadata, :copy),
+         private_config_copy(source, private_target)}
       end
 
-    private =
-      if private_root,
-        do: [FilePlan.copy(source, Path.join(private_root, relative), :runtime, :copy)],
-        else: []
-
-    [static, FilePlan.copy(source, runtime_target, :metadata, :copy)] ++ private
+    [static, FilePlan.copy(source, runtime_target, :metadata, :copy)] ++ List.wrap(private)
   end
 
-  defp sanitize_config_ast(ast, strip_imports?, facts, source, source_root) do
+  defp bootstrap_config(ast, true, facts, source, source_root, target) when is_binary(target) do
+    relocated = sanitize_config_ast(ast, :bootstrap, facts, source, source_root)
+
+    if relocated == ast do
+      private_config_copy(source, target)
+    else
+      FilePlan.generated(target, config_source(relocated), :runtime, [source], :transform)
+    end
+  end
+
+  defp bootstrap_config(_ast, _root?, _facts, source, _source_root, target),
+    do: private_config_copy(source, target)
+
+  defp private_config_copy(_source, nil), do: nil
+  defp private_config_copy(source, target), do: FilePlan.copy(source, target, :runtime, :copy)
+
+  defp sanitize_config_ast(ast, mode, facts, source, source_root) do
     Macro.prewalk(ast, fn
       {:import_config, _, [relative]} = node when is_binary(relative) ->
         Inventory.validate_path!(relative)
@@ -361,10 +369,10 @@ defmodule Weld.Config.Generator do
         supported =
           Macro.to_string(expression) in [~S|"#{config_env()}.exs"|, ~S|"#{Mix.env()}.exs"|]
 
-        unless supported and strip_imports?,
+        unless supported and mode in [:static_root, :bootstrap],
           do: raise(Error, "unsupported dynamic config import: #{source}")
 
-        :ok
+        if mode == :bootstrap, do: environment_imports(facts, source_root), else: :ok
 
       {:import_config, _, _} ->
         raise Error, "unsupported config import: #{source}"
@@ -374,7 +382,21 @@ defmodule Weld.Config.Generator do
     end)
   end
 
-  defp sanitized_config_source(ast), do: ast |> Macro.to_string() |> SourceFormatter.format!()
+  defp environment_imports(facts, root) do
+    # Only observed companions enter the relocated case. If one is removed
+    # after projection, its explicit import still fails.
+    clauses =
+      for env <- [:dev, :test, :prod],
+          name = Atom.to_string(env) <> ".exs",
+          Facts.regular?(facts, Path.join(root, name)) do
+        {:->, [], [[env], {:import_config, [], [name]}]}
+      end
+
+    fallback = {:->, [], [[{:_, [], nil}], :ok]}
+    {:case, [], [{:config_env, [], []}, [do: clauses ++ [fallback]]]}
+  end
+
+  defp config_source(ast), do: ast |> Macro.to_string() |> SourceFormatter.format!()
 
   defp shared_test_import?(entry, shared_test_configs) do
     "test.exs" in entry.files and shared_test_config?(shared_test_configs, entry)
