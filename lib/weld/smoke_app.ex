@@ -129,23 +129,7 @@ defmodule Weld.SmokeApp do
         :test
       )
 
-      if opts[:offline_rebuild] do
-        :inets.stop(:httpd, server)
-        File.rm_rf!(Path.join(root, "cache/build"))
-        File.rm_rf!(Path.join(root, "cache/deps"))
-
-        run!(root, ["deps.get", "--check-locked"], "offline-install", :dev, [{"HEX_OFFLINE", "1"}])
-
-        run!(root, ["deps.compile"], "offline-native-compile", :dev, [{"HEX_OFFLINE", "1"}])
-
-        run!(
-          root,
-          ["test", "--warnings-as-errors", "--seed", "0", "--max-cases", "1"],
-          "offline-test",
-          :test,
-          [{"HEX_OFFLINE", "1"}]
-        )
-      end
+      if opts[:offline_rebuild], do: offline_archive_rebuild!(root, server)
 
       unless Hash.sha256_file(frozen_tar) == observation.outer_checksum and
                Hash.sha256_file(tarball) == observation.outer_checksum,
@@ -167,6 +151,24 @@ defmodule Weld.SmokeApp do
     after
       :inets.stop(:httpd, server)
     end
+  end
+
+  defp offline_archive_rebuild!(root, server) do
+    :inets.stop(:httpd, server)
+    File.rm_rf!(Path.join(root, "cache/build"))
+    File.rm_rf!(Path.join(root, "cache/deps"))
+
+    run!(root, ["deps.get", "--check-locked"], "offline-install", :dev, [{"HEX_OFFLINE", "1"}])
+
+    run!(root, ["deps.compile"], "offline-native-compile", :dev, [{"HEX_OFFLINE", "1"}])
+
+    run!(
+      root,
+      ["test", "--warnings-as-errors", "--seed", "0", "--max-cases", "1"],
+      "offline-test",
+      :test,
+      [{"HEX_OFFLINE", "1"}]
+    )
   end
 
   defp consumer!(root, app, dependency, smoke_source) do

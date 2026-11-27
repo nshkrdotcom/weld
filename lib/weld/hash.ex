@@ -23,36 +23,39 @@ defmodule Weld.Hash do
     if count >= @max_entries, do: raise(Error, "observed tree exceeds entry limit")
     path = if relative == "", do: root, else: safe_path!(root, relative)
 
-    case File.lstat!(path) do
-      %{type: :regular, size: size, mode: mode} ->
-        if relative == "", do: raise(Error, "observed tree root must be a directory")
-        if bytes + size > @max_bytes, do: raise(Error, "observed tree exceeds byte limit")
+    collect(root, relative, path, File.lstat!(path), count, bytes)
+  end
 
-        {[
-           %{
-             "path" => relative,
-             "sha256" => sha256_file(path),
-             "size" => size,
-             "executable" => Bitwise.band(mode, 0o111) != 0
-           }
-         ], [], count + 1, bytes + size}
+  defp collect(_root, "", _path, %{type: :regular}, _count, _bytes),
+    do: raise(Error, "observed tree root must be a directory")
 
-      %{type: :directory} ->
-        names = File.ls!(path) |> Enum.sort()
+  defp collect(_root, relative, path, %{type: :regular, size: size, mode: mode}, count, bytes) do
+    if bytes + size > @max_bytes, do: raise(Error, "observed tree exceeds byte limit")
+    {[file_record(path, relative, size, mode)], [], count + 1, bytes + size}
+  end
 
-        Enum.reduce(
-          names,
-          {[], if(names == [] and relative != "", do: [relative], else: []), count + 1, bytes},
-          fn name, {entries, dirs, count, bytes} ->
-            child = if relative == "", do: name, else: Path.join(relative, name)
-            {next, empty, count, bytes} = walk(root, child, count, bytes)
-            {next ++ entries, empty ++ dirs, count, bytes}
-          end
-        )
+  defp collect(root, relative, path, %{type: :directory}, count, bytes) do
+    names = File.ls!(path) |> Enum.sort()
+    empty_dirs = if names == [] and relative != "", do: [relative], else: []
 
-      _ ->
-        raise Error, "unsafe file tree: #{relative}"
-    end
+    Enum.reduce(names, {[], empty_dirs, count + 1, bytes}, fn name,
+                                                              {entries, dirs, count, bytes} ->
+      child = if relative == "", do: name, else: Path.join(relative, name)
+      {next, empty, count, bytes} = walk(root, child, count, bytes)
+      {next ++ entries, empty ++ dirs, count, bytes}
+    end)
+  end
+
+  defp collect(_root, relative, _path, _stat, _count, _bytes),
+    do: raise(Error, "unsafe file tree: #{relative}")
+
+  defp file_record(path, relative, size, mode) do
+    %{
+      "path" => relative,
+      "sha256" => sha256_file(path),
+      "size" => size,
+      "executable" => Bitwise.band(mode, 0o111) != 0
+    }
   end
 
   def safe_path!(root, relative) do
@@ -88,12 +91,7 @@ defmodule Weld.Hash do
 
       case File.lstat!(path) do
         %{type: :regular, size: size, mode: mode} ->
-          %{
-            "path" => relative,
-            "sha256" => sha256_file(path),
-            "size" => size,
-            "executable" => Bitwise.band(mode, 0o111) != 0
-          }
+          file_record(path, relative, size, mode)
 
         _ ->
           raise Error, "expected regular file: #{relative}"

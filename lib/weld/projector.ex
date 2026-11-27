@@ -46,14 +46,7 @@ defmodule Weld.Projector do
       recheck_inputs!(plan, inventory["input_id"])
       if kind == :full and File.exists?(target), do: Output.reject_tree_links!(target)
 
-      Output.with_lock(root, fn ->
-        # Reserve ownership before the first replace, but never label an
-        # existing unmanaged target. A crash can leave an owned empty slot.
-        if File.exists?(target) and not owned?(owner, plan.artifact.id, kind),
-          do: raise(Error, "unmanaged output: #{target}")
-
-        Output.write_atomic!(owner, Identity.canonical(owner_record(plan.artifact.id, kind)))
-      end)
+      reserve_view!(root, target, owner, plan.artifact.id, kind)
 
       Output.activate!(stage, target, fn _ -> owned?(owner, plan.artifact.id, kind) end,
         lease: lease,
@@ -63,6 +56,17 @@ defmodule Weld.Projector do
       write_receipt!(receipt, plan, kind, target, inventory)
       projection(plan, target, kind, false)
     end
+  end
+
+  defp reserve_view!(root, target, owner, artifact, kind) do
+    Output.with_lock(root, fn ->
+      # Reserve ownership before the first replace, but never label an
+      # existing unmanaged target. A crash can leave an owned empty slot.
+      if File.exists?(target) and not owned?(owner, artifact, kind),
+        do: raise(Error, "unmanaged output: #{target}")
+
+      Output.write_atomic!(owner, Identity.canonical(owner_record(artifact, kind)))
+    end)
   end
 
   def materialize_verification!(plan, stage) do

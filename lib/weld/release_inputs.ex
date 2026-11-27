@@ -81,15 +81,19 @@ defmodule Weld.ReleaseInputs do
     source = __MODULE__.module_info(:compile)[:source]
 
     if (is_list(source) or is_binary(source)) and File.regular?(to_string(source)) do
-      case Weld.Git.root(Path.dirname(to_string(source))) do
-        nil -> "unidentified_development_compiler"
-        root -> if Weld.Git.dirty?(root), do: "dirty_development_compiler", else: :ok
-      end
+      development_compiler_reuse(Path.dirname(to_string(source)))
     else
       if is_list(:code.which(__MODULE__)), do: :ok, else: "unidentified_compiler"
     end
   rescue
     _ -> "unidentified_development_compiler"
+  end
+
+  defp development_compiler_reuse(directory) do
+    case Weld.Git.root(directory) do
+      nil -> "unidentified_development_compiler"
+      root -> if Weld.Git.dirty?(root), do: "dirty_development_compiler", else: :ok
+    end
   end
 
   # The actual subprocesses use a fresh Hex home and the default authenticated

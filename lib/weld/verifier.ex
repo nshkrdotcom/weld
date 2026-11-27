@@ -126,10 +126,86 @@ defmodule Weld.Verifier do
 
   defp verify_run!(plan, run_root, opts) do
     plan = Plan.ensure_valid!(plan)
+    specs = Map.new(gate_specs(plan), &{&1.id, &1})
+
+    {state, projection, metadata, gates, operations} =
+      materialize_and_resolve!(plan, run_root, opts, specs["G08"])
+
+    {baseline, baseline_ops, gate} = check_source_tests!(state, specs["G03"])
+    gates = gates ++ [gate]
+    boundary!(state, "G03", gates)
+
+    compile_ops = compile_project!(state)
+    gates = gates ++ [pass("G04", %{"dependency_compile" => true, "warnings_as_errors" => true})]
+    boundary!(state, "G04", gates)
+
+    {test_operation, gate} =
+      check_project_tests!(state, baseline, metadata.test.config, projection.verification_files)
+
+    gates = gates ++ [gate]
+    boundary!(state, "G05", gates)
+
+    {docs, docs_frozen, docs_operation, gate} = build_docs!(state)
+    gates = gates ++ [gate]
+    boundary!(state, "G06", gates)
+
+    {smoke_source, smoke_ops, gate} = check_path_consumer!(state, specs["G07"])
+    gates = gates ++ [gate]
+    boundary!(state, "G07", gates)
+
+    {tarball, package, hex_ops, gate} = build_package!(state, specs["G08"])
+    gates = gates ++ [gate]
+    boundary!(state, "G08", gates)
+
+    {preflight, gate} = check_package_preflight!(state, specs["G09"], tarball)
+    gates = gates ++ [gate]
+    boundary!(state, "G09", gates)
+
+    {consumer, gate} = check_archive_consumer!(state, specs["G10"], tarball, smoke_source)
+    gates = gates ++ [gate]
+    boundary!(state, "G10", gates)
+
+    {docs_archive, gate} = freeze_docs!(state, docs, docs_frozen, tarball)
+    gates = gates ++ [gate]
+    boundary!(state, "G11", gates)
+
+    check_frozen_outputs!(docs, docs_frozen, tarball, package, docs_archive)
+
+    gates =
+      gates ++
+        [
+          pass("G12", %{
+            "complete_inventory_rechecked" => true,
+            "source_provenance_rechecked" => true,
+            "lock_sha256" => state.lock_sha
+          })
+        ]
+
+    validate_gates!(gates, gate_specs(plan))
+    boundary!(state, "G12", gates)
+
+    operations =
+      operations ++
+        baseline_ops ++
+        compile_ops ++
+        [test_operation, docs_operation] ++
+        smoke_ops ++ hex_ops ++ preflight ++ consumer
+
+    outputs = %{
+      docs: docs,
+      docs_frozen: docs_frozen,
+      docs_archive: docs_archive,
+      tarball: tarball,
+      package: package
+    }
+
+    report_verification!(state, outputs, gates, operations)
+  end
+
+  defp materialize_and_resolve!(plan, run_root, opts, package_spec) do
     project = Path.join(run_root, "project")
     File.mkdir!(project)
     source_id = Weld.Plan.Inventory.portable(plan)["input_id"]
-    specs = Map.new(gate_specs(plan), &{&1.id, &1})
     projection = Projector.materialize_verification!(plan, project)
     initial = observe_project!(project, [])
 
@@ -172,11 +248,12 @@ defmodule Weld.Verifier do
 
     package_files = Enum.sort(projection.package_files)
 
-    expected_metadata =
-      if specs["G08"].required, do: package_metadata!(after_metadata.dev.config, package_files)
+    package_config = after_metadata.dev.config
 
-    package_empty_dirs =
-      package_empty_dirs!(project, after_metadata.dev.config, frozen.empty_dirs)
+    expected_metadata =
+      if package_spec.required, do: package_metadata!(package_config, package_files)
+
+    package_empty_dirs = package_empty_dirs!(project, package_config, frozen.empty_dirs)
 
     state = %{
       plan: plan,
@@ -184,6 +261,8 @@ defmodule Weld.Verifier do
       project: project,
       frozen: frozen,
       package_files: package_files,
+      expected_metadata: expected_metadata,
+      package_empty_dirs: package_empty_dirs,
       source_id: source_id,
       opts: opts,
       lock_sha: lock_sha
@@ -201,19 +280,18 @@ defmodule Weld.Verifier do
 
     boundary!(state, "G02", gates)
 
-    {baseline, baseline_operation, gate} =
-      if specs["G03"].required do
-        {baseline, result} = baseline!(state)
-        {baseline, [result], pass("G03", %{"tests" => baseline, "count" => length(baseline)})}
-      else
-        {[], [], skip(specs["G03"])}
-      end
+    {state, projection, after_metadata, gates, operations}
+  end
 
-    gates = gates ++ [gate]
-    operations = operations ++ baseline_operation
-    boundary!(state, "G03", gates)
+  defp check_source_tests!(state, %{required: true}) do
+    {baseline, result} = baseline!(state)
+    {baseline, [result], pass("G03", %{"tests" => baseline, "count" => length(baseline)})}
+  end
 
-    compile_ops = [
+  defp check_source_tests!(_state, spec), do: {[], [], skip(spec)}
+
+  defp compile_project!(%{project: project, root: run_root}) do
+    [
       run_mix!(project, run_root, :dev, ["deps.compile"], "G04-deps"),
       run_mix!(
         project,
@@ -223,33 +301,31 @@ defmodule Weld.Verifier do
         "G04-compile"
       )
     ]
+  end
 
-    gates = gates ++ [pass("G04", %{"dependency_compile" => true, "warnings_as_errors" => true})]
-    boundary!(state, "G04", gates)
+  defp check_project_tests!(state, baseline, config, verification_files) do
+    %{plan: plan, project: project, root: run_root} = state
     {test_operation, tests} = run_tests!(project, run_root, "G05")
     validate_test_mapping!(plan, baseline, tests)
 
     declared_tests =
-      declared_test_files!(project, after_metadata.test.config, projection.verification_files)
+      declared_test_files!(project, config, verification_files)
 
     if tests == [] and declared_tests != [],
       do: raise(Error, "G05: declared test files produced no execution identities")
 
-    gates =
-      gates ++
-        [
-          pass("G05", %{
-            "tests" => tests,
-            "count" => length(tests),
-            "source_mapping_verified" => true,
-            "zero_tests_reason" =>
-              if(tests == [], do: "no_declared_or_discovered_tests", else: nil)
-          })
-        ]
+    gate =
+      pass("G05", %{
+        "tests" => tests,
+        "count" => length(tests),
+        "source_mapping_verified" => true,
+        "zero_tests_reason" => if(tests == [], do: "no_declared_or_discovered_tests", else: nil)
+      })
 
-    operations = operations ++ compile_ops ++ [test_operation]
-    boundary!(state, "G05", gates)
+    {test_operation, gate}
+  end
 
+  defp build_docs!(%{project: project, root: run_root}) do
     docs_operation =
       run_mix!(
         project,
@@ -273,20 +349,20 @@ defmodule Weld.Verifier do
 
     docs_frozen = observe_tree!(docs)
 
-    gates =
-      gates ++
-        [
-          pass(
-            "G06",
-            Map.merge(portable(docs_check, docs), %{
-              "browser_rendering" => "not_claimed",
-              "policy" => "html_stable_groups_no_epub/2"
-            })
-          )
-        ]
+    gate =
+      pass(
+        "G06",
+        Map.merge(portable(docs_check, docs), %{
+          "browser_rendering" => "not_claimed",
+          "policy" => "html_stable_groups_no_epub/2"
+        })
+      )
 
-    operations = operations ++ [docs_operation]
-    boundary!(state, "G06", gates)
+    {docs, docs_frozen, docs_operation, gate}
+  end
+
+  defp check_path_consumer!(state, spec) do
+    %{plan: plan, project: project, root: run_root} = state
 
     smoke_source =
       if plan.artifact.verify.smoke.entry_file,
@@ -295,118 +371,97 @@ defmodule Weld.Verifier do
             Output.source!(plan.manifest.repo_root, plan.artifact.verify.smoke.entry_file)
           )
 
-    {smoke_ops, smoke_gate} =
-      if specs["G07"].required do
-        result = SmokeApp.verify_project!(plan, project, Path.join(run_root, "project-smoke"))
+    if spec.required do
+      result = SmokeApp.verify_project!(plan, project, Path.join(run_root, "project-smoke"))
 
-        {[result],
-         pass("G07", %{
-           "consumer" => "ordinary_mix_path",
-           "entry_sha256" => Identity.raw(smoke_source)
-         })}
-      else
-        {[], skip(specs["G07"])}
-      end
+      {smoke_source, [result],
+       pass("G07", %{
+         "consumer" => "ordinary_mix_path",
+         "entry_sha256" => Identity.raw(smoke_source)
+       })}
+    else
+      {smoke_source, [], skip(spec)}
+    end
+  end
 
-    gates = gates ++ [smoke_gate]
-    operations = operations ++ smoke_ops
-    boundary!(state, "G07", gates)
+  defp build_package!(state, %{required: true}) do
+    %{plan: plan, project: project, root: run_root, package_files: package_files} = state
+    %{expected_metadata: expected_metadata, package_empty_dirs: empty_dirs} = state
 
-    {tarball, package, hex_ops, gate} =
-      if specs["G08"].required do
-        operation = run_mix!(project, run_root, :dev, ["hex.build"], "G08")
-        produced = Path.join(project, archive_name(plan))
+    operation = run_mix!(project, run_root, :dev, ["hex.build"], "G08")
+    produced = Path.join(project, archive_name(plan))
 
-        :ok =
-          Hex.check_package!(produced, project, package_files, expected_metadata,
-            empty_dirs: package_empty_dirs
-          )
+    :ok =
+      Hex.check_package!(produced, project, package_files, expected_metadata,
+        empty_dirs: empty_dirs
+      )
 
-        package = Hex.package_observation!(produced)
+    package = Hex.package_observation!(produced)
 
-        :ok =
-          Hex.validate_dependency_metadata!(
-            package.metadata,
-            Weld.Plan.Inventory.portable(plan)["dependencies"]
-          )
+    :ok =
+      Hex.validate_dependency_metadata!(
+        package.metadata,
+        Weld.Plan.Inventory.portable(plan)["dependencies"]
+      )
 
-        target = Path.join(run_root, "package.tar")
-        File.rename!(produced, target)
+    target = Path.join(run_root, "package.tar")
+    File.rename!(produced, target)
 
-        {target, package, [operation],
-         pass("G08", %{
-           "archive_sha256" => Hash.sha256_file(target),
-           "package_id" => package_id(package),
-           "entries" => length(package.entries)
-         })}
-      else
-        {nil, nil, [disabled("hex.build", :artifact_opted_out)], skip(specs["G08"])}
-      end
+    {target, package, [operation],
+     pass("G08", %{
+       "archive_sha256" => Hash.sha256_file(target),
+       "package_id" => package_id(package),
+       "entries" => length(package.entries)
+     })}
+  end
 
-    gates = gates ++ [gate]
-    operations = operations ++ hex_ops
-    boundary!(state, "G08", gates)
+  defp build_package!(_state, spec) do
+    {nil, nil, [disabled("hex.build", :artifact_opted_out)], skip(spec)}
+  end
 
-    {preflight, gate} =
-      if specs["G09"].required do
-        result = preflight!(state, tarball)
+  defp check_package_preflight!(state, %{required: true}, tarball) do
+    result = preflight!(state, tarball)
 
-        {[result],
-         pass("G09", %{
-           "isolated" => true,
-           "archive_sha256" => Hash.sha256_file(tarball),
-           "matching_rebuild" => true
-         })}
-      else
-        {[
-           disabled(
-             "hex.publish --dry-run --yes",
-             if(tarball, do: :artifact_opted_out, else: :hex_build_disabled)
-           )
-         ], skip(specs["G09"])}
-      end
+    {[result],
+     pass("G09", %{
+       "isolated" => true,
+       "archive_sha256" => Hash.sha256_file(tarball),
+       "matching_rebuild" => true
+     })}
+  end
 
-    gates = gates ++ [gate]
-    operations = operations ++ preflight
-    boundary!(state, "G09", gates)
+  defp check_package_preflight!(_state, spec, tarball) do
+    reason = if tarball, do: :artifact_opted_out, else: :hex_build_disabled
+    {[disabled("hex.publish --dry-run --yes", reason)], skip(spec)}
+  end
 
-    {consumer, gate} =
-      if specs["G10"].required do
-        result =
-          SmokeApp.verify_archive!(
-            plan,
-            tarball,
-            Path.join(run_root, "hex-consumer"),
-            smoke_source
-          )
+  defp check_archive_consumer!(state, %{required: true}, tarball, smoke_source) do
+    %{plan: plan, root: run_root} = state
 
-        {[result], pass("G10", portable(Map.drop(result, [:task, :env, :status]), run_root))}
-      else
-        {[], skip(specs["G10"])}
-      end
+    result =
+      SmokeApp.verify_archive!(plan, tarball, Path.join(run_root, "hex-consumer"), smoke_source)
 
-    gates = gates ++ [gate]
-    operations = operations ++ consumer
-    boundary!(state, "G10", gates)
+    {[result], pass("G10", portable(Map.drop(result, [:task, :env, :status]), run_root))}
+  end
 
+  defp check_archive_consumer!(_state, spec, _tarball, _smoke_source), do: {[], skip(spec)}
+
+  defp freeze_docs!(%{root: run_root}, docs, docs_frozen, tarball) do
     unless docs_frozen == observe_tree!(docs),
       do: raise(Error, "G11: docs payload changed after generation")
 
     docs_archive = if tarball, do: Hex.freeze_docs!(docs, Path.join(run_root, "docs.tar.gz"))
 
-    gates =
-      gates ++
-        [
-          pass("G11", %{
-            "docs_id" => tree_id("docs", docs_frozen),
-            "docs_archive_sha256" => docs_archive && docs_archive.sha256,
-            "roundtrip_verified" => not is_nil(docs_archive),
-            "archive_policy" => if(tarball, do: "exact_frozen_payload", else: "non_hex_docs_tree")
-          })
-        ]
+    {docs_archive,
+     pass("G11", %{
+       "docs_id" => tree_id("docs", docs_frozen),
+       "docs_archive_sha256" => docs_archive && docs_archive.sha256,
+       "roundtrip_verified" => not is_nil(docs_archive),
+       "archive_policy" => if(tarball, do: "exact_frozen_payload", else: "non_hex_docs_tree")
+     })}
+  end
 
-    boundary!(state, "G11", gates)
-
+  defp check_frozen_outputs!(docs, docs_frozen, tarball, package, docs_archive) do
     if tarball do
       unless package == Hex.package_observation!(tarball),
         do: raise(Error, "G12: frozen package archive changed")
@@ -416,19 +471,27 @@ defmodule Weld.Verifier do
 
     if docs_archive && Hash.sha256_file(docs_archive.path) != docs_archive.sha256,
       do: raise(Error, "G12: frozen docs archive changed")
+  end
 
-    gates =
-      gates ++
-        [
-          pass("G12", %{
-            "complete_inventory_rechecked" => true,
-            "source_provenance_rechecked" => true,
-            "lock_sha256" => lock_sha
-          })
-        ]
+  defp report_verification!(state, outputs, gates, operations) do
+    %{
+      plan: plan,
+      project: project,
+      root: run_root,
+      frozen: frozen,
+      opts: opts,
+      lock_sha: lock_sha,
+      package_files: package_files
+    } = state
 
-    validate_gates!(gates, gate_specs(plan))
-    boundary!(state, "G12", gates)
+    %{
+      docs: docs,
+      docs_frozen: docs_frozen,
+      docs_archive: docs_archive,
+      tarball: tarball,
+      package: package
+    } = outputs
+
     observations = ReleaseInputs.observations(plan, opts[:context] || opts[:reuse])
 
     qualification = %{
