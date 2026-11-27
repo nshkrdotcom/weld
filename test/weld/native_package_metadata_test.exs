@@ -3,6 +3,7 @@ defmodule Weld.NativePackageMetadataTest do
 
   alias Weld.{Commands, Error, FixtureCase, Plan}
   alias Weld.Plan.Inventory
+  alias Weld.Shell.Hex
 
   setup do
     root = FixtureCase.copy_fixture("source_project")
@@ -17,12 +18,14 @@ defmodule Weld.NativePackageMetadataTest do
 
   @tag :slow
   test "native staging preserves supported Hex package options", %{
+    root: root,
     mixfile: mixfile,
     manifest: manifest
   } do
     mix =
       put_package_options(mixfile, ~s(organization: "test_org", executables: ["priv/theme.txt"],))
 
+    File.chmod!(Path.join(root, "priv/theme.txt"), 0o755)
     full = Commands.project!(manifest)
     assert File.read!(Path.join(full.build_path, "mix.exs")) == mix
   end
@@ -115,6 +118,81 @@ defmodule Weld.NativePackageMetadataTest do
     File.write!(manifest, manifest_source)
     full = Commands.project!(manifest)
     assert "Makefile.win" in full.package_files
+
+    detached = Path.join(FixtureCase.unique_tmp_dir("hex_defaults"), "project")
+    File.cp_r!(full.build_path, detached)
+
+    {output, status} =
+      System.cmd("mix", ["hex.build"],
+        cd: detached,
+        stderr_to_stdout: true,
+        env: [
+          {"MIX_ENV", "dev"},
+          {"MIX_BUILD_PATH", nil},
+          {"MIX_BUILD_ROOT", nil},
+          {"MIX_DEPS_PATH", nil}
+        ]
+      )
+
+    assert status == 0, output
+    archive = Path.join(detached, "sprout-0.1.0.tar")
+    assert :ok = Hex.check_package!(archive, detached, full.package_files, %{})
+  end
+
+  @tag :slow
+  test "native staging rejects drift in top-level package description", %{
+    mixfile: mixfile,
+    manifest: manifest
+  } do
+    File.write!(
+      mixfile,
+      mixfile
+      |> File.read!()
+      |> String.replace(
+        ~s(description: "Neutral source-project integration fixture"),
+        ~s|description: if(String.contains?(__DIR__, "/.weld/"), do: "Staged", else: "Source")|
+      )
+    )
+
+    assert_raise Error, ~r/staged project metadata differs from source/, fn ->
+      Commands.project!(manifest)
+    end
+  end
+
+  @tag :slow
+  test "native staging rejects a changed test root", %{mixfile: mixfile, manifest: manifest} do
+    put_project_options(
+      mixfile,
+      ~s|test_paths: if(String.contains?(__DIR__, "/.weld/"), do: ["test/other"], else: ["test"]),|
+    )
+
+    assert_raise Error, ~r/staged project metadata differs from source/, fn ->
+      Commands.project!(manifest)
+    end
+  end
+
+  @tag :slow
+  test "explicit Erlang includes must be contained and present in the inventory", %{
+    root: root,
+    mixfile: mixfile,
+    manifest: manifest
+  } do
+    File.mkdir!(Path.join(root, "extra_headers"))
+    File.write!(Path.join(root, "extra_headers/local.hrl"), "-define(LOCAL, 1).\n")
+    original = File.read!(mixfile)
+    put_project_options(mixfile, ~s|erlc_options: [{:i, ~c"extra_headers"}],|)
+
+    assert_raise Error, ~r/source inventory missing extra_headers/, fn ->
+      Plan.build!(manifest)
+    end
+
+    File.mkdir!(Path.join(Path.dirname(root), "external_headers"))
+    File.write!(mixfile, original)
+    put_project_options(mixfile, ~s|erlc_options: [{:i, ~c"../external_headers"}],|)
+
+    assert_raise Error, ~r/Erlang include must be a contained directory/, fn ->
+      Plan.build!(manifest)
+    end
   end
 
   defp configure_preserve_erlc_include!(checkout, option_line) do

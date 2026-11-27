@@ -13,6 +13,13 @@ recorded in the release evidence.
 
 ### Added
 
+- Preserve the distinction between artifact-rooted and project-relative Erlang
+  includes in portable proof and staged native compiler comparisons. Require
+  explicit include directories to be covered by the detached source inventory.
+- Verify native project description, Elixir requirement and test settings in
+  staged metadata; apply flat OTP app identity checks to actual included tests
+  and test-support libraries instead of dormant suites.
+
 - Define closed schema 2 workspace, project input, artifact, layout, file,
   verification and publication declarations with path-qualified errors,
   duplicate/unknown-key rejection and explicit unsupported combinations.

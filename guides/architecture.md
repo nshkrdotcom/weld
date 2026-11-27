@@ -62,14 +62,17 @@ absorbed component OTP apps do not exist at runtime, flat validation allows
 `Application.app_dir/2` for the surviving `package.otp_app` (resolved against
 merged `priv/`) while rejecting `Application.app_dir/2` for absorbed component
 apps and rejecting `Application.app_dir/1` and `Application.ensure_all_started/1,2`
-across all selected projects.
+across selected and included test-support projects. The scan uses the projected
+source/test membership, not dormant test directories.
 
 **Preserve** copies a disjoint, explicit inventory around one native Mix project.
 Its full `mix.exs`, application callback, package metadata and dependencies remain
 source-owned. A fresh process validates each staged project/environment — comparing
 effective identity, dependencies, normalized compiler options and observed package
 fields per environment — so competing Mix module names cannot contaminate another
-probe. Missing helpers or escaping compiler and mutable paths fail. Unsupported
+probe. Explicit Erlang include paths must be covered by the detached inventory;
+relative and checkout-rooted includes remain distinct in portable evidence.
+Missing helpers or escaping compiler and mutable paths fail. Unsupported
 live Mix AST shapes fail with a full-view alternative; full projection does not
 require a live transform.
 

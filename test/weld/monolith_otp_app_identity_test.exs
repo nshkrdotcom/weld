@@ -85,8 +85,14 @@ defmodule Weld.MonolithOtpAppIdentityTest do
       """
     )
 
+    File.write!(
+      Path.join(root, "runtime/api/test/dormant/dormant_test.exs"),
+      "Application.app_dir(:fixture_store, \"priv/store.txt\")\n"
+    )
+
     result = Commands.project!(manifest)
     assert asset_relative in result.package_files
+    refute "test/runtime_api/dormant/dormant_test.exs" in result.verification_files
 
     relocated_parent = FixtureCase.unique_tmp_dir("relocated_surviving_monolith")
     relocated = Path.join(relocated_parent, "artifact")
@@ -118,6 +124,7 @@ defmodule Weld.MonolithOtpAppIdentityTest do
       defmodule Fixture.Store do
         @moduledoc false
         def source, do: Application.app_dir(:fixture_store, "priv/store.txt")
+        def piped, do: :fixture_store |> Elixir.Application.app_dir("priv/store.txt")
       end
       """
     )
@@ -140,8 +147,12 @@ defmodule Weld.MonolithOtpAppIdentityTest do
         Plan.build!(manifest)
       end
 
-    assert Exception.message(error) =~
-             "core/store/lib/fixture/store.ex uses Application.app_dir(:fixture_store)"
+    assert length(
+             :binary.matches(
+               Exception.message(error),
+               "core/store/lib/fixture/store.ex uses Application.app_dir(:fixture_store)"
+             )
+           ) == 2
 
     assert Exception.message(error) =~
              "runtime/api/test/fixture/api_test.exs uses Application.app_dir(:fixture_store)"

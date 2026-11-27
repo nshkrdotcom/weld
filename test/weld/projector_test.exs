@@ -1,7 +1,8 @@
 defmodule Weld.ProjectorTest do
   use ExUnit.Case, async: true
 
-  alias Weld.FixtureCase
+  alias Weld.{FixtureCase, Plan}
+  alias Weld.Plan.Inventory
 
   test "projects a standalone artifact without embedded proof reports or path deps" do
     result =
@@ -47,11 +48,23 @@ defmodule Weld.ProjectorTest do
       )
     )
 
+    root = Path.expand("../..", Path.dirname(manifest))
+    FixtureCase.init_git!(root)
+    local_origin = Path.join(Path.dirname(root), "local-origin")
+    FixtureCase.git_output!(root, ["remote", "add", "origin", local_origin])
+
     result = Weld.Commands.project!(manifest)
     mixfile = File.read!(Path.join(result.build_path, "mix.exs"))
     assert mixfile =~ "links: %{}"
     refute mixfile =~ "maintainers:"
     refute mixfile =~ "github.com/nshkrdotcom/weld"
+    refute mixfile =~ local_origin
+
+    first = Inventory.portable(Plan.build!(manifest))
+    FixtureCase.git_output!(root, ["remote", "set-url", "origin", "https://example.test/other"])
+    second = Inventory.portable(Plan.build!(manifest))
+    assert first["input_id"] == second["input_id"]
+    assert first["plan_id"] == second["plan_id"]
   end
 
   @tag :slow
@@ -65,7 +78,7 @@ defmodule Weld.ProjectorTest do
       projection = Weld.Commands.project!(manifest, options)
       refute projection.reused?
       assert Weld.Commands.project!(manifest, options).reused?
-      plan = Weld.Plan.build!(manifest)
+      plan = Plan.build!(manifest)
       kind = if options[:live], do: "live", else: "full"
 
       marker =

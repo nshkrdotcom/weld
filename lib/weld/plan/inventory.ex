@@ -1038,9 +1038,9 @@ defmodule Weld.Plan.Inventory do
   defp wire(value, root) when is_list(value), do: Enum.map(value, &wire(&1, root))
 
   defp wire({:i, path}, root) when is_list(path) do
-    case CoreInventory.relative_charlist_path(path, root) do
+    case CoreInventory.portable_erlc_include(path, root) do
       nil -> ["i", wire(path, root)]
-      relative -> ["i", relative]
+      descriptor -> ["i", descriptor]
     end
   end
 

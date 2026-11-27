@@ -26,7 +26,13 @@ Use only paths actually present in the project and required by its build/test/do
 
 `preserve.files` is a disjoint list relative to the selected native root. Listing both `lib` and `lib/nested` is invalid. Absolute, escaping, symlink and special-file inputs are rejected. There is one root and no include/features; generated package/docs/files overrides are forbidden.
 
-Before activating a projection, Weld checks its provisional detached project with isolated metadata probes. It compares effective app/package identity, dependencies, normalized compiler/test paths (including checkout-relative `{:i, charlist}` Erlang include options) and observed package fields (`name`, `files`, `exclude_patterns`, `licenses`, `links`, `maintainers`, `organization`, `build_tools`, `executables`) per environment in dev, test and prod. Metadata is captured independently for every environment; unsupported variation in identity, package/compiler metadata or application callbacks fails explicitly. Production-only dependencies cannot disappear merely because a development probe did not return them. A project that only evaluates while its original checkout is present is not a valid standalone artifact.
+Before activating a projection, Weld checks its provisional detached project with isolated metadata probes. It compares effective app/package identity, dependencies, compiler roots/options, top-level description, Elixir requirement, test roots/pattern and observed package fields (`name`, `files`, `exclude_patterns`, `licenses`, `links`, `maintainers`, `build_tools`, `extra`, `description`, `secret_scan`, `organization`, `executables`) per environment in dev, test and prod. Metadata is captured independently for every environment; unsupported variation in identity, package/compiler metadata or application callbacks fails explicitly. Production-only dependencies cannot disappear merely because a development probe did not return them. A project that only evaluates while its original checkout is present is not a valid standalone artifact.
+
+Explicit Erlang `{:i, charlist}` include directories must exist within the
+selected native root and be covered by the detached inventory. Absolute
+checkout-rooted includes are relocated for staging and represented portably in
+proof; relative includes retain their owning project's coordinates. A native
+Mix file that changes an include's meaning after staging is rejected.
 
 ## Dependencies and nested ownership
 
@@ -47,7 +53,7 @@ Full is an ordinary detached project composed of regular files and directories. 
 
 Some dynamic native callback/alias shapes cannot safely receive the live guard. Those fail with `unsupported_live_mix` and a full-output alternative. They are not silently rewritten. Preserve runs native test suites; extra generated artifact suites and component-test switches are not supported.
 
-Native Mix package patterns and exclusions define the expected Hex payload; when `package[:files]` is omitted, Weld applies Hex 2.7's default file patterns (`lib`, `priv`, `mix.exs`, `README*`, `readme*`, `LICENSE*`, `license*`, `CHANGELOG*`, `changelog*`, `src`, `c_src`, `Makefile*`). Verification compares the actual archive with the closed planned inventory, including modes and metadata. Source tests/support/docs inputs can remain in the detached verification project while excluded from the published archive. Broad package patterns that leak reports, caches or mutable bookkeeping are rejected.
+Native Mix package patterns and exclusions define the expected Hex payload; when `package[:files]` is omitted, Weld applies Hex 2.7's default file patterns (`lib`, `priv`, `.formatter.exs`, `mix.exs`, `README*`, `readme*`, `LICENSE*`, `license*`, `CHANGELOG*`, `changelog*`, `src`, `c_src`, `Makefile*`). Verification compares the actual archive with the closed planned inventory, including modes and metadata. Any native `executables` declaration must agree with the frozen file modes; changing a tar member mode is not a permitted archive difference. Source tests/support/docs inputs can remain in the detached verification project while excluded from the published archive. Broad package patterns that leak reports, caches or mutable bookkeeping are rejected.
 
 ## Prove relocation
 

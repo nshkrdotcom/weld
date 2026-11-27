@@ -103,7 +103,7 @@ probe-timeout lanes provide additional coverage.
 Source counts do not establish preserved runtime behavior; the full suite is the
 acceptance gate.
 
-## Runtime QC recount
+## Historical runtime QC recount (8dffa11)
 
 The pinned formatter expanded previously unformatted implementation files. It
 added physical lines for layout and whitespace, which this metric includes.
@@ -122,7 +122,9 @@ Runtime QC also repaired behavior exposed by compilation and qualification.
 
 This measurement exceeds the physical line target by **9,638
 lines (97.4%)** and the file target by **7 files**.
-Rerun the same counter after additional repairs.
+This is the historical documentation-refresh checkpoint, not a current HEAD
+count. Rerun the same counter after formatting and additional repairs; retain
+the JSON report with the exact candidate commit.
 
 ## Runtime and scaling status
 

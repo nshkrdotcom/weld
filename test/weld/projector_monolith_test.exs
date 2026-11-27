@@ -180,6 +180,25 @@ defmodule Weld.ProjectorMonolithTest do
     end
   end
 
+  @tag :slow
+  test "rejects standalone OTP app assumptions in projected test support" do
+    manifest = explicit_test_support_manifest_path!(["tooling/test_support"])
+    root = Path.expand("../..", Path.dirname(manifest))
+    source = "tooling/test_support/lib/root_workspace/test_support.ex"
+
+    File.write!(Path.join(root, source), """
+    defmodule RootWorkspace.TestSupport do
+      def helper, do: Application.app_dir(:root_workspace_test_support, "priv")
+    end
+    """)
+
+    assert_raise Weld.Error,
+                 ~r/test_support.ex uses Application.app_dir\(:root_workspace_test_support\)/,
+                 fn ->
+                   Weld.Plan.build!(manifest)
+                 end
+  end
+
   defp explicit_test_support_manifest_path!(test_support_projects) do
     repo_root = FixtureCase.copy_fixture("root_workspace")
     manifest_path = Path.join([repo_root, "packaging", "weld", "web_monolith.exs"])

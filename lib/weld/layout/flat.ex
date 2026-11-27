@@ -368,9 +368,12 @@ defmodule Weld.Layout.Flat do
   end
 
   defp validate_source_assumptions!(plan) do
-    Enum.each(Selection.projects_for_view(plan, :test), &validate_project_roots!/1)
+    projects =
+      Enum.uniq_by(plan.selected_projects ++ Selection.projects_for_view(plan, :test), & &1.id)
+
+    Enum.each(projects, &validate_project_roots!/1)
     surviving_app = Atom.to_string(plan.artifact.package.otp_app)
-    selected_apps = MapSet.new(Enum.map(plan.selected_projects, &Atom.to_string(&1.app)))
+    selected_apps = MapSet.new(Enum.map(projects, &Atom.to_string(&1.app)))
 
     app_sets = %{
       selected: selected_apps,
@@ -378,10 +381,10 @@ defmodule Weld.Layout.Flat do
     }
 
     issues =
-      plan.selected_projects
+      projects
       |> Enum.flat_map(fn project ->
         project
-        |> source_files_for_scan()
+        |> source_files_for_scan(Selection.selected?(plan, project.id))
         |> Enum.flat_map(&scan_file_for_selected_app_assumptions(&1, project, plan, app_sets))
       end)
 
@@ -435,19 +438,29 @@ defmodule Weld.Layout.Flat do
     end
   end
 
-  defp source_files_for_scan(project) do
-    ["lib", "test"]
-    |> Enum.flat_map(fn dir ->
-      path = Path.join(project.abs_path, dir)
+  defp source_files_for_scan(project, true) do
+    # Match test_operations/1 and the root helper transformation, not dormant
+    # test directories outside the project's declared test paths.
+    tests = test_operations(project) |> Enum.flat_map(& &1.sources)
+    helper = Path.join(project.abs_path, "test/test_helper.exs")
+    helpers = if Facts.regular?(project.facts, helper), do: [helper], else: []
+    scan_source_files(source_files_for_scan(project, false) ++ tests ++ helpers)
+  end
 
-      if Facts.dir?(project.facts, path) do
-        project.facts
-        |> Facts.list_files(path)
-        |> Enum.filter(&(Path.extname(&1) in [".ex", ".exs"]))
-      else
-        []
-      end
-    end)
+  defp source_files_for_scan(project, false) do
+    path = Path.join(project.abs_path, "lib")
+
+    files =
+      if Facts.dir?(project.facts, path), do: Facts.list_files(project.facts, path), else: []
+
+    scan_source_files(files)
+  end
+
+  defp scan_source_files(files) do
+    files
+    |> Enum.filter(&(Path.extname(&1) in [".ex", ".exs"]))
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp scan_file_for_selected_app_assumptions(path, project, plan, app_sets) do

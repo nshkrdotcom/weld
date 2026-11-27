@@ -43,15 +43,17 @@ defmodule Weld.Core.Inventory do
   end
 
   @doc false
-  def relative_charlist_path(path, root) when is_list(path) and is_binary(root) do
-    if Enum.all?(path, &is_integer/1), do: strip_charlist_root(path, String.to_charlist(root))
-  end
+  def portable_erlc_include(path, root) when is_list(path) and is_binary(root) do
+    if Enum.all?(path, &is_integer/1) do
+      root = String.to_charlist(root)
+      prefix = root ++ ~c"/"
 
-  defp strip_charlist_root(path, root), do: strip_charlist_prefix(path, root, root ++ ~c"/")
-  defp strip_charlist_prefix(root, root, _prefix), do: ~c"."
-
-  defp strip_charlist_prefix(path, _root, prefix) do
-    if List.starts_with?(path, prefix), do: Enum.drop(path, length(prefix)), else: path
+      cond do
+        path == root -> %{"root_relative" => ~c"."}
+        List.starts_with?(path, prefix) -> %{"root_relative" => Enum.drop(path, length(prefix))}
+        true -> nil
+      end
+    end
   end
 
   @spec validate_path!(String.t()) :: String.t()

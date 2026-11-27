@@ -162,7 +162,31 @@ defmodule Weld.Layout.Preserve do
     (fields
      |> Enum.map(&Path.expand(&1, project.abs_path))
      |> Enum.filter(&Facts.exists?(project.facts, &1))) ++
-      compiler_paths(project, selected)
+      compiler_paths(project, selected) ++
+      erlc_include_paths!(project, selected.abs_path)
+  end
+
+  # An explicit Erlang include must be supplied by the declared detached
+  # inventory, even if the compiler could find it on the maintainer host.
+  defp erlc_include_paths!(project, root) do
+    for {_env, config} <- project.config_by_env,
+        {:i, path} <- config[:erlc_options] || [],
+        do: erlc_include_path!(project, root, path)
+  end
+
+  defp erlc_include_path!(project, root, path) when is_list(path) do
+    absolute = Path.expand(List.to_string(path), project.abs_path)
+
+    unless covered?(absolute, root) and Facts.dir?(project.facts, absolute) do
+      raise Error,
+            "project #{project.id} Erlang include must be a contained directory: #{inspect(path)}"
+    end
+
+    absolute
+  end
+
+  defp erlc_include_path!(project, _root, path) do
+    raise Error, "project #{project.id} Erlang include must be a charlist: #{inspect(path)}"
   end
 
   defp compiler_paths(project, selected) do

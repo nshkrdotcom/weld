@@ -207,6 +207,56 @@ defmodule Weld.SourceProjectTransitiveTest do
       Weld.Commands.project!(manifest)
     end
   end
+
+  @tag :slow
+  test "native staging distinguishes nested relative and artifact-root includes" do
+    root = FixtureCase.copy_fixture("source_project")
+    manifest = Path.join(root, "build_support/weld.exs")
+    mixfile = Path.join(root, "mix.exs")
+
+    File.write!(
+      mixfile,
+      mixfile
+      |> File.read!()
+      |> String.replace(
+        ~s(elixirc_paths: ["components/pure/lib", "components/runtime/lib"]),
+        ~s(elixirc_paths: ["lib"])
+      )
+      |> String.replace(
+        ~s(deps: [{:ex_doc, "~> 0.40", only: :dev, runtime: false}]),
+        ~s(deps: [{:sprout_runtime, path: "components/runtime"}])
+      )
+      |> String.replace("components/pure/lib components/runtime/lib", "components lib")
+    )
+
+    File.write!(
+      manifest,
+      String.replace(
+        File.read!(manifest),
+        "components/pure/lib components/runtime/lib",
+        "components lib include"
+      )
+    )
+
+    File.mkdir!(Path.join(root, "lib"))
+    File.write!(Path.join(root, "lib/sprout.ex"), "defmodule Sprout do\nend\n")
+    File.mkdir!(Path.join(root, "include"))
+    File.mkdir!(Path.join(root, "components/runtime/include"))
+    nested = Path.join(root, "components/runtime/mix.exs")
+
+    File.write!(
+      nested,
+      String.replace(
+        File.read!(nested),
+        "app: :sprout_runtime,",
+        ~s|app: :sprout_runtime,\n      erlc_options: [{:i, if(String.contains?(__DIR__, "/.weld/"), do: ~c"include", else: String.to_charlist(Path.expand("../../include", __DIR__)))}],|
+      )
+    )
+
+    assert_raise Error, ~r/staged compiler metadata differs from source/, fn ->
+      Weld.Commands.project!(manifest)
+    end
+  end
 end
 
 defmodule Weld.SourceProjectNestedTest do

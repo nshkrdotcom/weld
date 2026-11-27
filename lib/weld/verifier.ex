@@ -1138,9 +1138,9 @@ defmodule Weld.Verifier do
   # Erlang include paths can be charlists. Preserve the option's encoding while
   # dropping the operational root of this qualification run.
   defp portable({:i, path}, root) when is_list(path) do
-    case Weld.Core.Inventory.relative_charlist_path(path, root) do
+    case Weld.Core.Inventory.portable_erlc_include(path, root) do
       nil -> ["i", portable(path, root)]
-      relative -> ["i", relative]
+      descriptor -> ["i", descriptor]
     end
   end
 

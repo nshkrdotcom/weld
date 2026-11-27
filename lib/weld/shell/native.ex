@@ -1,6 +1,6 @@
 defmodule Weld.Shell.Native do
   @moduledoc false
-  alias Weld.Core.{Facts, Inventory}
+  alias Weld.Core.Facts
   alias Weld.Error
   alias Weld.Shell.Runner
   alias Weld.Workspace.Probe
@@ -39,6 +39,8 @@ defmodule Weld.Shell.Native do
       erlc = if env == :test, do: project.test_erlc_paths, else: project.erlc_paths
       source_config = Map.fetch!(project.config_by_env, env)
       package_metadata = Enum.sort(source_config[:package] || [])
+      project_fields = [:description, :elixir, :test_paths, :test_pattern]
+      project_metadata = source_config |> Keyword.take(project_fields) |> Enum.sort()
 
       compiler_metadata =
         source_config
@@ -48,7 +50,7 @@ defmodule Weld.Shell.Native do
           :erlc_options,
           :erlc_include_path
         ])
-        |> normalize_compiler_metadata(source_root)
+        |> relocate_compiler_metadata(source_root, stage)
 
       script = """
       Mix.start()
@@ -78,33 +80,9 @@ defmodule Weld.Shell.Native do
           package_metadata = Keyword.take(package, #{inspect(Probe.package_fields())})
           unless Enum.sort(package_metadata) == #{inspect(package_metadata, limit: :infinity)},
             do: raise("staged package metadata differs from source")
-          normalize_erlc_option = fn
-            {:i, path} when is_list(path) ->
-              if Enum.all?(path, &is_integer/1) do
-                root_chars = String.to_charlist(generated_root)
-                prefix = root_chars ++ ~c"/"
-
-                cond do
-                  path == root_chars -> {:i, ~c"."}
-                  List.starts_with?(path, prefix) -> {:i, Enum.drop(path, length(prefix))}
-                  true -> {:i, path}
-                end
-              else
-                {:i, path}
-              end
-
-            option ->
-              option
-          end
-          compiler_config =
-            config
-            |> Keyword.take([:compilers, :elixirc_options, :erlc_options, :erlc_include_path])
-            |> then(fn meta ->
-              if is_list(meta[:erlc_options]),
-                do: Keyword.put(meta, :erlc_options, Enum.map(meta[:erlc_options], normalize_erlc_option)),
-                else: meta
-            end)
-          unless Enum.sort(compiler_config) == #{inspect(Enum.sort(compiler_metadata), limit: :infinity)},
+          unless Enum.sort(Keyword.take(config, #{inspect(project_fields)})) == #{inspect(project_metadata, limit: :infinity)},
+            do: raise("staged project metadata differs from source")
+          unless Enum.sort(Keyword.take(config, [:compilers, :elixirc_options, :erlc_options, :erlc_include_path])) == #{inspect(Enum.sort(compiler_metadata), limit: :infinity)},
             do: raise("staged compiler metadata differs from source")
           application = if function_exported?(project, :application, 0), do: project.application(), else: []
           actual_application = %{
@@ -165,24 +143,34 @@ defmodule Weld.Shell.Native do
     :ok
   end
 
-  defp normalize_compiler_metadata(metadata, root) do
-    if is_list(metadata[:erlc_options]) do
-      Keyword.put(
-        metadata,
-        :erlc_options,
-        Enum.map(metadata[:erlc_options], &normalize_erlc_option(&1, root))
-      )
-    else
-      metadata
-    end
+  # Compare the actual native options to the expected relocated source options.
+  # A relative include remains relative to its owning Mix project, not the
+  # artifact root. Normalizing both to the same spelling can hide that drift.
+  defp relocate_compiler_metadata(metadata, source, stage) do
+    Enum.map(metadata, fn
+      {:erlc_include_path, path} when is_binary(path) ->
+        {:erlc_include_path, relocate_path(path, source, stage)}
+
+      {:erlc_options, options} when is_list(options) ->
+        {:erlc_options, Enum.map(options, &relocate_erlc_option(&1, source, stage))}
+
+      entry ->
+        entry
+    end)
   end
 
-  defp normalize_erlc_option({:i, path}, root) when is_list(path) do
-    case Inventory.relative_charlist_path(path, root) do
-      nil -> {:i, path}
-      relative -> {:i, relative}
-    end
+  defp relocate_erlc_option({:i, path}, source, stage) when is_list(path) do
+    relocated = path |> List.to_string() |> relocate_path(source, stage)
+    {:i, String.to_charlist(relocated)}
   end
 
-  defp normalize_erlc_option(option, _root), do: option
+  defp relocate_erlc_option(option, _source, _stage), do: option
+
+  defp relocate_path(path, source, stage) do
+    cond do
+      path == source -> stage
+      String.starts_with?(path, source <> "/") -> stage <> String.replace_prefix(path, source, "")
+      true -> path
+    end
+  end
 end

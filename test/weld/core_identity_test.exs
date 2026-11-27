@@ -31,6 +31,20 @@ defmodule Weld.Core.IdentityTest do
     assert Enum.uniq(identities) == identities
   end
 
+  test "portable Erlang include evidence distinguishes rooted and relative paths" do
+    first = Inventory.portable_erlc_include(~c"/first/include", "/first")
+    second = Inventory.portable_erlc_include(~c"/second/include", "/second")
+
+    assert first == second
+    assert first == %{"root_relative" => ~c"include"}
+    assert Inventory.portable_erlc_include(~c"include", "/first") == nil
+    assert Inventory.portable_erlc_include(~c"/first_other/include", "/first") == nil
+    assert Inventory.portable_erlc_include(~c"/first", "/first") == %{"root_relative" => ~c"."}
+
+    refute Identity.raw(Identity.canonical(["i", first])) ==
+             Identity.raw(Identity.canonical(["i", ~c"include"]))
+  end
+
   test "inventory rejects collisions and exposes reverse provenance" do
     entry = %{target: "lib/a.ex", inputs: [%{source: "core/a.ex"}], publish: true}
     assert Inventory.reverse_index([entry]) == %{"core/a.ex" => ["lib/a.ex"]}
