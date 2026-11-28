@@ -77,20 +77,7 @@ File.mkdir!(scratch)
 try do
   matrix_root =
     if selected_layouts != [] do
-      target =
-        case System.get_env("WELD_QC_LAYOUT_OUTPUT") do
-          nil when all_layouts? ->
-            path = Path.expand(".weld/qc/ci-matrix")
-            File.rm_rf!(path)
-            path
-
-          nil ->
-            Path.join(scratch, "matrix")
-
-          explicit ->
-            Path.expand(explicit)
-        end
-
+      target = Path.join(scratch, "matrix")
       File.mkdir_p!(target)
       target
     end
@@ -101,12 +88,13 @@ try do
 
       env = %{
         "MIX_BUILD_ROOT" => build_root,
+        "MIX_BUILD_PATH" => nil,
         "ERL_CRASH_DUMP" => Path.join(build_root, "erl_crash.dump")
       }
 
       env =
         if name in layout_lanes,
-          do: Map.put(env, "WELD_QC_LAYOUT_OUTPUT", matrix_root),
+          do: Map.put(env, "_WELD_CI_MATRIX_DIR", matrix_root),
           else: env
 
       Blitz.command(
@@ -130,10 +118,25 @@ try do
 
   if all_layouts? do
     Weld.QC.finish_matrix!(matrix_root)
+    timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%dT%H%M%SZ")
+    retained = Path.expand(".weld/qc/ci-matrix-#{timestamp}-#{suffix}")
+    File.mkdir_p!(retained)
+    File.cp!(Path.join(matrix_root, "matrix.json"), Path.join(retained, "matrix.json"))
 
-    IO.puts(
-      "Weld CI: all four layout results assembled at #{Path.join(matrix_root, "matrix.json")}"
-    )
+    for {layout, _, _} <- Weld.QC.scenarios() do
+      dest = Path.join(retained, layout)
+      File.mkdir_p!(Path.join(dest, "evidence"))
+      File.cp!(Path.join([matrix_root, layout, "result.json"]), Path.join(dest, "result.json"))
+
+      for file <- ~w(gates.json verification.json qualification.json) do
+        File.cp!(
+          Path.join([matrix_root, layout, "evidence", file]),
+          Path.join([dest, "evidence", file])
+        )
+      end
+    end
+
+    IO.puts("Weld CI: all four layout results retained at #{Path.join(retained, "matrix.json")}")
   end
 
   if requested != [], do: IO.puts("Weld CI: selected lanes passed (not full acceptance)")

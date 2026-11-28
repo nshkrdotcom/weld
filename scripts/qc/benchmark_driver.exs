@@ -16,6 +16,7 @@ defmodule WeldBenchmark do
     {"source_probe_count", {Weld.Workspace, :probe_project_config, 3}}
   ]
   @message_functions [
+    {Weld.Verifier, :run_mix!, 6},
     {Weld.Verifier, :run_mix!, 5},
     {Weld.Verifier, :run_mix!, 3},
     {Weld.SmokeApp, :archive!, 4},
@@ -34,8 +35,10 @@ defmodule WeldBenchmark do
     allowed = ~w(CC CXX AR CFLAGS CXXFLAGS CPPFLAGS LDFLAGS MAKEFLAGS RUSTFLAGS RUSTUP_TOOLCHAIN CARGO_HOME RUSTUP_HOME)
     unless is_map(native_env) and Enum.all?(native_env, fn {key, value} -> key in allowed and is_binary(value) end),
       do: raise("native_env contains undeclared keys or non-string values")
-    Application.put_env(:weld, :native_env, Enum.sort(native_env))
-    Application.put_env(:weld, :qualification_context, request["qualification_context"] || %{})
+    request =
+      request
+      |> Map.put("native_env_pairs", Enum.sort(native_env))
+      |> Map.put("qualification_context", request["qualification_context"] || %{})
     report = opts[:report]
     if File.exists?(report), do: raise("benchmark report already exists: #{report}")
     if opts[:operation] == "setup" do
@@ -127,9 +130,14 @@ defmodule WeldBenchmark do
       "cache_hit_count" => hits,
       "output_count" => length(outputs)}}
   end
-  defp execute!("verify", plans, _request) do
+  defp execute!("verify", plans, request) do
+    verify_opts = [
+      native_env: request["native_env_pairs"],
+      qualification_context: request["qualification_context"]
+    ]
+
     {outputs, milliseconds} = timed(fn ->
-      for plan <- plans, do: apply(Weld.Verifier, :verify!, [plan, []])
+      for plan <- plans, do: apply(Weld.Verifier, :verify!, [plan, verify_opts])
     end)
     {outputs, %{"qualification_ms" => milliseconds}}
   end
@@ -142,7 +150,7 @@ defmodule WeldBenchmark do
         commands = [["mix", "deps.get"]] ++ if(operation == "docs", do: [["mix", "deps.compile"]], else: [])
         for {argv, index} <- Enum.with_index(commands) do
           log = Path.join(request["log_root"], "#{request["sample"]}-#{plan.artifact.id}-dependency-#{index}.log")
-          subprocess!(argv, output.build_path, request["timeout"] || 900, log)
+          subprocess!(argv, output.build_path, request["timeout"] || 900, log, request["native_env_pairs"])
         end
       end
     end)
@@ -151,19 +159,19 @@ defmodule WeldBenchmark do
         argv = if operation == "docs", do: request["docs_command"] || ["mix", "docs", "--warnings-as-errors"],
           else: request["native_command"] || raise("native requires a declared native_command")
         log = Path.join(request["log_root"], "#{request["sample"]}-#{plan.artifact.id}-#{operation}.log")
-        subprocess!(argv, output.build_path, request["timeout"] || 900, log)
+        subprocess!(argv, output.build_path, request["timeout"] || 900, log, request["native_env_pairs"])
       end
     end)
     {outputs, %{"projection_ms" => projection_ms, "dependency_setup_ms" => dependency_ms, operation <> "_ms" => milliseconds}}
   end
   defp execute!(operation, _plans, _request), do: raise("unsupported benchmark operation #{operation}")
 
-  defp subprocess!([command | args], cwd, timeout, log) when is_binary(command) do
+  defp subprocess!([command | args], cwd, timeout, log, native_env) when is_binary(command) do
     unless Enum.all?(args, &is_binary/1), do: raise("command arguments must be strings")
     env = for name <- ~w(MIX_EXS MIX_LOCKFILE MIX_BUILD_PATH MIX_BUILD_ROOT MIX_DEPS_PATH MIX_TARGET), do: {name, nil}
-    env = env ++ Application.get_env(:weld, :native_env, [])
-    env = if Code.ensure_loaded?(Weld.Shell.Runner) and function_exported?(Weld.Shell.Runner, :mix_env, 3),
-      do: apply(Weld.Shell.Runner, :mix_env, [cwd, Path.join(Path.dirname(log), "command-cache"), :dev]),
+    env = env ++ native_env
+    env = if Code.ensure_loaded?(Weld.Shell.Runner) and function_exported?(Weld.Shell.Runner, :mix_env, 4),
+      do: apply(Weld.Shell.Runner, :mix_env, [cwd, Path.join(Path.dirname(log), "command-cache"), :dev, [native_env: native_env]]),
       else: [{"MIX_ENV", "dev"} | env]
     options = [cd: cwd, seconds: timeout, log_path: log, env: env]
     {output, status} = if Code.ensure_loaded?(Weld.Shell.Runner) and function_exported?(Weld.Shell.Runner, :run!, 3) do
@@ -319,7 +327,7 @@ defmodule WeldBenchmark do
   defp trace_label({:erlang, :open_port, 2}, [{:spawn_executable, _}, _]), do: :subprocess
   defp trace_label({Weld.SmokeApp, :archive!, 4}, _), do: :archive
   defp trace_label({Weld.Verifier, :run_mix!, arity}, args) do
-    command = Enum.at(args, if(arity == 5, do: 3, else: 2))
+    command = Enum.at(args, if(arity in [5, 6], do: 3, else: 2))
     case command do
       ["docs" | _] -> :docs
       [task | _] when task in ["compile", "deps.compile"] -> :compile

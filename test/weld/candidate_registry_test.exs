@@ -2,31 +2,44 @@ defmodule Weld.CandidateRegistryTest do
   use ExUnit.Case, async: false
 
   alias Mix.Dep.Lock
+  alias Weld.{CLI, Error, FixtureCase, Hash, Release, ReleaseInputs, SmokeApp}
   alias Weld.Core.Identity
-  alias Weld.{Error, FixtureCase, Hash, Release, ReleaseInputs, SmokeApp}
   alias Weld.Shell.Runner
   alias Weld.Workspace.Probe
 
-  @url "WELD_HEX_REGISTRY_URL"
-  @key "WELD_HEX_REGISTRY_PUBLIC_KEY"
-
-  setup do
-    saved = Map.new([@url, @key], &{&1, System.get_env(&1)})
-    Enum.each(Map.keys(saved), &System.delete_env/1)
-
-    on_exit(fn -> Enum.each(saved, &restore_env/1) end)
-
-    :ok
-  end
-
   test "candidate registry selection fails closed on incomplete or non-loopback inputs" do
     assert Runner.candidate_registry!() == nil
-    System.put_env(@url, "http://127.0.0.1:1234")
-    assert_raise Error, ~r/requires both/, fn -> Runner.candidate_registry!() end
-    System.put_env(@key, "/no-such-public-key.pem")
-    assert_raise Error, ~r/public PEM/, fn -> Runner.candidate_registry!() end
-    System.put_env(@url, "https://example.test")
-    assert_raise Error, ~r/127.0.0.1/, fn -> Runner.candidate_registry!() end
+
+    assert_raise Error, ~r/requires both/, fn ->
+      Runner.candidate_registry!(registry_url: "http://127.0.0.1:1234")
+    end
+
+    assert_raise Error, ~r/public PEM/, fn ->
+      Runner.candidate_registry!(
+        registry_url: "http://127.0.0.1:1234",
+        registry_public_key: "/no-such-public-key.pem"
+      )
+    end
+
+    assert_raise Error, ~r/127.0.0.1/, fn ->
+      Runner.candidate_registry!(
+        registry_url: "https://example.test",
+        registry_public_key: "/no-such-public-key.pem"
+      )
+    end
+
+    assert_raise Error, ~r/requires both/, fn ->
+      CLI.parse!("verify", ["--registry-url", "http://127.0.0.1:1234"])
+    end
+
+    assert_raise Error, ~r/127.0.0.1/, fn ->
+      CLI.parse!("prepare", [
+        "--registry-url",
+        "https://example.test",
+        "--registry-public-key",
+        "/no-such-public-key.pem"
+      ])
+    end
   end
 
   @tag integration: true, ci_build: "candidate_registry", timeout: 120_000
@@ -65,27 +78,30 @@ defmodule Weld.CandidateRegistryTest do
 
     on_exit(fn -> :inets.stop(:httpd, server) end)
     port = :httpd.info(server) |> Keyword.fetch!(:port)
-    System.put_env(@url, "http://127.0.0.1:#{port}")
-    System.put_env(@key, Path.join(public, "public_key"))
 
-    verify_dependency_homes!(root, upstream)
-    verify_detached_archive!(root, upstream, downstream)
-    verify_candidate_proof!()
-    verify_wrong_key!(root)
+    registry_opts = [
+      registry_url: "http://127.0.0.1:#{port}",
+      registry_public_key: Path.join(public, "public_key")
+    ]
+
+    verify_dependency_homes!(root, upstream, registry_opts)
+    verify_detached_archive!(root, upstream, downstream, registry_opts)
+    verify_candidate_proof!(registry_opts)
+    verify_wrong_key!(root, port)
   end
 
-  defp restore_env({name, nil}), do: System.delete_env(name)
-  defp restore_env({name, value}), do: System.put_env(name, value)
-
-  defp verify_dependency_homes!(root, archive) do
+  defp verify_dependency_homes!(root, archive, registry_opts) do
     consumer = Path.join(root, "project")
     project!(consumer, "weld_candidate_project", [:weld_candidate_dependency])
-    mix!(consumer, Path.join(root, "first-cache"), ["deps.get"])
-    mix!(consumer, Path.join(root, "second-cache"), ["deps.get", "--check-locked"])
+    mix!(consumer, Path.join(root, "first-cache"), ["deps.get"], registry_opts)
+    mix!(consumer, Path.join(root, "second-cache"), ["deps.get", "--check-locked"], registry_opts)
     assert_exact_dependency!(consumer, archive)
 
     cache = Path.join(root, "metadata-cache")
-    jobs = for env <- Probe.environments(), do: {env, Runner.mix_env(consumer, cache, env)}
+
+    jobs =
+      for env <- Probe.environments(),
+          do: {env, Runner.mix_env(consumer, cache, env, registry_opts)}
 
     observations =
       Probe.observe_independent!(jobs, fn {env, variables} ->
@@ -95,9 +111,9 @@ defmodule Weld.CandidateRegistryTest do
     assert Enum.map(observations, & &1.environment) == Probe.environments()
   end
 
-  defp verify_detached_archive!(root, upstream, downstream) do
+  defp verify_detached_archive!(root, upstream, downstream, registry_opts) do
     consumer = Path.join(root, "detached")
-    result = SmokeApp.archive!(downstream, consumer)
+    result = SmokeApp.archive!(downstream, consumer, nil, registry_opts)
     assert result.archive_sha256 == Hash.sha256_file(downstream)
     assert %{registry_signed: true, lock_verified: true, application_started: true} = result
     assert_exact_dependency!(consumer, upstream)
@@ -110,13 +126,16 @@ defmodule Weld.CandidateRegistryTest do
              Lock.read(Path.join(consumer, "mix.lock"))[:weld_candidate_dependency]
   end
 
-  defp verify_candidate_proof! do
+  defp verify_candidate_proof!(registry_opts) do
     _ = Mix.Hex.start()
-    trust = ReleaseInputs.registry_trust()
+    trust = ReleaseInputs.registry_trust(registry_opts)
     assert trust["policy"] == "isolated-signed-candidate-hex/1"
     assert trust["verified"] and trust["signature_verification"] and trust["origin_verification"]
     refute trust["tls_peer_verification"]
-    assert trust["public_key_sha256"] == Identity.raw(Runner.candidate_registry!().public_key)
+
+    assert trust["public_key_sha256"] ==
+             Identity.raw(Runner.candidate_registry!(registry_opts).public_key)
+
     assert trust["endpoint"] == "loopback"
 
     manifest = FixtureCase.copied_manifest_path("library_bundle", "fixture_bundle")
@@ -133,30 +152,34 @@ defmodule Weld.CandidateRegistryTest do
              Release.publish!(selection, identity: bundle.identity, dry_run: true)
   end
 
-  defp verify_wrong_key!(root) do
+  defp verify_wrong_key!(root, port) do
     wrong = Path.join(root, "wrong-public.pem")
     File.write!(wrong, :hex_core.default_config().repo_public_key)
-    System.put_env(@key, wrong)
     consumer = Path.join(root, "wrong-key-project")
     project!(consumer, "weld_wrong_key_project", [:weld_candidate_dependency])
+
+    wrong_opts = [
+      registry_url: "http://127.0.0.1:#{port}",
+      registry_public_key: wrong
+    ]
 
     {_, status} =
       Runner.run!("mix", ["deps.get"],
         cd: consumer,
         seconds: 20,
-        env: Runner.mix_env(consumer, Path.join(root, "wrong-key-cache"), :dev)
+        env: Runner.mix_env(consumer, Path.join(root, "wrong-key-cache"), :dev, wrong_opts)
       )
 
     assert status != 0
     refute Map.has_key?(Lock.read(Path.join(consumer, "mix.lock")), :weld_candidate_dependency)
   end
 
-  defp mix!(project, cache, args) do
+  defp mix!(project, cache, args, opts \\ []) do
     {output, status} =
       Runner.run!("mix", args,
         cd: project,
         seconds: 20,
-        env: Runner.mix_env(project, cache, :dev)
+        env: Runner.mix_env(project, cache, :dev, opts)
       )
 
     assert status == 0, output

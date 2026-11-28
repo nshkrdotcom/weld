@@ -87,12 +87,7 @@ def main() -> int:
         if not path.startswith("lib/"):
             continue
         for number, line in enumerate(content.splitlines(), 1):
-            env_line = line
-            if path == "lib/weld/shell/runner.ex":
-                # The explicit signed-candidate selection is a shell transport
-                # input, not application runtime configuration.
-                env_line = re.sub(r'System\.get_env\("WELD_HEX_REGISTRY_(?:URL|PUBLIC_KEY)"\)', "", env_line)
-            if re.search(r"System\.(?:get_env|fetch_env!?|put_env|delete_env)\s*\(", env_line):
+            if re.search(r"System\.(?:get_env|fetch_env!?|put_env|delete_env)\s*\(", line):
                 runtime_env.append(f"{path}:{number}")
             if re.search(r":erlang\.(?:term_to_binary|binary_to_term)\s*\(", line):
                 etf.append(f"{path}:{number}")

@@ -6,6 +6,7 @@ defmodule Weld.Output do
 
   alias Weld.Core.Identity
   alias Weld.{Error, Git}
+  alias Weld.Shell.Runner
 
   @owner "weld.state/2\n"
   @ignore_rules [".weld", "/.weld", ".weld/", "/.weld/"]
@@ -1347,7 +1348,7 @@ defmodule Weld.Output do
           ".weld/probe"
         ]
 
-        case System.cmd("git", args, cd: scratch, stderr_to_stdout: true) do
+        case Runner.capture!("git", args, cd: scratch, seconds: 10, env: Git.env()) do
           {_path, 0} -> raise Error, "conflicting .gitignore negation for .weld/"
           {_output, 1} -> :ok
           {output, _status} -> raise Error, "unable to check .gitignore exceptions: #{output}"

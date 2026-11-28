@@ -37,23 +37,24 @@ before constructing the registry. Keep the signing private key outside the
 served directory; give Weld only its public PEM key.
 
 ```bash
-WELD_HEX_REGISTRY_URL=http://127.0.0.1:8765 \
-WELD_HEX_REGISTRY_PUBLIC_KEY=/absolute/path/to/registry/public_key \
-  mix weld prepare --artifact engine --fresh
+mix weld prepare --artifact engine --fresh \
+  --registry-url http://127.0.0.1:8765 \
+  --registry-public-key /absolute/path/to/registry/public_key
 ```
 
-Both variables are required together. No caller Hex config, credentials or
-unsafe verification flags are copied. Weld initializes each isolated Hex home
-with the selected `hexpm` URL and key, including the independent source baseline,
-preflight and detached exact-archive consumer. The latter still installs the
-artifact itself from its own signed registry. The dependency declarations and
-lock repository name remain ordinary `hexpm`; they are not path overrides.
+Both options are required together (and are also accepted by `mix weld verify`).
+No caller Hex config, credentials or unsafe verification flags are copied. Weld
+initializes each isolated Hex home with the selected `hexpm` URL and key,
+including the independent source baseline, preflight and detached exact-archive
+consumer. The latter still installs the artifact itself from its own signed
+registry. The dependency declarations and lock repository name remain ordinary
+`hexpm`; they are not path overrides.
 
 The qualification records the candidate trust policy, public key digest and
 resolved lock, not the ephemeral server port, key path or private key. Candidate
 proof supports review, staging, archive and publication dry run, but not an
 actual Weld publication. Once upstream dependencies are available officially,
-unset both variables and prepare again against official Hex before publishing.
+omit both options and prepare again against official Hex before publishing.
 
 ## Bundle contents and strict proof
 

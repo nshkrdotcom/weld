@@ -74,10 +74,11 @@ mutations exercise the exact production frozen-project guard directly; a real
 G02 failure verifies gate reporting and blocking. No production gate or trust
 check is bypassed.
 
-Complete `mix ci` runs automatically retain the four-layout acceptance matrix
-under `.weld/qc/ci-matrix/matrix.json` (no custom environment variable is
-required). The four layout lanes share only that report parent, not work/cache
-roots, and assemble `matrix.json` in the original layout order.
+Complete `mix ci` runs automatically retain compact four-layout acceptance
+evidence under an invocation-owned `.weld/qc/ci-matrix-<timestamp>-<suffix>/`
+directory and print its `matrix.json` path (no custom environment variable is
+required). Temporary build workspaces are deleted after the run, and concurrent
+or failed runs never overwrite unrelated evidence.
 For targeted retries, name only the affected lanes (this is not full CI):
 
 ```bash

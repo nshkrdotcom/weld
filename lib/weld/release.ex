@@ -64,11 +64,11 @@ defmodule Weld.Release do
       opts[:fresh] == true or opts[:no_cache] == true -> {:miss, [:fresh_requested]}
       not is_binary(opts[:reuse]) or opts[:reuse] == "" -> {:miss, [:reuse_not_requested]}
       plan.artifact.mode != :source_project -> {:miss, [:layout_not_eligible]}
-      true -> reuse_candidate(plan, revision, opts[:reuse])
+      true -> reuse_candidate(plan, revision, opts[:reuse], opts)
     end
   end
 
-  defp reuse_candidate(plan, revision, context) do
+  defp reuse_candidate(plan, revision, context, opts) do
     inventory = Inventory.portable(plan)
     current = Output.path(plan.manifest.repo_root, ["current", plan.artifact.id])
     tracked = Git.tracked_files(plan.manifest.repo_root)
@@ -89,17 +89,17 @@ defmodule Weld.Release do
         {:miss, [:no_prepared_bundle]}
 
       true ->
-        validate_reuse_candidate(plan, revision, context, inventory)
+        validate_reuse_candidate(plan, revision, context, inventory, opts)
     end
   end
 
-  defp validate_reuse_candidate(plan, revision, context, inventory) do
+  defp validate_reuse_candidate(plan, revision, context, inventory, opts) do
     {id, bundle} = ReleaseStatus.resolve_path!(plan)
     # Sealed proof corruption is fatal.
     metadata = ReleaseStatus.validate_bundle_integrity!(bundle, id)
     evidence = ReleaseStatus.evidence!(bundle)
 
-    case Verifier.reuse_facts(plan, context) do
+    case Verifier.reuse_facts(plan, context, opts) do
       {:ok, facts} ->
         if reuse_inputs_match?(metadata, evidence.inventory, inventory, revision) and
              reuse_observations_match?(plan, evidence.qualification, facts),

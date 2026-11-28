@@ -30,10 +30,9 @@ published projects.
 
 Runtime application code under `lib/**` must not call direct OS env APIs.
 Runtime env reads belong in `config/runtime.exs` or a `Config.Provider`.
-The shell takes declared context and explicitly configured tool/transport facts.
-The only direct OS reads in Weld's shell runner select the explicit signed
-candidate registry URL and public-key path; application runtime configuration
-remains subject to the rule above.
+The shell takes declared context and explicitly configured tool/transport facts
+via explicit CLI/API options (no ambient `WELD_*` env vars or global
+`Application.get_env(:weld, ...)` configuration inputs).
 No credentials belong in portable records, logs, command examples or fixtures.
 
 ## Working rules
@@ -134,8 +133,9 @@ mix xref graph --format cycles --label compile-connected --fail-above 0
 python3 scripts/qc/static_check.py
 ```
 
-Complete `mix ci` runs automatically retain the four-layout acceptance matrix
-under `.weld/qc/ci-matrix/matrix.json`; no environment variable is required.
+Complete `mix ci` runs automatically retain compact four-layout acceptance
+evidence under an invocation-owned `.weld/qc/ci-matrix-<timestamp>-<suffix>/`
+directory and print its `matrix.json` path; no environment variable is required.
 Optional manual diagnostics
 and release-only drivers (`scripts/git_ref_contract.py`,
 `scripts/qc/loopback_transport.sh`, `scripts/qc/prepare_reuse.exs`, browser

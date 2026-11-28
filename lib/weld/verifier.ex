@@ -81,7 +81,7 @@ defmodule Weld.Verifier do
     end
   end
 
-  def reuse_facts(plan, context), do: ReleaseInputs.eligible(plan, context)
+  def reuse_facts(plan, context, opts \\ []), do: ReleaseInputs.eligible(plan, context, opts)
 
   @doc "Typed gate specs, including the only permitted policy skips."
   def gate_specs(plan) do
@@ -129,7 +129,12 @@ defmodule Weld.Verifier do
 
   defp verify_run!(plan, run_root, opts) do
     plan = Plan.ensure_valid!(plan)
-    opts = Keyword.put(opts, :candidate_registry, Runner.candidate_registry!())
+
+    opts =
+      opts
+      |> Keyword.put(:candidate_registry, Runner.candidate_registry!(opts))
+      |> Keyword.put(:native_env, Runner.native_env!(opts[:native_env]))
+
     specs = Map.new(gate_specs(plan), &{&1.id, &1})
 
     {state, projection, metadata, gates, operations} =
@@ -226,12 +231,13 @@ defmodule Weld.Verifier do
     :ok = Projector.recheck_inputs!(plan, source_id)
     write_gates!(run_root, gates)
     before_resolution = observe_project!(project, ["mix.lock"])
-    before_metadata = probe!(project, run_root)
+    before_metadata = probe!(project, run_root, opts)
 
     operations =
-      for env <- [:dev, :test], do: run_mix!(project, run_root, env, ["deps.get"], "G02-#{env}")
+      for env <- [:dev, :test],
+          do: run_mix!(project, run_root, env, ["deps.get"], "G02-#{env}", opts)
 
-    after_metadata = probe!(project, run_root)
+    after_metadata = probe!(project, run_root, opts)
 
     unless before_metadata == after_metadata,
       do: raise(Error, "G02: effective Mix metadata changed after resolving the standalone lock")
@@ -294,22 +300,23 @@ defmodule Weld.Verifier do
 
   defp check_source_tests!(_state, spec), do: {[], [], skip(spec)}
 
-  defp compile_project!(%{project: project, root: run_root}) do
+  defp compile_project!(%{project: project, root: run_root, opts: opts}) do
     [
-      run_mix!(project, run_root, :dev, ["deps.compile"], "G04-deps"),
+      run_mix!(project, run_root, :dev, ["deps.compile"], "G04-deps", opts),
       run_mix!(
         project,
         run_root,
         :dev,
         ["compile", "--warnings-as-errors", "--no-compile-deps"],
-        "G04-compile"
+        "G04-compile",
+        opts
       )
     ]
   end
 
   defp check_project_tests!(state, baseline, config, verification_files) do
-    %{plan: plan, project: project, root: run_root} = state
-    {test_operation, tests} = run_tests!(project, run_root, "G05")
+    %{plan: plan, project: project, root: run_root, opts: opts} = state
+    {test_operation, tests} = run_tests!(project, run_root, "G05", opts)
     validate_test_mapping!(plan, baseline, tests)
 
     declared_tests =
@@ -329,14 +336,15 @@ defmodule Weld.Verifier do
     {test_operation, gate}
   end
 
-  defp build_docs!(%{project: project, root: run_root}) do
+  defp build_docs!(%{project: project, root: run_root, opts: opts}) do
     docs_operation =
       run_mix!(
         project,
         run_root,
         :dev,
         ["docs", "--warnings-as-errors", "--output", "doc"],
-        "G06"
+        "G06",
+        opts
       )
 
     docs = Path.join(run_root, "docs")
@@ -376,7 +384,8 @@ defmodule Weld.Verifier do
           )
 
     if spec.required do
-      result = SmokeApp.verify_project!(plan, project, Path.join(run_root, "project-smoke"))
+      result =
+        SmokeApp.verify_project!(plan, project, Path.join(run_root, "project-smoke"), state.opts)
 
       {smoke_source, [result],
        pass("G07", %{
@@ -392,7 +401,7 @@ defmodule Weld.Verifier do
     %{plan: plan, project: project, root: run_root, package_files: package_files} = state
     %{expected_metadata: expected_metadata, package_empty_dirs: empty_dirs} = state
 
-    operation = run_mix!(project, run_root, :dev, ["hex.build"], "G08")
+    operation = run_mix!(project, run_root, :dev, ["hex.build"], "G08", state.opts)
     produced = Path.join(project, archive_name(plan))
 
     :ok =
@@ -440,10 +449,16 @@ defmodule Weld.Verifier do
   end
 
   defp check_archive_consumer!(state, %{required: true}, tarball, smoke_source) do
-    %{plan: plan, root: run_root} = state
+    %{plan: plan, root: run_root, opts: opts} = state
 
     result =
-      SmokeApp.verify_archive!(plan, tarball, Path.join(run_root, "hex-consumer"), smoke_source)
+      SmokeApp.verify_archive!(
+        plan,
+        tarball,
+        Path.join(run_root, "hex-consumer"),
+        smoke_source,
+        opts
+      )
 
     {[result], pass("G10", portable(Map.drop(result, [:task, :env, :status]), run_root))}
   end
@@ -496,7 +511,7 @@ defmodule Weld.Verifier do
       package: package
     } = outputs
 
-    observations = ReleaseInputs.observations(plan, opts[:context] || opts[:reuse])
+    observations = ReleaseInputs.observations(plan, opts[:context] || opts[:reuse], opts)
 
     qualification = %{
       "gate_schema" => "weld.gates/2",
@@ -546,9 +561,7 @@ defmodule Weld.Verifier do
 
   defp boundary!(state, gate, gates) do
     if callback = state.opts[:after_gate], do: callback.(gate, state.project)
-
-    unless Runner.candidate_registry!() == state.opts[:candidate_registry],
-      do: raise(Error, "#{gate}: candidate registry selection changed during qualification")
+    verify_registry_boundary!(state.root, state.opts[:candidate_registry])
 
     assert_frozen_project!(
       state.project,
@@ -560,6 +573,14 @@ defmodule Weld.Verifier do
 
     :ok = Projector.recheck_inputs!(state.plan, state.source_id)
     write_gates!(state.root, gates)
+  end
+
+  defp verify_registry_boundary!(_root, nil), do: :ok
+
+  defp verify_registry_boundary!(root, registry) do
+    config = Path.join([root, "cache", "hex-home", "hex.config"])
+    if File.exists?(config), do: Runner.validate_registry_config!(config, registry)
+    :ok
   end
 
   @doc false
@@ -577,13 +598,15 @@ defmodule Weld.Verifier do
   defp archive_name(plan),
     do: "#{plan.artifact.package.name}-#{plan.artifact.package.version}.tar"
 
-  defp probe!(project, root) do
+  defp probe!(project, root, opts) do
     # Initialize/validate the shared isolated registry configuration in the
     # caller before starting independent read-only metadata VMs. In particular,
     # candidate registry setup must never race on its exclusive PEM/config.
+    mix_opts = mix_opts(opts)
+
     jobs =
       for env <- Probe.environments(),
-          do: {env, Runner.mix_env(project, Path.join(root, "cache"), env)}
+          do: {env, Runner.mix_env(project, Path.join(root, "cache"), env, mix_opts)}
 
     jobs
     |> Probe.observe_independent!(fn {env, variables} ->
@@ -592,14 +615,14 @@ defmodule Weld.Verifier do
     |> Map.new()
   end
 
-  defp run_mix!(project, root, env, args, label) do
+  defp run_mix!(project, root, env, args, label, opts) do
     IO.puts(:stderr, "Weld: #{label} MIX_ENV=#{env} mix #{Enum.join(args, " ")}")
 
     {output, status} =
       Runner.run!("mix", args,
         cd: project,
         seconds: 900,
-        env: Runner.mix_env(project, Path.join(root, "cache"), env),
+        env: Runner.mix_env(project, Path.join(root, "cache"), env, mix_opts(opts)),
         log_path: Path.join(root, "logs/#{label}.log")
       )
 
@@ -613,7 +636,7 @@ defmodule Weld.Verifier do
     root = Path.join(state.root, "hex-preflight")
     project = Path.join(root, "project")
     copy_exact!(state.project, project, state.frozen)
-    _ = run_mix!(project, root, :dev, ["deps.get", "--check-locked"], "G09-deps")
+    _ = run_mix!(project, root, :dev, ["deps.get", "--check-locked"], "G09-deps", state.opts)
     capture = Path.join(root, "rebuilt-package.tar")
     hook = Path.join(root, "capture.exs")
     File.write!(hook, preflight_capture(capture), [:exclusive])
@@ -621,6 +644,8 @@ defmodule Weld.Verifier do
 
     unless is_list(hex_beam),
       do: raise(Error, "G09 requires the installed Hex.Tar instrumentation point")
+
+    mix_opts = mix_opts(state.opts)
 
     {output, status} =
       Runner.run!(
@@ -638,7 +663,7 @@ defmodule Weld.Verifier do
         ],
         cd: project,
         seconds: 900,
-        env: Runner.mix_env(project, Path.join(root, "cache"), :dev),
+        env: Runner.mix_env(project, Path.join(root, "cache"), :dev, mix_opts),
         log_path: Path.join(root, "logs/G09.log")
       )
 
@@ -649,9 +674,9 @@ defmodule Weld.Verifier do
       do: raise(Error, "G09: Hex preflight rebuilt bytes that differ from G08")
 
     docs_output =
-      Probe.project!(project, :dev, env: Runner.mix_env(project, Path.join(root, "cache"), :dev)).config[
-        :docs
-      ][:output] || "doc"
+      Probe.project!(project, :dev,
+        env: Runner.mix_env(project, Path.join(root, "cache"), :dev, mix_opts)
+      ).config[:docs][:output] || "doc"
 
     Weld.Core.Inventory.validate_path!(docs_output)
 
@@ -713,9 +738,9 @@ defmodule Weld.Verifier do
   defp baseline_project!(state, mirror, project) do
     root = Path.join([state.root, "baseline-work", Identity.raw(project.id)])
     project_root = if project.id == ".", do: mirror, else: Path.join(mirror, project.id)
-    _ = run_mix!(project_root, root, :test, ["deps.get"], "G03-resolve")
+    _ = run_mix!(project_root, root, :test, ["deps.get"], "G03-resolve", state.opts)
     frozen = observe_tree!(mirror)
-    {result, records} = run_tests!(project_root, root, "G03")
+    {result, records} = run_tests!(project_root, root, "G03", state.opts)
 
     unless frozen == observe_tree!(mirror),
       do: raise(Error, "G03: source baseline modified frozen source mirror")
@@ -729,7 +754,7 @@ defmodule Weld.Verifier do
   defp prefix_baseline_file(record, project_id),
     do: Map.update!(record, "file", &(project_id <> "/" <> &1))
 
-  defp run_tests!(project, root, gate) do
+  defp run_tests!(project, root, gate, opts) do
     File.mkdir_p!(root)
     event_path = Path.join(root, "#{gate}-test-events.tsv")
     formatter = Path.join(root, "#{gate}-formatter.exs")
@@ -744,7 +769,7 @@ defmodule Weld.Verifier do
       Runner.run!("elixir", args,
         cd: project,
         seconds: 900,
-        env: Runner.mix_env(project, Path.join(root, "cache"), :test),
+        env: Runner.mix_env(project, Path.join(root, "cache"), :test, mix_opts(opts)),
         log_path: Path.join(root, "logs/#{gate}.log")
       )
 
@@ -763,6 +788,8 @@ defmodule Weld.Verifier do
        seed: 0
      }, tests}
   end
+
+  defp mix_opts(opts), do: Keyword.take(opts, [:candidate_registry, :native_env])
 
   @doc false
   def validate_test_mapping!(plan, baseline, actual) do

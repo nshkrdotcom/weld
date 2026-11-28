@@ -272,6 +272,9 @@ defmodule Weld.Git do
     :ok
   end
 
+  @doc false
+  def env, do: git_env()
+
   defp write_ref_transaction!(root, commands) do
     executable = System.find_executable("git") || raise(Error, "Git executable unavailable")
 
@@ -286,10 +289,7 @@ defmodule Weld.Git do
         :use_stdio,
         {:args, ["--signal=TERM", "--kill-after=2s", "10s", executable, "update-ref", "--stdin"]},
         {:cd, root},
-        {:env,
-         Enum.map(git_env(), fn {name, value} ->
-           {to_charlist(name), if(value, do: to_charlist(value), else: false)}
-         end)}
+        {:env, Runner.port_env(git_env())}
       ])
 
     try do

@@ -6,7 +6,7 @@ defmodule Weld.ReleaseInputs do
 
   @unsafe ~w(unsafe_https unsafe_registry no_verify_repo_origin)a
 
-  def observations(%Plan{} = plan, context) do
+  def observations(%Plan{} = plan, context, opts \\ []) do
     _ = Mix.Hex.start()
     compiler = plan.facts.compiler_id
 
@@ -28,12 +28,12 @@ defmodule Weld.ReleaseInputs do
           :hex_repo,
           :hex_http_httpc
         ]),
-      "native_inputs" => Map.new(Application.get_env(:weld, :native_env, []))
+      "native_inputs" => Map.new(Runner.native_env!(opts[:native_env]))
     }
 
-    trust = registry_trust()
+    trust = registry_trust(opts)
     declared = Enum.sort(plan.artifact.verify.context)
-    public_context = Application.get_env(:weld, :qualification_context, %{})
+    public_context = qualification_context!(opts[:qualification_context])
 
     context_digest =
       if declared == [] and is_nil(context) and public_context == %{},
@@ -50,8 +50,14 @@ defmodule Weld.ReleaseInputs do
     %{toolchain: toolchain, trust: trust, context_digest: context_digest}
   end
 
-  def eligible(%Plan{} = plan, context) do
-    facts = observations(plan, context)
+  defp qualification_context!(nil), do: %{}
+  defp qualification_context!(facts) when is_map(facts), do: facts
+
+  defp qualification_context!(_),
+    do: raise(Weld.Error, "qualification_context must be a map of public facts")
+
+  def eligible(%Plan{} = plan, context, opts \\ []) do
+    facts = observations(plan, context, opts)
     reasons = []
 
     reasons =
@@ -98,7 +104,7 @@ defmodule Weld.ReleaseInputs do
   end
 
   @doc false
-  def registry_trust do
+  def registry_trust(opts \\ []) do
     get_state = :erlang.make_fun(Module.concat(Hex, State), :get_all, 0)
 
     state =
@@ -112,7 +118,7 @@ defmodule Weld.ReleaseInputs do
       not Enum.any?(@unsafe, &state[&1]) and is_nil(state[:mirror_url]) and
         is_nil(state[:trusted_mirror_url])
 
-    case Runner.candidate_registry!() do
+    case Runner.candidate_registry!(opts) do
       nil -> default_trust(secure)
       registry -> candidate_trust(secure, registry)
     end

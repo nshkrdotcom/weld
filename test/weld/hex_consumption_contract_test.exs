@@ -31,7 +31,7 @@ defmodule Weld.HexConsumptionContractTest do
 
   defp run_layout!(layout) do
     root =
-      case System.get_env("WELD_QC_LAYOUT_OUTPUT") do
+      case System.get_env("_WELD_CI_MATRIX_DIR") do
         nil -> Path.join(FixtureCase.unique_tmp_dir("exact_hex_#{layout}"), "results")
         output -> Path.expand(output)
       end

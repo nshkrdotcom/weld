@@ -138,8 +138,8 @@ defmodule WeldInstalledQualification do
     end)
     installation = installed_bytes!(request, module_evidence)
     write!(Path.join(request["output"], "installed-code.json"), installation)
-    set_native_context!(request["native_context"])
-    results = Enum.map(request["fixtures"], &qualify!(&1, request["output"]))
+    context_opts = native_context_opts(request["native_context"])
+    results = Enum.map(request["fixtures"], &qualify!(&1, request["output"], context_opts))
     unless installation == installed_bytes!(request, module_evidence),
       do: raise("installed Weld package or source changed during qualification")
     for {module, evidence} <- module_evidence do
@@ -190,7 +190,7 @@ defmodule WeldInstalledQualification do
     }
   end
 
-  defp qualify!(fixture, output) do
+  defp qualify!(fixture, output, context_opts) do
     layout = fixture["layout"]
     source = fixture["source"]
     evidence = Path.join(output, layout)
@@ -207,7 +207,12 @@ defmodule WeldInstalledQualification do
       write!(Path.join(evidence, "plan.json"), inventory)
       full = Weld.Projector.project!(plan, no_cache: true)
       live = Weld.Projector.project!(plan, kind: :live, no_cache: true)
-      qualified = Weld.Verifier.verify!(plan, no_cache: true, context: "installed_weld_" <> layout)
+
+      qualified =
+        Weld.Verifier.verify!(
+          plan,
+          Keyword.merge(context_opts, no_cache: true, context: "installed_weld_" <> layout)
+        )
       :ok = Weld.Projector.recheck_inputs!(plan, inventory["input_id"])
       write!(Path.join(evidence, "qualification.json"), qualified.qualification)
       result = %{
@@ -241,9 +246,11 @@ defmodule WeldInstalledQualification do
       do: raise("native context requires native_env and public_facts objects")
     context
   end
-  defp set_native_context!(context) do
-    Application.put_env(:weld, :native_env, Enum.sort(context["native_env"]))
-    Application.put_env(:weld, :qualification_context, context["public_facts"])
+  defp native_context_opts(context) do
+    [
+      native_env: Enum.sort(context["native_env"] || %{}),
+      qualification_context: context["public_facts"] || %{}
+    ]
   end
   defp prerequisites!(native?) do
     names = ~w(mix elixir git openssl timeout kill) ++ if(native?, do: ~w(cc make), else: [])

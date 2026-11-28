@@ -14,6 +14,6 @@ unless rest == [] and is_binary(opts[:output]),
       "usage: mix run scripts/qc/qualify_layouts.exs -- --output NEW_DIRECTORY [--native-context FILE]"
     )
 
-Weld.QC.native_context!(opts[:native_context])
-Weld.QC.matrix!(opts[:output])
+qc_opts = Weld.QC.native_context!(opts[:native_context])
+Weld.QC.matrix!(opts[:output], Weld.QC.scenarios(), qc_opts)
 IO.puts("Recorded real layout/native qualification evidence in #{Path.expand(opts[:output])}")

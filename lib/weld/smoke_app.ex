@@ -4,8 +4,8 @@ defmodule Weld.SmokeApp do
   alias Weld.{Error, Hash, Output, Plan}
   alias Weld.Shell.{Hex, Runner}
 
-  @spec verify!(Plan.t(), Path.t()) :: map()
-  def verify!(%Plan{} = plan, project) do
+  @spec verify!(Plan.t(), Path.t(), keyword()) :: map()
+  def verify!(%Plan{} = plan, project, opts \\ []) do
     Output.with_lease(
       plan.manifest.repo_root,
       "verify",
@@ -16,7 +16,7 @@ defmodule Weld.SmokeApp do
         run = Output.run!(plan.manifest.repo_root, "verify", plan.artifact.id, lease)
 
         try do
-          result = verify_project!(plan, project, run.path)
+          result = verify_project!(plan, project, run.path, opts)
           Output.finish_run!(run, "completed")
           result
         rescue
@@ -28,7 +28,7 @@ defmodule Weld.SmokeApp do
     )
   end
 
-  def verify_project!(plan, project, root \\ nil) do
+  def verify_project!(plan, project, root \\ nil, opts \\ []) do
     smoke = plan.artifact.verify.smoke
 
     unless smoke.entry_file,
@@ -37,17 +37,22 @@ defmodule Weld.SmokeApp do
     root = root || Output.temporary!(plan.manifest.repo_root, "smoke")
     source = Output.source!(plan.manifest.repo_root, smoke.entry_file) |> File.read!()
     consumer!(root, plan.artifact.package.otp_app, {:path, project}, source)
-    run!(root, ["deps.get"], "project-deps")
-    run!(root, ["compile", "--warnings-as-errors"], "project-compile")
+    run!(root, ["deps.get"], "project-deps", :dev, [], opts)
+    run!(root, ["compile", "--warnings-as-errors"], "project-compile", :dev, [], opts)
     %{task: "smoke", env: :dev, status: :ok, consumer: "ordinary_mix_path"}
   end
 
   @doc "Install the exact archive through the ordinary Hex resolver and a signed loopback registry."
-  def verify_archive!(plan, tarball, root, smoke_source \\ nil) do
-    archive!(tarball, root, smoke_source,
-      expected_app: plan.artifact.package.otp_app,
-      expected_name: plan.artifact.package.name,
-      expected_version: plan.artifact.package.version
+  def verify_archive!(plan, tarball, root, smoke_source \\ nil, opts \\ []) do
+    archive!(
+      tarball,
+      root,
+      smoke_source,
+      Keyword.merge(opts,
+        expected_app: plan.artifact.package.otp_app,
+        expected_name: plan.artifact.package.name,
+        expected_version: plan.artifact.package.version
+      )
     )
   end
 
@@ -68,13 +73,16 @@ defmodule Weld.SmokeApp do
     frozen_tar = Path.join(tarballs, "#{name}-#{version}.tar")
     File.cp!(tarball, frozen_tar)
     private = Path.join(root, "registry-private.pem")
-    command!("openssl", ["genrsa", "-out", private, "2048"], root, "registry-key")
+    command!("openssl", ["genrsa", "-out", private, "2048"], root, "registry-key", :dev, [], opts)
     File.chmod!(private, 0o600)
 
     run!(
       root,
       ["hex.registry", "build", public, "--name", registry, "--private-key", private],
-      "registry-build"
+      "registry-build",
+      :dev,
+      [],
+      opts
     )
 
     File.rm!(private)
@@ -102,10 +110,13 @@ defmodule Weld.SmokeApp do
           "--public-key",
           Path.join(public, "public_key")
         ],
-        "registry-config"
+        "registry-config",
+        :dev,
+        [],
+        opts
       )
 
-      run!(root, ["deps.get"], "hex-install")
+      run!(root, ["deps.get"], "hex-install", :dev, [], opts)
       installed_lock!(root, app, name, version, registry, observation.outer_checksum)
 
       cached =
@@ -114,17 +125,27 @@ defmodule Weld.SmokeApp do
       unless File.regular?(cached) and Hash.sha256_file(cached) == observation.outer_checksum,
         do: raise(Error, "Hex consumer did not retrieve the exact frozen archive")
 
-      run!(root, ["deps.compile"], "hex-deps-compile")
-      run!(root, ["compile", "--warnings-as-errors", "--no-compile-deps"], "hex-compile")
+      run!(root, ["deps.compile"], "hex-deps-compile", :dev, [], opts)
+
+      run!(
+        root,
+        ["compile", "--warnings-as-errors", "--no-compile-deps"],
+        "hex-compile",
+        :dev,
+        [],
+        opts
+      )
 
       run!(
         root,
         ["test", "--warnings-as-errors", "--seed", "0", "--max-cases", "1"],
         "hex-test",
-        :test
+        :test,
+        [],
+        opts
       )
 
-      if opts[:offline_rebuild], do: offline_archive_rebuild!(root, server)
+      if opts[:offline_rebuild], do: offline_archive_rebuild!(root, server, opts)
 
       unless Hash.sha256_file(frozen_tar) == observation.outer_checksum and
                Hash.sha256_file(tarball) == observation.outer_checksum,
@@ -158,21 +179,29 @@ defmodule Weld.SmokeApp do
     unless Regex.match?(~r/\A[a-z][a-z0-9_]*\z/, app), do: raise(Error, "invalid archive OTP app")
   end
 
-  defp offline_archive_rebuild!(root, server) do
+  defp offline_archive_rebuild!(root, server, opts) do
     :inets.stop(:httpd, server)
     File.rm_rf!(Path.join(root, "cache/build"))
     File.rm_rf!(Path.join(root, "cache/deps"))
 
-    run!(root, ["deps.get", "--check-locked"], "offline-install", :dev, [{"HEX_OFFLINE", "1"}])
+    run!(
+      root,
+      ["deps.get", "--check-locked"],
+      "offline-install",
+      :dev,
+      [{"HEX_OFFLINE", "1"}],
+      opts
+    )
 
-    run!(root, ["deps.compile"], "offline-native-compile", :dev, [{"HEX_OFFLINE", "1"}])
+    run!(root, ["deps.compile"], "offline-native-compile", :dev, [{"HEX_OFFLINE", "1"}], opts)
 
     run!(
       root,
       ["test", "--warnings-as-errors", "--seed", "0", "--max-cases", "1"],
       "offline-test",
       :test,
-      [{"HEX_OFFLINE", "1"}]
+      [{"HEX_OFFLINE", "1"}],
+      opts
     )
   end
 
@@ -245,16 +274,21 @@ defmodule Weld.SmokeApp do
     end
   end
 
-  defp run!(root, arguments, label, env \\ :dev, extra \\ []) do
-    command!("mix", arguments, root, label, env, extra)
+  defp run!(root, arguments, label, env, extra, opts) do
+    command!("mix", arguments, root, label, env, extra, opts)
   end
 
-  defp command!(command, arguments, root, label, env \\ :dev, extra \\ []) do
+  defp command!(command, arguments, root, label, env, extra, opts) do
+    mix_opts =
+      opts
+      |> Keyword.take([:candidate_registry, :registry_url, :registry_public_key, :native_env])
+      |> Keyword.put(:extra, extra)
+
     {output, status} =
       Runner.run!(command, arguments,
         cd: root,
         seconds: 900,
-        env: Runner.mix_env(root, Path.join(root, "cache"), env, extra),
+        env: Runner.mix_env(root, Path.join(root, "cache"), env, mix_opts),
         log_path: Path.join(root, "logs/#{label}.log")
       )
 

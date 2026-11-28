@@ -21,6 +21,7 @@ defmodule Weld.CLI do
   @common [manifest: :string, root: :string, format: :string, verbose: :boolean, help: :boolean]
   @selection [artifact: :string, all: :boolean]
   @pin [identity: :string, current: :boolean]
+  @candidate_registry [registry_url: :string, registry_public_key: :string]
   @registry %{
     "setup" => {0, []},
     "plan" => {0, @selection},
@@ -28,8 +29,10 @@ defmodule Weld.CLI do
     "query" => {:query, [artifact: :string, view: :string]},
     "affected" => {0, @selection ++ [base: :string, head: :string, task: :string]},
     "project" => {0, @selection ++ [kind: :string, fresh: :boolean]},
-    "verify" => {0, @selection ++ [fresh: :boolean, context: :string]},
-    "prepare" => {0, @selection ++ [fresh: :boolean, context: :string, reuse: :string]},
+    "verify" => {0, @selection ++ [fresh: :boolean, context: :string] ++ @candidate_registry},
+    "prepare" =>
+      {0,
+       @selection ++ [fresh: :boolean, context: :string, reuse: :string] ++ @candidate_registry},
     "status" => {0, @selection ++ [identity: :string, remote: :boolean]},
     "diff" => {0, [artifact: :string, kind: :string, identity: :string]},
     "path" => {0, [artifact: :string, kind: :string, identity: :string, run: :string]},
@@ -260,7 +263,11 @@ defmodule Weld.CLI do
     validate_reuse!(opts)
     validate_mutation!(opts)
     validate_kind!(command, opts)
-    unless opts[:help], do: require_options!(command, opts)
+
+    unless opts[:help] do
+      require_options!(command, opts)
+      _ = Runner.candidate_registry!(opts)
+    end
   end
 
   defp validate_selection_and_format!(command, opts) do

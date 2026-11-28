@@ -78,4 +78,11 @@ defmodule Weld.HexTransportContractTest do
     assert {:ok, %{state: "unknown", authoritative: false}} =
              Hex.http_transport(config).read.(:docs, "probe", "1.0.0")
   end
+
+  test "destination reads explicit hex_config option without global application env" do
+    assert Hex.destination(hex_config: %{api_url: "https://sandbox.example.test/api"}) ==
+             "https://sandbox.example.test/api"
+
+    assert Hex.destination([]) == :hex_core.default_config().api_url
+  end
 end

@@ -481,7 +481,7 @@ defmodule Weld.Shell.Hex do
   def destination(opts) do
     case opts[:transport] do
       %{trust: %{destination: destination}} -> safe_endpoint!(destination, true)
-      _ -> safe_endpoint!(configured_core()[:api_url], false)
+      _ -> safe_endpoint!(configured_core(opts)[:api_url], false)
     end
   end
 
@@ -592,14 +592,14 @@ defmodule Weld.Shell.Hex do
     }
 
   defp transport!(opts, operation) do
-    transport = opts[:transport] || http_transport(configured_core())
+    transport = opts[:transport] || http_transport(configured_core(opts))
 
     unless is_function(transport[:read], 3) and is_function(transport[:write], 4),
       do: raise(Error, "invalid exact-byte Hex transport")
 
     trust = transport_trust!(transport[:trust])
 
-    if operation == :write and not qualified_transport?(trust),
+    if operation == :write and not qualified_transport?(trust, opts[:hex_conformance]),
       do:
         raise(
           Error,
@@ -619,12 +619,12 @@ defmodule Weld.Shell.Hex do
   defp transport_trust!(_),
     do: raise(Error, "remote evidence requires authenticated, authoritative Hex trust facts")
 
-  defp qualified_transport?(%{conformance: :loopback, destination: destination}) do
+  defp qualified_transport?(%{conformance: :loopback, destination: destination}, _conformance) do
     URI.parse(destination).host in ["127.0.0.1", "::1", "localhost"]
   end
 
-  defp qualified_transport?(trust) do
-    case Application.get_env(:weld, :hex_conformance) do
+  defp qualified_transport?(trust, conformance) do
+    case conformance do
       %{
         "schema" => "weld.hex-conformance/2",
         "adapter" => "hex_core/0.21.1",
@@ -701,10 +701,10 @@ defmodule Weld.Shell.Hex do
         )
   end
 
-  defp configured_core do
-    config = :hex_core.default_config() |> Map.merge(Application.get_env(:weld, :hex_config, %{}))
-    key = Application.get_env(:weld, :hex_api_key)
-    if key, do: Map.put(config, :api_key, key), else: config
+  defp configured_core(opts) do
+    config = :hex_core.default_config() |> Map.merge(Map.new(opts[:hex_config] || %{}))
+    key = opts[:hex_api_key]
+    if is_binary(key) and key != "", do: Map.put(config, :api_key, key), else: config
   end
 
   defp read_remote(config, :package, name, version) do
