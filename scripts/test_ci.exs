@@ -17,23 +17,27 @@ integration_misc_files = [
 ]
 
 planned = [
-  {"release", ["--only", "ci_build:release", "test/weld/release_test.exs"], 50},
-  {"release_faults", ["--only", "ci_build:release_faults", "test/weld/release_test.exs"], 50},
+  {"release", ["--only", "ci_build:release", "test/weld/release_test.exs"], 50, 4, 1536},
+  {"release_faults", ["--only", "ci_build:release_faults", "test/weld/release_test.exs"], 50, 4,
+   1536},
   {"hex_consumption",
-   ["--only", "ci_build:hex_consumption", "test/weld/hex_consumption_contract_test.exs"], 50},
-  {"hex_flat", ["--only", "ci_build:hex_flat", "test/weld/hex_consumption_contract_test.exs"],
-   50},
+   ["--only", "ci_build:hex_consumption", "test/weld/hex_consumption_contract_test.exs"], 50, 4,
+   1536},
+  {"hex_flat", ["--only", "ci_build:hex_flat", "test/weld/hex_consumption_contract_test.exs"], 50,
+   4, 1536},
   {"hex_preserve",
-   ["--only", "ci_build:hex_preserve", "test/weld/hex_consumption_contract_test.exs"], 50},
+   ["--only", "ci_build:hex_preserve", "test/weld/hex_consumption_contract_test.exs"], 50, 4,
+   1536},
   {"hex_native", ["--only", "ci_build:hex_native", "test/weld/hex_consumption_contract_test.exs"],
-   50},
+   50, 4, 1536},
+  {"slow", ["--only", "slow"], 45, 6, 2048},
+  {"integration_misc", ["--only", "integration" | integration_misc_files], 45, 6, 2048},
   {"component_prepare",
-   ["--only", "ci_build:component_prepare", "test/weld/component_tests_test.exs"], 40},
+   ["--only", "ci_build:component_prepare", "test/weld/component_tests_test.exs"], 40, 4, 1536},
   {"source_consumption",
-   ["--only", "ci_build:source_consumption", "test/weld/source_consumption_test.exs"], 40},
-  {"integration_misc", ["--only", "integration" | integration_misc_files], 30},
-  {"slow", ["--only", "slow"], 20},
-  {"fast", [], 10}
+   ["--only", "ci_build:source_consumption", "test/weld/source_consumption_test.exs"], 40, 4,
+   1536},
+  {"fast", [], 10, 6, 2048}
 ]
 
 requested =
@@ -53,7 +57,7 @@ if unknown != [] or Enum.uniq(requested) != requested,
 jobs =
   if requested == [],
     do: planned,
-    else: Enum.filter(planned, fn {name, _, _} -> name in requested end)
+    else: Enum.filter(planned, fn {name, _, _, _, _} -> name in requested end)
 
 selected_layouts = Enum.filter(jobs, &(elem(&1, 0) in layout_lanes))
 all_layouts? = length(selected_layouts) == length(layout_lanes)
@@ -62,8 +66,10 @@ mode = if requested == [], do: "complete", else: "PARTIAL retry"
 IO.puts("Weld CI (#{mode}): #{length(jobs)} isolated lanes; Blitz manages admission")
 
 if plan_only do
-  for {name, args, priority} <- jobs do
-    IO.puts("#{name} [priority=#{priority}]: mix test #{Enum.join(args, " ")}")
+  for {name, args, priority, cpu, memory_mib} <- jobs do
+    IO.puts(
+      "#{name} [priority=#{priority} cpu=#{cpu} memory_mib=#{memory_mib}]: mix test #{Enum.join(args, " ")}"
+    )
   end
 
   System.halt(0)
@@ -83,7 +89,7 @@ try do
     end
 
   commands =
-    Enum.map(jobs, fn {name, args, priority} ->
+    Enum.map(jobs, fn {name, args, priority, cpu, memory_mib} ->
       build_root = Path.join(scratch, name)
 
       env = %{
@@ -110,7 +116,7 @@ try do
           "--warnings-as-errors" | args
         ],
         env: env,
-        resources: [cpu: 2, memory_mib: 1536, priority: priority]
+        resources: [cpu: cpu, memory_mib: memory_mib, priority: priority]
       )
     end)
 

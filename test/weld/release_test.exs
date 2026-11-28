@@ -389,7 +389,7 @@ defmodule Weld.ReleaseTest do
             "prepare",
             "--manifest",
             "packaging/weld/fixture_bundle.exs",
-            "--no-cache",
+            "--fresh",
             "--format",
             "json"
           ])

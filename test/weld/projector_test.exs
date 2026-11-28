@@ -38,15 +38,15 @@ defmodule Weld.ProjectorTest do
     assert File.read!(Path.join(explicit.build_path, "mix.exs")) =~
              ~s|links: %{"Source" => "https://example.test/fixture_bundle"}|
 
-    File.write!(
-      manifest,
-      String.replace(
+    updated =
+      Regex.replace(
+        ~r/,\n\s*links: %\{"Source" => "https:\/\/example\.test\/fixture_bundle"\}/,
         source,
-        ~s|        links: %{"Source" => "https://example.test/fixture_bundle"},
-|,
         ""
       )
-    )
+
+    refute updated == source
+    File.write!(manifest, updated)
 
     root = Path.expand("../..", Path.dirname(manifest))
     FixtureCase.init_git!(root)
