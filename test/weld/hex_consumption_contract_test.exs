@@ -43,13 +43,29 @@ defmodule Weld.HexConsumptionContractTest do
       assert result["ordinary_hex_consumer"].application_started
       refute File.exists?(Path.join([root, result["layout"], "source"]))
 
+      gates = Map.new(result["gates"], &{&1["id"], &1})
+
+      if result["layout"] == "components" do
+        assert gates["G04"]["status"] == "pass"
+        assert gates["G07"]["status"] == "pass"
+        assert gates["G08"]["status"] == "pass"
+        assert gates["G09"]["status"] == "skip"
+      end
+
       if result["layout"] == "flat" do
-        gates = Map.new(result["gates"], &{&1["id"], &1})
         assert gates["G03"]["status"] == "pass"
         assert gates["G03"]["facts"]["count"] == 2
         assert gates["G05"]["status"] == "pass"
         assert gates["G05"]["facts"]["count"] == 2
         assert gates["G07"]["status"] == "skip"
+        assert gates["G09"]["status"] == "skip"
+        assert gates["G09"]["skip_reason"] == "hex_publish_check_disabled"
+
+        tar_path = Path.join([root, "flat", "package.tar"])
+        {:ok, outer} = :erl_tar.extract(String.to_charlist(tar_path), [:memory])
+        {~c"contents.tar.gz", contents} = List.keyfind(outer, ~c"contents.tar.gz", 0)
+        {:ok, files} = :erl_tar.extract({:binary, contents}, [:compressed, :memory])
+        refute List.keymember?(files, ~c"projection.lock.json", 0)
       end
 
       if result["layout"] == "native" do

@@ -192,6 +192,10 @@ defmodule Weld.ComponentTestsTest do
 
     result = Weld.Commands.verify!(ctx.manifest)
 
+    gates = Map.new(result.gates, &{&1["id"], &1})
+    assert gates["G03"]["status"] == "pass"
+    assert gates["G08"]["status"] == "skip"
+    assert gates["G10"]["status"] == "skip"
     assert Enum.any?(result.verification_results, &(&1.task == "selected_tests_baseline"))
     refute File.exists?(source_lock)
   end

@@ -145,13 +145,14 @@ defmodule Weld.ReleaseTest do
       assert Weld.ReleaseStatus.validate_bundle_integrity!(first.bundle_path, first.identity)[
                "bundle_id"
              ] == first.identity
+
+      assert Path.wildcard(Path.join(root, ".weld/v2/bundles/fixture_bundle/*")) == [
+               first.bundle_path
+             ]
     end
   end
 
-  @tag integration: true,
-       ci_build: "release_faults_prepare",
-       ci_case: "release_faults_prepare-g02",
-       timeout: 1_800_000
+  @tag integration: true, ci_build: "release_faults", timeout: 1_800_000
   test "G02 frozen input mutation retains the previous exact current bundle" do
     %{plan: plan, pointer: pointer, old: old, first: first} = prepare_failure_fixture!(:fixture)
 
@@ -174,7 +175,7 @@ defmodule Weld.ReleaseTest do
            ] == first.identity
   end
 
-  @tag integration: true, ci_build: "release_faults_pointer", timeout: 1_800_000
+  @tag integration: true, ci_build: "release_faults", timeout: 1_800_000
   test "pointer failure boundaries retain the previous exact current bundle" do
     # Seed a valid canonical prior bundle and roll back a real newly qualified
     # candidate through the full release prepare -> seal transaction.
@@ -202,14 +203,20 @@ defmodule Weld.ReleaseTest do
 
     portable = Inventory.portable(plan)
 
-    requirements = %{
-      "jason" => %{
-        "app" => "jason",
-        "optional" => false,
-        "repository" => "hexpm",
-        "requirement" => "~> 1.4"
-      }
-    }
+    requirements =
+      for %{"app" => app, "requirement" => requirement, "opts" => raw_opts} <-
+            portable["dependencies"],
+          opts = normalize_dep_opts(raw_opts),
+          is_nil(opts["only"]) or "prod" in List.wrap(opts["only"]),
+          into: %{} do
+        {opts["hex"] || app,
+         %{
+           "app" => app,
+           "optional" => opts["optional"] == true,
+           "repository" => opts["repo"] || "hexpm",
+           "requirement" => requirement
+         }}
+      end
 
     metadata = %{
       "name" => plan.artifact.package.name,
@@ -279,6 +286,10 @@ defmodule Weld.ReleaseTest do
       qualification: qualification
     }
   end
+
+  defp normalize_dep_opts(opts) when is_list(opts), do: Map.new(opts, fn [k, v] -> {k, v} end)
+  defp normalize_dep_opts(opts) when is_map(opts), do: opts
+  defp normalize_dep_opts(_), do: %{}
 
   defp prepare_failure_fixture!(:fixture) do
     root = FixtureCase.copy_fixture("library_bundle")
@@ -521,9 +532,15 @@ defmodule Weld.ReleaseTest do
     assert FixtureCase.remote_branch_exists?(repo_root, "origin", "projection/fixture_bundle")
   end
 
-  @tag integration: true, ci_build: "internal"
+  @tag integration: true, ci_build: "release_faults"
   test "prepares and archives internal-only bundles without a tarball" do
     repo_root = FixtureCase.copy_fixture("root_workspace")
+
+    File.write!(
+      Path.join(repo_root, ".formatter.exs"),
+      "[inputs: [\"{mix,.formatter}.exs\", \"{config,lib,test}/**/*.{ex,exs}\"]]\n"
+    )
+
     manifest_path = write_internal_only_monolith_manifest(repo_root)
     write_internal_only_web_test!(repo_root)
     FixtureCase.init_git!(repo_root)
@@ -531,6 +548,7 @@ defmodule Weld.ReleaseTest do
 
     assert File.dir?(prepared.bundle_path)
     assert File.dir?(prepared.project_path)
+    assert File.regular?(Path.join(prepared.project_path, ".formatter.exs"))
     assert File.regular?(prepared.release_metadata_path)
     refute prepared.tarball_path
 

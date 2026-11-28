@@ -87,37 +87,22 @@ layout order. Without an explicit output the temporary results are cleaned up.
 For targeted retries, name only the affected lanes (this is not full CI):
 
 ```bash
-MIX_ENV=test mix run --no-start scripts/test_ci.exs -- fast candidate_registry
+MIX_ENV=test mix run --no-start scripts/test_ci.exs -- fast integration_misc
 ```
 
 | Lane | Scope |
 | --- | --- |
 | fast | Source tests excluding `:slow` and `:integration` |
-| slow | Slower source tests (`:slow`) |
-| source_consumption | Detached source/path/Git consumption |
-| release | Preparation, immutable evidence and independent reproducibility |
-| release_faults_prepare | Snapshot, qualification, copy and G02 mutation rollback |
-| release_faults_seal | Real prepare-sealed rollback |
-| release_faults_pointer | Real prior and candidate pointer-replacement rollback |
-| formatter | Actual generated formatting |
-| internal | Internal dependency projection |
-| package | Generated package qualification |
-| runtime | Composed application startup |
-| monolith | Flat artifact verification |
-| prepare_cli | Actual preparation task |
-| monolith_tests | Full/live selected flat test suites |
-| package_config | Package config and bootstrap behavior |
-| source_docs_output | Native custom docs output |
-| component_prepare | Component baseline and artifact tests |
-| graph_consumption | Namespaced/live dependency consumption |
-| bootstrap_relocation | Installed bootstrap after source relocation |
-| qualification_faults | Real G02 mutation, failed-gate retention and other integration contracts |
-| hex_consumption | Components signed registry consumption |
-| hex_flat | Flat signed registry consumption |
+| slow | Slower source tests (`:slow`), including projected formatter check |
+| release | Preparation, active-lease GC retention, CLI `prepare`, and clean-checkout reproducibility |
+| release_faults | Real G02 mutation rollback, pointer-replacement rollback, and internal-only prepared bundle |
+| hex_consumption | Components signed registry consumption, poisoned env, and G04/G07/G08/G09 contracts |
+| hex_flat | Flat signed registry consumption, poisoned env, G03/G05 counts, G09 skip, and archive hygiene |
 | hex_preserve | Preserve signed registry consumption |
 | hex_native | Native signed registry consumption and offline rebuild |
-| candidate_registry | Signed unpublished dependency selection and detached consumer |
-| probe_timeout | Stuck metadata subprocess termination and cleanup |
+| component_prepare | Component test dependency isolation, G03 lock isolation, and component bundle identity |
+| source_consumption | Detached source/path/Git/live consumption |
+| integration_misc | Erlang include digest, runtime startup + `dev_deps` exclusion, custom docs output, package config, candidate registry, monolith tests, graph live, bootstrap relocation, and probe timeout |
 
 ## Architecture and canonical proof
 

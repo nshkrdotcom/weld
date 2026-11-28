@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build isolation only. Blitz owns resource admission and CPU affinity.
+# Build isolation only. Blitz owns advisory resource admission.
 set -euo pipefail
 source_build=$1
 build_root=$2

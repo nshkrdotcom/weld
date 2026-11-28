@@ -11,7 +11,7 @@ defmodule Weld.MixProject do
       start_permanent: Mix.env() == :prod,
       build_path: System.get_env("WELD_CI_BUILD_ROOT", "_build"),
       elixirc_paths: elixirc_paths(Mix.env()),
-      test_paths: test_paths(Mix.env()),
+      test_paths: ["test/weld"],
       aliases: aliases(),
       dialyzer: dialyzer(),
       deps: deps(),
@@ -33,9 +33,6 @@ defmodule Weld.MixProject do
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_env), do: ["lib"]
-
-  defp test_paths(:test), do: ["test/weld"]
-  defp test_paths(_env), do: ["test"]
 
   defp deps do
     [

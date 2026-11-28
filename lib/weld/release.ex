@@ -140,8 +140,7 @@ defmodule Weld.Release do
     seal_prepared!(plan, verification, revision, lease, opts)
   end
 
-  @doc false
-  def seal_prepared!(plan, verification, revision, lease, opts) do
+  defp seal_prepared!(plan, verification, revision, lease, opts) do
     stage = Path.join(lease.stage, "bundle")
     File.mkdir!(stage)
     project = Path.join(stage, "project")

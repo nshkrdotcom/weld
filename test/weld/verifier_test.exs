@@ -6,14 +6,26 @@ defmodule Weld.VerifierTest do
   @moduletag :integration
 
   @tag ci_build: "runtime"
-  test "starts the generated welded application before running package tests" do
-    result =
-      Weld.Commands.verify!(
-        FixtureCase.copied_manifest_path("composite_runtime", "composite_bundle")
+  test "starts the generated welded application and excludes manifest dev_deps from Hex metadata" do
+    manifest = FixtureCase.copied_manifest_path("composite_runtime", "composite_bundle")
+
+    File.write!(
+      manifest,
+      String.replace(
+        File.read!(manifest),
+        ~s(description: "Composite runtime fixture"),
+        ~s(description: "Composite runtime fixture",\n        dev_deps: [{:nimble_options, "~> 1.1", only: [:dev, :test], runtime: false}])
       )
+    )
+
+    result = Weld.Commands.verify!(manifest)
 
     assert File.regular?(result.tarball_path)
     assert Enum.any?(result.verification_results, &(&1.task == "test --warnings-as-errors"))
+
+    mixfile = File.read!(Path.join(result.build_path, "mix.exs"))
+    assert mixfile =~ "{:nimble_options, \"~> 1.1\", [only: [:dev, :test], runtime: false]}"
+    refute Map.has_key?(result.package_metadata["requirements"] || %{}, "nimble_options")
   end
 
   @tag ci_build: "source_docs_output"
