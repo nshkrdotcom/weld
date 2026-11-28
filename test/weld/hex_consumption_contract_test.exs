@@ -2,6 +2,7 @@ Code.require_file("../../scripts/qc/support.exs", __DIR__)
 
 defmodule Weld.HexConsumptionContractTest do
   use ExUnit.Case, async: false
+  alias Weld.Core.Identity
   alias Weld.FixtureCase
   @moduletag :integration
   @moduletag ci_build: "hex_consumption"
@@ -46,6 +47,7 @@ defmodule Weld.HexConsumptionContractTest do
       gates = Map.new(result["gates"], &{&1["id"], &1})
 
       if result["layout"] == "components" do
+        assert Identity.valid?(gates["G02"]["facts"]["lock_sha256"])
         assert gates["G04"]["status"] == "pass"
         assert gates["G07"]["status"] == "pass"
         assert gates["G08"]["status"] == "pass"
@@ -53,6 +55,7 @@ defmodule Weld.HexConsumptionContractTest do
       end
 
       if result["layout"] == "flat" do
+        assert Identity.valid?(gates["G02"]["facts"]["lock_sha256"])
         assert gates["G03"]["status"] == "pass"
         assert gates["G03"]["facts"]["count"] == 2
         assert gates["G05"]["status"] == "pass"

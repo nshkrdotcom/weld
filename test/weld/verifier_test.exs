@@ -20,7 +20,14 @@ defmodule Weld.VerifierTest do
 
     result = Weld.Commands.verify!(manifest)
 
+    assert File.regular?(result.lockfile_path)
     assert File.regular?(result.tarball_path)
+
+    assert [_ | _] =
+             Path.wildcard(
+               Path.join(Path.dirname(result.build_path), "cache/build/dev/lib/*/ebin")
+             )
+
     assert Enum.any?(result.verification_results, &(&1.task == "test --warnings-as-errors"))
 
     mixfile = File.read!(Path.join(result.build_path, "mix.exs"))

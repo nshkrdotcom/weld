@@ -67,9 +67,16 @@ def main() -> int:
                      if p.startswith("lib/") and p.endswith(".ex")}
         history[ref] = metrics(ref_files, git("show", f"{ref}:mix.exs").decode())
     baseline_tests = sorted(p for p in tracked_at(BASELINE) if p.startswith("test/"))
-    missing_tests = [p for p in baseline_tests if not (ROOT / p).exists()]
+    retired_tests: set[str] = set()
+    disposition_tsv = ROOT / "guides/qc/baseline-test-paths.tsv"
+    if disposition_tsv.is_file():
+        for line in disposition_tsv.read_text().splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 3 and parts[2].startswith("retired_") and (ROOT / parts[1]).exists():
+                retired_tests.add(parts[0])
+    missing_tests = [p for p in baseline_tests if p not in retired_tests and not (ROOT / p).exists()]
     check("baseline_test_paths_retained", not missing_tests,
-          {"baseline_paths": len(baseline_tests), "missing": missing_tests})
+          {"baseline_paths": len(baseline_tests), "retired": sorted(retired_tests), "missing": missing_tests})
     current_metrics = metrics(files, files["mix.exs"])
     check("one_public_mix_task", current_metrics["mix_task_files"] == ["lib/mix/tasks/weld.ex"],
           current_metrics["mix_task_files"])

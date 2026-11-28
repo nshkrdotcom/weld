@@ -124,32 +124,27 @@ no separate Weld worker-count, lexical sharding, or CPU-slot scheduler is
 retained. Use `-- --plan` with the standalone runner to inspect lanes without
 executing them. A fast pass cannot replace any release gate.
 
-Also run the architectural and delivery contract checks:
+Also run the lightweight architectural and static checks when changing
+compiler boundaries, dependencies, or CI scripts:
 
 ```bash
 mix run scripts/qc/architecture_check.exs
 mix xref graph --format cycles --fail-above 0
 mix xref graph --format cycles --label compile-connected --fail-above 0
-python scripts/qc/static_check.py
-python scripts/git_ref_contract.py
-bash scripts/qc/loopback_transport.sh
-mix run --no-start scripts/qc/prepare_reuse.exs -- --output /tmp/weld-qc-reuse
+python3 scripts/qc/static_check.py
 ```
 
 For the four-layout matrix, set `WELD_QC_LAYOUT_OUTPUT` to a new directory when
 running `mix ci`; the separate driver is only needed when those results are
-missing or affected. Use fresh output directories. See `guides/testing_strategy.md` and
-`scripts/qc/README.md` for native/compiler/Hex/browser prerequisites and the
-approved sandbox conformance procedure. The reference toolchain is Elixir
-1.20.5, OTP 29.1.2, Hex 2.7.0 and the resolved Hex Core 0.21.1 lock entry. Run the
-maintainer's supported minimum-version matrix too; the declared `~> 1.18` range
-is not evidence that this session tested every version.
-
-After ordinary QC and any source repairs, the maintainer runs the final large
-synthetic soak. Record one cold and five warm samples per revision, actual
-failures, medians/maxima, memory, probe/process counts, copy bytes and cache size.
-Keep qualification, exact archive consumption, docs and native timings separate.
-Soak results alone never imply release readiness.
+missing or affected. Use fresh output directories. Optional manual diagnostics
+and release-only drivers (`scripts/git_ref_contract.py`,
+`scripts/qc/loopback_transport.sh`, `scripts/qc/prepare_reuse.exs`, browser
+docs, authenticated conformance, installed-package qualification, and synthetic
+soak benchmarks) are documented in `guides/testing_strategy.md` and
+`scripts/qc/README.md`; do not run them automatically on routine edits. The
+reference toolchain is Elixir 1.20.5, OTP 29.1.2, Hex 2.7.0 and the resolved
+Hex Core 0.21.1 lock entry. Verify the declared `~> 1.18` minimum-version
+compatibility explicitly before claiming it on release.
 
 ## Documentation and evidence
 

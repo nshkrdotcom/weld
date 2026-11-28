@@ -14,13 +14,18 @@ and the 0.20.2 signed candidate-registry isolation, exact archive consumption,
 wrong-key refusal and publication restrictions. It indexes repeated observations,
 uses bounded independent metadata probes and changes test fixture ownership to
 reduce redundant qualification. All nine release failpoints remain covered:
-four prepare-owned points through real qualification, five seal-owned points
-through canonical test-only bundles, with an additional real pointer-replacement
-rollback. The shared frozen-input guard is exercised directly and one real G02
-mutation verifies gate reporting. Historical passes do not qualify the current
-source; the new CI wall time must be measured on the actual host.
+`:prepare_snapshot`, real G02 mutation, active-lease GC retention and
+pointer-replacement rollback run through `Release.prepare!/2`, release
+finalization failpoints (`:prepare_qualified`, `:prepare_copied`,
+`:prepare_sealed`) run directly at the release finalization boundary, and all
+five `Output.seal!` boundaries run against canonical test-only bundles. The
+shared frozen-input guard is exercised directly and one real G02 mutation
+verifies gate reporting. Historical passes do not qualify the current source;
+the new CI wall time must be measured on the actual host.
 
-- `baseline-test-paths.tsv` records all 161 retained baseline test paths.
+- `baseline-test-paths.tsv` records all 161 baseline test paths (160 retained;
+  the unused root `test/test_helper.exs` is retired in favor of
+  `test/weld/test_helper.exs`).
 - `baseline-test-disposition.tsv` maps all 171 baseline lexical declarations to
   current coverage and explains changed schema/command assertions. Seven rows
   are shell `test` statements inside a fixture, not independent ExUnit tests.
