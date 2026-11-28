@@ -12,6 +12,13 @@ defmodule Weld.Release do
 
   def prepare!(%Plan{} = plan, opts \\ []) do
     plan = Plan.ensure_valid!(plan)
+
+    opts =
+      opts
+      |> Keyword.put(:candidate_registry, Runner.candidate_registry!(opts))
+      |> Keyword.put(:native_env, Runner.native_env!(opts[:native_env]))
+      |> Keyword.drop([:registry_url, :registry_public_key])
+
     root = plan.manifest.repo_root
     Git.ensure_clean_repo!(root)
     revision = Git.revision(root)

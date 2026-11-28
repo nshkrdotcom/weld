@@ -164,8 +164,12 @@ representations stay unknown. No production upload is part of ordinary QC.
 
 Dry run validates local evidence and plans the operation without credentials or
 remote writes. Actual writes require explicit `--yes` and the qualified adapter.
-Credentials are supplied through the adapter's supported external configuration;
-they are not command-line arguments, log content or bundle fields.
+Credentials, endpoint config, and recorded conformance evidence are supplied
+only through the explicit Elixir API options (`hex_config:`, `hex_api_key:`,
+`hex_conformance:`, or `transport:` on `Weld.Release.publish!/2` and
+`Weld.Release.reconcile!/2`), never through CLI arguments, OS environment reads,
+global application config, log content, or bundle fields. Public writes remain
+disabled unless valid destination-specific conformance evidence is supplied.
 
 Before each request, Weld persists intent and reserves destination/package/version
 within the checkout. Outcomes distinguish confirmed, staged approval required,

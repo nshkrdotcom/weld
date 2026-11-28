@@ -49,13 +49,16 @@ defmodule Weld.Shell.Runner do
       :use_stdio,
       {:args, ["--signal=TERM", "--kill-after=2s", "#{seconds}s", executable | arguments]},
       {:cd, Keyword.fetch!(opts, :cd)},
-      {:env, port_env(opts[:env] || [])}
+      {:env, port_env(opts[:env] || [], Keyword.take(opts, [:inherit]))}
     ])
   end
 
   @doc false
-  def port_env(overrides \\ []) do
-    scrubbed = Enum.reduce(:os.getenv(), %{}, &scrub_inherited_entry/2)
+  def port_env(overrides \\ [], opts \\ []) do
+    extra_allowlist = MapSet.new(opts[:inherit] || [])
+
+    scrubbed =
+      Enum.reduce(:os.getenv(), %{}, &scrub_inherited_entry(&1, &2, extra_allowlist))
 
     overrides
     |> Enum.reduce(scrubbed, fn {key, value}, acc ->
@@ -64,19 +67,23 @@ defmodule Weld.Shell.Runner do
     |> Enum.map(fn {key, value} -> {to_charlist(key), value} end)
   end
 
-  defp scrub_inherited_entry(entry, acc) do
+  defp scrub_inherited_entry(entry, acc, extra_allowlist) do
     case :string.split(entry, ~c"=") do
       [key, _value] ->
         name = to_string(key)
-        if inherited_allowed?(name), do: acc, else: Map.put(acc, name, false)
+
+        if inherited_allowed?(name, extra_allowlist),
+          do: acc,
+          else: Map.put(acc, name, false)
 
       _ ->
         acc
     end
   end
 
-  defp inherited_allowed?(name) do
-    MapSet.member?(@inherited_allowlist, name) or String.starts_with?(name, "LC_")
+  defp inherited_allowed?(name, extra_allowlist) do
+    MapSet.member?(@inherited_allowlist, name) or MapSet.member?(extra_allowlist, name) or
+      String.starts_with?(name, "LC_")
   end
 
   defp state(opts, raw?, log, seconds) do
@@ -113,9 +120,7 @@ defmodule Weld.Shell.Runner do
   end
 
   @doc "Return isolated Mix paths, configuring an explicitly selected signed candidate registry."
-  def mix_env(project, cache, env, opts \\ []) do
-    {extra, mix_opts} = split_mix_opts(opts)
-
+  def mix_env(project, cache, env, opts \\ []) when is_list(opts) do
     paths =
       [
         {"MIX_ENV", to_string(env)},
@@ -129,19 +134,11 @@ defmodule Weld.Shell.Runner do
         {"XDG_CACHE_HOME", Path.join(cache, "system-cache")},
         {"MIX_ARCHIVES", archives_path()},
         {"MIX_EXS", Path.join(project, "mix.exs")}
-      ] ++ native_env!(mix_opts[:native_env]) ++ extra
+      ] ++ native_env!(opts[:native_env]) ++ Keyword.get(opts, :extra, [])
 
-    case candidate_registry!(mix_opts) do
+    case candidate_registry!(opts) do
       nil -> paths
       registry -> candidate_env!(cache, paths, registry)
-    end
-  end
-
-  defp split_mix_opts(opts) when is_list(opts) do
-    if Keyword.keyword?(opts) do
-      {Keyword.get(opts, :extra, []), opts}
-    else
-      {opts, []}
     end
   end
 

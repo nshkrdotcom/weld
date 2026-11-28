@@ -154,4 +154,25 @@ defmodule Weld.RunnerContractTest do
         else: System.delete_env("MIX_BUILD_PATH")
     end
   end
+
+  test "SSH_AUTH_SOCK is stripped by default and preserved only when explicitly inherited" do
+    root = FixtureCase.unique_tmp_dir("runner-ssh-agent")
+    saved = System.get_env("SSH_AUTH_SOCK")
+
+    try do
+      System.put_env("SSH_AUTH_SOCK", "/tmp/weld-test-agent.sock")
+
+      {default_output, 0} = Runner.run!("env", [], cd: root, seconds: 5)
+      refute default_output =~ "SSH_AUTH_SOCK"
+
+      {inherited_output, 0} =
+        Runner.run!("env", [], cd: root, seconds: 5, inherit: ["SSH_AUTH_SOCK"])
+
+      assert inherited_output =~ "SSH_AUTH_SOCK=/tmp/weld-test-agent.sock"
+    after
+      if saved,
+        do: System.put_env("SSH_AUTH_SOCK", saved),
+        else: System.delete_env("SSH_AUTH_SOCK")
+    end
+  end
 end

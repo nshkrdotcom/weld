@@ -75,10 +75,14 @@ G02 failure verifies gate reporting and blocking. No production gate or trust
 check is bypassed.
 
 Complete `mix ci` runs automatically retain compact four-layout acceptance
-evidence under an invocation-owned `.weld/qc/ci-matrix-<timestamp>-<suffix>/`
-directory and print its `matrix.json` path (no custom environment variable is
-required). Temporary build workspaces are deleted after the run, and concurrent
-or failed runs never overwrite unrelated evidence.
+evidence (`matrix.json`, `<layout>/result.json`, and
+`<layout>/evidence/{gates.json,verification.json,qualification.json}`) under an
+invocation-owned `.weld/qc/ci-matrix-<timestamp>-<suffix>/` directory and print
+its `matrix.json` path (no custom environment variable is required). Temporary
+build workspaces, generated `docs/` trees, and `package.tar` archives are
+deleted after the run (use `scripts/qc/qualify_layouts.exs` when full payloads
+are needed for browser or archive inspection), and concurrent or failed runs
+never overwrite unrelated evidence.
 For targeted retries, name only the affected lanes (this is not full CI):
 
 ```bash

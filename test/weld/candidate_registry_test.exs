@@ -2,10 +2,64 @@ defmodule Weld.CandidateRegistryTest do
   use ExUnit.Case, async: false
 
   alias Mix.Dep.Lock
-  alias Weld.{CLI, Error, FixtureCase, Hash, Release, ReleaseInputs, SmokeApp}
+  alias Weld.{CLI, Error, FixtureCase, Hash, Release, ReleaseInputs, SmokeApp, Verifier}
   alias Weld.Core.Identity
   alias Weld.Shell.Runner
   alias Weld.Workspace.Probe
+
+  test "verify_registry_boundary!/2 fails closed when isolated hex.config is missing or tampered" do
+    root = FixtureCase.unique_tmp_dir("registry-boundary")
+    pem = :hex_core.default_config().repo_public_key
+    key_path = Path.join(root, "public.pem")
+    File.write!(key_path, pem)
+
+    registry =
+      Runner.candidate_registry!(
+        registry_url: "http://127.0.0.1:1234",
+        registry_public_key: key_path
+      )
+
+    # Deleting the original key file after normalization does not affect the normalized registry.
+    File.rm!(key_path)
+    assert Runner.candidate_registry!(candidate_registry: registry) == registry
+
+    # Missing hex.config must fail closed.
+    assert_raise Error, ~r/differs from selected public inputs/, fn ->
+      Verifier.verify_registry_boundary!(root, registry)
+    end
+
+    # Valid hex.config passes.
+    hex_dir = Path.join([root, "cache", "hex-home"])
+    File.mkdir_p!(hex_dir)
+    config = Path.join(hex_dir, "hex.config")
+
+    File.write!(
+      config,
+      :io_lib.format("~tp.~n", [
+        {:"$repos", %{"hexpm" => %{url: registry.url, public_key: registry.public_key}}}
+      ])
+    )
+
+    assert :ok = Verifier.verify_registry_boundary!(root, registry)
+
+    # Tampered hex.config fails closed.
+    File.write!(
+      config,
+      :io_lib.format("~tp.~n", [
+        {:"$repos",
+         %{
+           "hexpm" => %{
+             url: "http://127.0.0.1:9999",
+             public_key: registry.public_key
+           }
+         }}
+      ])
+    )
+
+    assert_raise Error, ~r/differs from selected public inputs/, fn ->
+      Verifier.verify_registry_boundary!(root, registry)
+    end
+  end
 
   test "candidate registry selection fails closed on incomplete or non-loopback inputs" do
     assert Runner.candidate_registry!() == nil

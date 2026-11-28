@@ -58,6 +58,12 @@ defmodule Weld.SmokeApp do
 
   @doc "Standalone G10 harness; does not require a plan or the original source checkout."
   def archive!(tarball, root, smoke_source \\ nil, opts \\ []) do
+    opts =
+      opts
+      |> Keyword.put(:candidate_registry, Runner.candidate_registry!(opts))
+      |> Keyword.put(:native_env, Runner.native_env!(opts[:native_env]))
+      |> Keyword.drop([:registry_url, :registry_public_key])
+
     observation = Hex.package_observation!(tarball)
     metadata = observation.metadata
     name = metadata["name"]

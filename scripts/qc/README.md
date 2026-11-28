@@ -29,8 +29,14 @@ MIX_ENV=test mix test --only ci_build:hex_consumption test/weld/hex_consumption_
 ```
 
 For a full repository check, run `mix ci`, which runs all four scenarios in
-separate Blitz lanes and retains `matrix.json` under `.weld/qc/ci-matrix/`.
-A standalone retry can select a lane with `MIX_ENV=test mix run --no-start scripts/test_ci.exs -- hex_native`.
+separate Blitz lanes and retains compact acceptance evidence under an
+invocation-owned `.weld/qc/ci-matrix-<timestamp>-<suffix>/` directory
+(`matrix.json`, `<layout>/result.json`, and
+`<layout>/evidence/{gates.json,verification.json,qualification.json}`), deleting
+temporary build workspaces, generated `docs/` trees, and `package.tar` archives
+after the run. Use `scripts/qc/qualify_layouts.exs -- --output NEW_DIRECTORY`
+when you need full `docs/` or archive payloads for subsequent browser or archive
+inspection. A standalone retry can select a lane with `MIX_ENV=test mix run --no-start scripts/test_ci.exs -- hex_native`.
 Use a new output path. The matrix qualifies components, flat and preserve, plus
 the `native_hex` fixture. Each copied fixture gets a disposable committed Git
 root, so a run inside managed `.weld/v2/runs/qc/` cannot accidentally discover
@@ -68,7 +74,8 @@ A smoke module may expose `WeldSmoke.verify!/0` returning `:ok` or `true`, or
 `WeldSmoke.ready?/0` returning `true`. Native context JSON has exactly
 `native_env` and `public_facts`; see `native-context.example.json`. Replace its
 example compiler identity with observed toolchain/version/image facts. Runtime
-library code reads those explicit application settings; it never reads OS env.
+library code receives those explicit operation options (`native_env:` and
+`qualification_context:`); it never reads OS env or global application env.
 Inherited compiler/Mix/Hex overrides are scrubbed. Keep credentials out of this
 public context. The driver never changes the supplied archive.
 

@@ -330,7 +330,7 @@ defmodule Weld.Git do
     refs = ["refs/heads/" <> branch] ++ if(tag, do: ["refs/tags/" <> tag], else: [])
     expected = Map.new(refs, &{&1, ref_oid(root, &1)})
 
-    case run(root, ["push", "--atomic", "--", remote | refs]) do
+    case run(root, ["push", "--atomic", "--", remote | refs], inherit: ["SSH_AUTH_SOCK"]) do
       {:ok, _} ->
         :ok
 
@@ -348,7 +348,7 @@ defmodule Weld.Git do
   end
 
   def remote_refs(root, remote, refs) do
-    case run(root, ["ls-remote", "--refs", "--", remote | refs]) do
+    case run(root, ["ls-remote", "--refs", "--", remote | refs], inherit: ["SSH_AUTH_SOCK"]) do
       {:ok, output} ->
         pairs =
           for line <- String.split(output, "\n", trim: true),
@@ -392,12 +392,13 @@ defmodule Weld.Git do
 
   defp git_env, do: Enum.map(@git_overrides, &{&1, nil}) ++ [{"GIT_TERMINAL_PROMPT", "0"}]
 
-  def run(root, args) do
+  def run(root, args, opts \\ []) do
     case Runner.capture!("git", args,
            cd: root,
            seconds: 60,
            max_bytes: 64 * 1024 * 1024,
-           env: git_env()
+           env: git_env(),
+           inherit: opts[:inherit] || []
          ) do
       {bytes, 0} -> {:ok, String.trim(bytes)}
       {bytes, _} -> {:error, Runner.sanitize(String.trim(bytes))}

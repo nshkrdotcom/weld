@@ -134,6 +134,7 @@ defmodule Weld.Verifier do
       opts
       |> Keyword.put(:candidate_registry, Runner.candidate_registry!(opts))
       |> Keyword.put(:native_env, Runner.native_env!(opts[:native_env]))
+      |> Keyword.drop([:registry_url, :registry_public_key])
 
     specs = Map.new(gate_specs(plan), &{&1.id, &1})
 
@@ -575,12 +576,12 @@ defmodule Weld.Verifier do
     write_gates!(state.root, gates)
   end
 
-  defp verify_registry_boundary!(_root, nil), do: :ok
+  @doc false
+  def verify_registry_boundary!(_root, nil), do: :ok
 
-  defp verify_registry_boundary!(root, registry) do
+  def verify_registry_boundary!(root, registry) do
     config = Path.join([root, "cache", "hex-home", "hex.config"])
-    if File.exists?(config), do: Runner.validate_registry_config!(config, registry)
-    :ok
+    Runner.validate_registry_config!(config, registry)
   end
 
   @doc false
