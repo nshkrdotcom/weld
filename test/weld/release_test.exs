@@ -29,7 +29,7 @@ defmodule Weld.ReleaseTest do
                end)
 
         collected =
-          Task.async(fn -> Weld.Shell.GC.prune(repo_root, keep: 0, dry_run: false) end)
+          Task.async(fn -> GC.prune(repo_root, keep: 0, dry_run: false) end)
           |> Task.await(30_000)
 
         assert run in collected.active
@@ -200,7 +200,7 @@ defmodule Weld.ReleaseTest do
       for path <- Enum.sort(projection.package_files),
           do: {String.to_charlist(path), File.read!(Path.join(project, path))}
 
-    portable = Weld.Plan.Inventory.portable(plan)
+    portable = Inventory.portable(plan)
 
     requirements = %{
       "jason" => %{
@@ -223,7 +223,7 @@ defmodule Weld.ReleaseTest do
     {:ok, %{tarball: bytes}} = :hex_tarball.create(metadata, files)
     tarball = Path.join(stage, "package.tar")
     File.write!(tarball, bytes)
-    package = Weld.Shell.Hex.package_observation!(tarball)
+    package = Hex.package_observation!(tarball)
 
     package_id =
       Identity.digest("package", %{

@@ -67,7 +67,7 @@ Fault coverage is split by responsibility. Real qualification exercises G02
 mutation rollback, active-lease GC retention during `Release.prepare!`, and
 pointer-replacement rollback against a canonical prior bundle. Release
 finalization failpoints (`:prepare_qualified`, `:prepare_copied`,
-`:prepare_sealed`) run directly through `Weld.Release.finalize_prepared!/5`,
+`:prepare_sealed`) run directly at the release finalization boundary,
 and all five `Output.seal!` boundaries run against canonical test-only bundles
 in the source suite. Byte, permission, executable-mode, lock and membership
 mutations exercise the exact production frozen-project guard directly; a real

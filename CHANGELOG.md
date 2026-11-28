@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Exercise the production frozen-project guard directly for individual input
   mutations and retain a real G02 failure path. Exercise release finalization
   failpoints (`:prepare_qualified`, `:prepare_copied`, `:prepare_sealed`)
-  directly through `Weld.Release.finalize_prepared!/5` and all five
+  directly at the release finalization boundary and all five
   `Output.seal!` boundaries against canonical bundles, while keeping real
   pointer-replacement rollback, active-lease GC protection, CLI `prepare`,
   and independent clean-checkout reproducibility end-to-end.
