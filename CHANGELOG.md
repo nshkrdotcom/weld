@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all four signed archive layout scenarios and matrix assembly. Keep the 0.20.2
   candidate trust, lock, exact archive and official-publication restrictions
   unchanged.
+- Refresh dependencies (`nimble_options ~> 1.2`, `dialyxir ~> 1.4.9`,
+  `ex_doc ~> 0.40.5`) while preserving the resolved `hex_core 0.21.1` pin.
 
 ## [0.20.2] - 2026-11-26
 
