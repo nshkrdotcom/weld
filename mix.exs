@@ -38,11 +38,11 @@ defmodule Weld.MixProject do
     [
       {:blitz, "~> 0.5.0", only: :test, runtime: false},
       {:credo, "~> 1.7", runtime: false},
-      {:dialyxir, "~> 1.4", only: :dev, runtime: false},
-      {:ex_doc, "~> 0.40", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.4.9", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.40.5", only: :dev, runtime: false},
       {:hex_core, "~> 0.21.1"},
       {:jason, "~> 1.4"},
-      {:nimble_options, "~> 1.1"}
+      {:nimble_options, "~> 1.2"}
     ]
   end
 
