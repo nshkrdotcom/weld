@@ -28,10 +28,9 @@ mix run --no-start scripts/qc/qualify_layouts.exs -- --output /tmp/weld-qc-layou
 MIX_ENV=test mix test --only ci_build:hex_consumption test/weld/hex_consumption_contract_test.exs
 ```
 
-For a full repository check, use `WELD_QC_LAYOUT_OUTPUT=/tmp/weld-qc-layouts mix ci`
-instead of the two standalone commands above. CI runs the same four scenarios
-in separate Blitz lanes and assembles the same matrix report. A standalone
-retry can select a lane with `MIX_ENV=test mix run --no-start scripts/test_ci.exs -- hex_native`.
+For a full repository check, run `mix ci`, which runs all four scenarios in
+separate Blitz lanes and retains `matrix.json` under `.weld/qc/ci-matrix/`.
+A standalone retry can select a lane with `MIX_ENV=test mix run --no-start scripts/test_ci.exs -- hex_native`.
 Use a new output path. The matrix qualifies components, flat and preserve, plus
 the `native_hex` fixture. Each copied fixture gets a disposable committed Git
 root, so a run inside managed `.weld/v2/runs/qc/` cannot accidentally discover

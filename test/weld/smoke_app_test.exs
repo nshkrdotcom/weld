@@ -19,13 +19,17 @@ defmodule Weld.SmokeAppTest do
     [ -z "${MIX_BUILD_PATH+x}" ] || exit 42
     [ "$MIX_BUILD_ROOT" = "$PWD/cache/build" ] || exit 43
     [ "$MIX_DEPS_PATH" = "$PWD/cache/deps" ] || exit 44
-    [ -z "${WELD_CI_BUILD_ROOT+x}" ] || exit 45
+    [ -z "${MIX_PATH+x}" ] || exit 45
+    [ -z "${MIX_REBAR3+x}" ] || exit 46
+    [ -z "${WELD_QC_SANDBOX_API_KEY+x}" ] || exit 47
     printf '%s\\n' "$1" >> checked-commands
     """)
 
     File.chmod!(command, 0o755)
 
-    variables = ~w(PATH MIX_ENV MIX_BUILD_PATH MIX_BUILD_ROOT MIX_DEPS_PATH WELD_CI_BUILD_ROOT)
+    variables =
+      ~w(PATH MIX_ENV MIX_BUILD_PATH MIX_BUILD_ROOT MIX_DEPS_PATH MIX_PATH MIX_REBAR3 WELD_QC_SANDBOX_API_KEY)
+
     saved = Map.new(variables, &{&1, System.get_env(&1)})
 
     try do

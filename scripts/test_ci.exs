@@ -3,12 +3,7 @@ Code.require_file("qc/support.exs", __DIR__)
 # Blitz schedules independent test lanes with advisory CPU/memory admission.
 # Lanes are grouped by genuine isolation and critical-path boundaries rather
 # than lexical file sharding or host-specific worker tables.
-layout_jobs = %{
-  "hex_consumption" => "components",
-  "hex_flat" => "flat",
-  "hex_preserve" => "preserve",
-  "hex_native" => "native"
-}
+layout_lanes = ~w(hex_consumption hex_flat hex_preserve hex_native)
 
 integration_misc_files = [
   "test/weld/qualification_contract_test.exs",
@@ -26,12 +21,12 @@ planned = [
   {"release_faults", ["--only", "ci_build:release_faults", "test/weld/release_test.exs"], 50},
   {"hex_consumption",
    ["--only", "ci_build:hex_consumption", "test/weld/hex_consumption_contract_test.exs"], 50},
-  {"hex_flat",
-   ["--only", "ci_build:hex_consumption", "test/weld/hex_consumption_contract_test.exs"], 50},
+  {"hex_flat", ["--only", "ci_build:hex_flat", "test/weld/hex_consumption_contract_test.exs"],
+   50},
   {"hex_preserve",
-   ["--only", "ci_build:hex_consumption", "test/weld/hex_consumption_contract_test.exs"], 50},
-  {"hex_native",
-   ["--only", "ci_build:hex_consumption", "test/weld/hex_consumption_contract_test.exs"], 50},
+   ["--only", "ci_build:hex_preserve", "test/weld/hex_consumption_contract_test.exs"], 50},
+  {"hex_native", ["--only", "ci_build:hex_native", "test/weld/hex_consumption_contract_test.exs"],
+   50},
   {"component_prepare",
    ["--only", "ci_build:component_prepare", "test/weld/component_tests_test.exs"], 40},
   {"source_consumption",
@@ -60,8 +55,8 @@ jobs =
     do: planned,
     else: Enum.filter(planned, fn {name, _, _} -> name in requested end)
 
-layout_output = System.get_env("WELD_QC_LAYOUT_OUTPUT")
-selected_layouts = Enum.filter(jobs, &Map.has_key?(layout_jobs, elem(&1, 0)))
+selected_layouts = Enum.filter(jobs, &(elem(&1, 0) in layout_lanes))
+all_layouts? = length(selected_layouts) == length(layout_lanes)
 mode = if requested == [], do: "complete", else: "PARTIAL retry"
 
 IO.puts("Weld CI (#{mode}): #{length(jobs)} isolated lanes; Blitz manages admission")
@@ -83,31 +78,36 @@ try do
   matrix_root =
     if selected_layouts != [] do
       target =
-        if layout_output, do: Path.expand(layout_output), else: Path.join(scratch, "matrix")
+        case System.get_env("WELD_QC_LAYOUT_OUTPUT") do
+          nil when all_layouts? ->
+            path = Path.expand(".weld/qc/ci-matrix")
+            File.rm_rf!(path)
+            path
 
-      File.mkdir!(target)
+          nil ->
+            Path.join(scratch, "matrix")
+
+          explicit ->
+            Path.expand(explicit)
+        end
+
+      File.mkdir_p!(target)
       target
     end
 
   commands =
     Enum.map(jobs, fn {name, args, priority} ->
       build_root = Path.join(scratch, name)
-      layout = layout_jobs[name]
 
       env = %{
-        "WELD_CI_BUILD_ROOT" => build_root,
+        "MIX_BUILD_ROOT" => build_root,
         "ERL_CRASH_DUMP" => Path.join(build_root, "erl_crash.dump")
       }
 
       env =
-        if layout do
-          Map.merge(env, %{
-            "WELD_CI_QC_LAYOUT" => layout,
-            "WELD_QC_LAYOUT_OUTPUT" => matrix_root
-          })
-        else
-          env
-        end
+        if name in layout_lanes,
+          do: Map.put(env, "WELD_QC_LAYOUT_OUTPUT", matrix_root),
+          else: env
 
       Blitz.command(
         id: name,
@@ -128,9 +128,12 @@ try do
 
   Blitz.run!([%{commands: commands}])
 
-  if length(selected_layouts) == map_size(layout_jobs) do
+  if all_layouts? do
     Weld.QC.finish_matrix!(matrix_root)
-    IO.puts("Weld CI: all four layout results assembled")
+
+    IO.puts(
+      "Weld CI: all four layout results assembled at #{Path.join(matrix_root, "matrix.json")}"
+    )
   end
 
   if requested != [], do: IO.puts("Weld CI: selected lanes passed (not full acceptance)")

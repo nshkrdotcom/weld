@@ -37,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged.
 - Refresh dependencies (`nimble_options ~> 1.2`, `dialyxir ~> 1.4.9`,
   `ex_doc ~> 0.40.5`) while preserving the resolved `hex_core 0.21.1` pin.
+- Replace custom `WELD_CI_BUILD_ROOT` with standard `MIX_BUILD_ROOT`, replace
+  `WELD_CI_QC_LAYOUT` with ordinary ExUnit tags for the four signed layout
+  tests, automatically retain `.weld/qc/ci-matrix/matrix.json` on full `mix ci`,
+  and scrub `MIX_PATH`, `MIX_REBAR3`, `MIX_OS_CONCURRENCY_LOCK`,
+  `MIX_OS_DEPS_COMPILE_PARTITION_COUNT`, and `WELD_QC_SANDBOX_API_KEY` from
+  isolated subprocesses.
 
 ## [0.20.2] - 2026-11-26
 

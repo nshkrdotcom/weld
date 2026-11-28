@@ -134,9 +134,9 @@ mix xref graph --format cycles --label compile-connected --fail-above 0
 python3 scripts/qc/static_check.py
 ```
 
-For the four-layout matrix, set `WELD_QC_LAYOUT_OUTPUT` to a new directory when
-running `mix ci`; the separate driver is only needed when those results are
-missing or affected. Use fresh output directories. Optional manual diagnostics
+Complete `mix ci` runs automatically retain the four-layout acceptance matrix
+under `.weld/qc/ci-matrix/matrix.json`; no environment variable is required.
+Optional manual diagnostics
 and release-only drivers (`scripts/git_ref_contract.py`,
 `scripts/qc/loopback_transport.sh`, `scripts/qc/prepare_reuse.exs`, browser
 docs, authenticated conformance, installed-package qualification, and synthetic

@@ -9,7 +9,6 @@ defmodule Weld.MixProject do
       version: @version,
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
-      build_path: System.get_env("WELD_CI_BUILD_ROOT", "_build"),
       elixirc_paths: elixirc_paths(Mix.env()),
       test_paths: ["test/weld"],
       aliases: aliases(),

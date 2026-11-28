@@ -74,16 +74,10 @@ mutations exercise the exact production frozen-project guard directly; a real
 G02 failure verifies gate reporting and blocking. No production gate or trust
 check is bypassed.
 
-Retain matrix results for browser review when needed without a second run:
-
-```bash
-WELD_QC_LAYOUT_OUTPUT=/var/tmp/weld-qc-layouts-NEW mix ci
-```
-
-Use a new directory with an existing parent. The four layout lanes share only
-that report parent, not work/cache roots. They use the same scenario driver as
-`qualify_layouts.exs`; the complete CI run assembles `matrix.json` in the original
-layout order. Without an explicit output the temporary results are cleaned up.
+Complete `mix ci` runs automatically retain the four-layout acceptance matrix
+under `.weld/qc/ci-matrix/matrix.json` (no custom environment variable is
+required). The four layout lanes share only that report parent, not work/cache
+roots, and assemble `matrix.json` in the original layout order.
 For targeted retries, name only the affected lanes (this is not full CI):
 
 ```bash
