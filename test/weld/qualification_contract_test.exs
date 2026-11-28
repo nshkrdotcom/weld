@@ -2,7 +2,6 @@ defmodule Weld.QualificationContractTest do
   use ExUnit.Case, async: true
   alias Weld.Core.Identity
   alias Weld.{Error, FixtureCase, Hash, Plan}
-  alias Weld.Shell.GC
   alias Weld.Verifier
 
   test "every gate has an explicit spec and mandatory gates cannot be skipped" do
@@ -117,43 +116,6 @@ defmodule Weld.QualificationContractTest do
     assert Enum.at(failed, 2)["facts"]["blocked_by"] == "G02"
   end
 
-  @tag integration: true, ci_build: "qualification_faults", timeout: 1_800_000
-  @tag ci_case: "qualification_faults-gc"
-  test "GC cannot delete the qualified verifier run before prepare seals it" do
-    root = FixtureCase.copy_fixture("library_bundle")
-    FixtureCase.init_git!(root)
-    plan = Plan.build!(Path.join(root, "packaging/weld/fixture_bundle.exs"))
-    owner = self()
-
-    barrier = fn
-      :prepare_qualified ->
-        [record] = Path.wildcard(Path.join(root, ".weld/v2/runs/verify/*/*/run.json"))
-        run = Path.dirname(record)
-        proof_run = Weld.Output.read_run!(run)
-        assert proof_run["phase"] == "completed"
-
-        assert Enum.any?(Weld.Output.leases(root), fn {_path, lease} ->
-                 lease["operation"] == "prepare" and lease["id"] == proof_run["lease_id"]
-               end)
-
-        collected =
-          Task.async(fn -> GC.prune(root, keep: 0, dry_run: false) end)
-          |> Task.await(30_000)
-
-        assert run in collected.active
-        refute run in collected.removed
-        assert File.regular?(Path.join(run, "project/mix.exs"))
-        send(owner, :qualified_run_retained)
-
-      _ ->
-        :ok
-    end
-
-    prepared = Weld.Release.prepare!(plan, failpoint: barrier)
-    assert_receive :qualified_run_retained
-    assert File.regular?(Path.join(prepared.project_path, "mix.exs"))
-  end
-
   @tag integration: true, ci_build: "qualification_faults", timeout: 180_000
   @tag ci_case: "qualification_faults-include"
   test "Erlang include options do not bind the G02 digest to the qualification directory" do
@@ -171,28 +133,41 @@ defmodule Weld.QualificationContractTest do
     write_erl_include_fixture!(Path.join(root, "core/contracts"))
     plan = Plan.build!(manifest)
     first = Verifier.verify!(plan)
-    second = Verifier.verify!(plan)
 
-    assert first.build_path != second.build_path
+    assert Enum.find(first.gates, &(&1["id"] == "G04"))["status"] == "pass"
 
-    for result <- [first, second] do
-      assert Enum.find(result.gates, &(&1["id"] == "G04"))["status"] == "pass"
+    assert File.regular?(
+             Path.join([
+               Path.dirname(first.build_path),
+               "cache/build/dev/lib/fixture_bundle/ebin",
+               "weld_qualification_include.beam"
+             ])
+           )
 
-      assert File.regular?(
-               Path.join([
-                 Path.dirname(result.build_path),
-                 "cache/build/dev/lib/fixture_bundle/ebin",
-                 "weld_qualification_include.beam"
-               ])
-             )
+    # Run a second independent G01–G02 qualification in a distinct build
+    # directory and stop at the skipped G03 boundary after G02 gates.json is
+    # persisted, avoiding a redundant second G04–G12 build.
+    assert_raise RuntimeError, "stop_after_g02", fn ->
+      Verifier.verify!(plan,
+        after_gate: fn
+          "G03", _project -> raise "stop_after_g02"
+          _, _ -> :ok
+        end
+      )
     end
 
-    assert metadata_sha256(first) == metadata_sha256(second)
+    gate_files = Path.wildcard(Path.join(root, ".weld/v2/runs/verify/*/*/gates.json"))
+    first_run = Path.dirname(first.build_path)
+    [second_gate_file] = Enum.reject(gate_files, &(Path.dirname(&1) == first_run))
+    assert Path.dirname(second_gate_file) != first_run
+    second_gates = Jason.decode!(File.read!(second_gate_file))["gates"]
+
+    assert metadata_sha256(first.gates) == metadata_sha256(second_gates)
   end
 
-  defp metadata_sha256(result) do
+  defp metadata_sha256(gates) do
     assert %{"status" => "pass", "facts" => %{"metadata_sha256" => digest}} =
-             Enum.find(result.gates, &(&1["id"] == "G02"))
+             Enum.find(gates, &(&1["id"] == "G02"))
 
     assert Identity.valid?(digest)
     digest

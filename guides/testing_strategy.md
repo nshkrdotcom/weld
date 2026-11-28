@@ -53,29 +53,26 @@ case per four online schedulers, at most six; `--max-cases N` overrides it.
 Use an ordinary untraced run for wall-time measurements; `--trace` normally
 serializes ExUnit and changes the workload.
 
-`scripts/test_ci.exs` retains all 26 logical selectors. Blitz 0.5.0 is the
-sole resource scheduler: it admits independent jobs using detected CPU and
-memory capacity, with inherited CPU affinity on Linux when available. Weld
-specifies workload estimates rather than a machine-specific worker count.
-Four fast and eight slow shards partition the complete source-file set; the
-component, qualification-fault, release-prepare-fault and source-consumption
-cases also have independent workers. These 46 stable job IDs are independent
-of host size and can be selected individually or by group. Each active job
-gets an isolated build copied on demand (reflinks where available). The two
-source-tier cases per worker are a workload choice, not a second scheduler.
-Integration cases run one at a time per isolated worker. On hosts without
-CPU affinity support, Blitz admission is advisory. Production subprocess
-environment scrubbing and all existing qualification gates are unchanged.
-Inspect selectors without execution with
+`scripts/test_ci.exs` consolidates CI into 11 isolated lanes organized by
+genuine isolation and critical-path boundaries rather than lexical file
+sharding or host-specific worker tables. Blitz 0.5.0 owns advisory CPU and
+memory admission; ExUnit uses `test/weld/test_helper.exs`'s host-relative
+`max_cases` inside each lane. Each active lane gets an isolated build copied
+on demand (reflinks where available). Production subprocess environment
+scrubbing and all existing qualification gates are unchanged. Inspect lanes
+without execution with
 `MIX_ENV=test mix run --no-start scripts/test_ci.exs -- --plan`.
 
-Fault coverage is split by responsibility. Real qualification exercises all
-four prepare-owned boundaries and a G02 mutation; the pointer-replacement case
-uses a real prior bundle and a newly qualified candidate. All five seal-owned
-boundaries additionally run against canonical test-only bundles in the source
-suite. Byte, permission, executable-mode, lock and membership mutations exercise
-the exact production frozen-project guard directly; a real G02 failure verifies
-gate reporting and blocking. No production gate or trust check is bypassed.
+Fault coverage is split by responsibility. Real qualification exercises G02
+mutation rollback, active-lease GC retention during `Release.prepare!`, and
+pointer-replacement rollback against a canonical prior bundle. Release
+finalization failpoints (`:prepare_qualified`, `:prepare_copied`,
+`:prepare_sealed`) run directly through `Weld.Release.finalize_prepared!/5`,
+and all five `Output.seal!` boundaries run against canonical test-only bundles
+in the source suite. Byte, permission, executable-mode, lock and membership
+mutations exercise the exact production frozen-project guard directly; a real
+G02 failure verifies gate reporting and blocking. No production gate or trust
+check is bypassed.
 
 Retain matrix results for browser review when needed without a second run:
 

@@ -40,10 +40,8 @@ defmodule Weld.Release do
                 |> Keyword.put(:parent_lease, lease)
 
               verification = Verifier.verify!(plan, qualification_opts)
-              Output.failpoint(opts, :prepare_qualified)
-              ensure_source!(root, revision)
 
-              seal_prepared!(plan, verification, revision, lease, opts)
+              finalize_prepared!(plan, verification, revision, lease, opts)
               |> Map.merge(%{reused?: false, reuse_reasons: reasons})
           end
 
@@ -135,7 +133,15 @@ defmodule Weld.Release do
     File.regular?(path) and Hash.sha256_file(path) == expected
   end
 
-  defp seal_prepared!(plan, verification, revision, lease, opts) do
+  @doc false
+  def finalize_prepared!(plan, verification, revision, lease, opts) do
+    Output.failpoint(opts, :prepare_qualified)
+    ensure_source!(plan.manifest.repo_root, revision)
+    seal_prepared!(plan, verification, revision, lease, opts)
+  end
+
+  @doc false
+  def seal_prepared!(plan, verification, revision, lease, opts) do
     stage = Path.join(lease.stage, "bundle")
     File.mkdir!(stage)
     project = Path.join(stage, "project")

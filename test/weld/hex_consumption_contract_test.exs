@@ -16,6 +16,15 @@ defmodule Weld.HexConsumptionContractTest do
         output -> Path.expand(output)
       end
 
+    for name <- ~w(MIX_EXS MIX_LOCKFILE MIX_TARGET) do
+      previous = System.get_env(name)
+      System.put_env(name, "unexpected-inherited-setting")
+
+      on_exit(fn ->
+        if is_nil(previous), do: System.delete_env(name), else: System.put_env(name, previous)
+      end)
+    end
+
     {results, expected} =
       if layout do
         {[Weld.QC.scenario!(root, layout)], [layout]}
@@ -33,6 +42,15 @@ defmodule Weld.HexConsumptionContractTest do
       assert result["ordinary_hex_consumer"].lock_verified
       assert result["ordinary_hex_consumer"].application_started
       refute File.exists?(Path.join([root, result["layout"], "source"]))
+
+      if result["layout"] == "flat" do
+        gates = Map.new(result["gates"], &{&1["id"], &1})
+        assert gates["G03"]["status"] == "pass"
+        assert gates["G03"]["facts"]["count"] == 2
+        assert gates["G05"]["status"] == "pass"
+        assert gates["G05"]["facts"]["count"] == 2
+        assert gates["G07"]["status"] == "skip"
+      end
 
       if result["layout"] == "native" do
         assert result["ordinary_hex_consumer"].offline_rebuild

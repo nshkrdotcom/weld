@@ -152,26 +152,4 @@ defmodule Weld.MixTasksTest do
     assert %{"ok" => true, "data" => %{"branch" => "projection/fixture_bundle"}} =
              Jason.decode!(output)
   end
-
-  @tag integration: true, ci_build: "prepare_cli"
-  test "mix weld prepare qualifies a selected manifest" do
-    repo_root = FixtureCase.copy_fixture("library_bundle")
-    FixtureCase.init_git!(repo_root)
-
-    output =
-      capture_io(fn ->
-        File.cd!(repo_root, fn ->
-          Mix.Task.rerun("weld", [
-            "prepare",
-            "--manifest",
-            "packaging/weld/fixture_bundle.exs",
-            "--format",
-            "json"
-          ])
-        end)
-      end)
-
-    assert %{"ok" => true, "data" => %{"bundle_path" => path}} = Jason.decode!(output)
-    assert File.regular?(Path.join(path, "bundle.json"))
-  end
 end

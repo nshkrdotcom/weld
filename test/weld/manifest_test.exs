@@ -15,6 +15,23 @@ defmodule Weld.ManifestTest do
     assert artifact.id == "fixture_bundle"
     assert artifact.roots == ["runtime/local"]
     assert artifact.verify.smoke.enabled
+    assert artifact.package.development_dependencies == []
+  end
+
+  test "parses explicit package dev_deps declarations" do
+    root = FixtureCase.copy_fixture("library_bundle")
+    manifest_path = Path.join(root, "packaging/weld/dev_deps_bundle.exs")
+
+    File.write!(
+      manifest_path,
+      String.replace(
+        File.read!(Path.join(root, "packaging/weld/fixture_bundle.exs")),
+        ~s(links: %{"Source" => "https://example.test/fixture_bundle"}),
+        ~s(links: %{"Source" => "https://example.test/fixture_bundle"},\n        dev_deps: [{:credo, "~> 1.7", only: [:dev, :test], runtime: false}, {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}])
+      )
+    )
+
+    artifact = manifest_path |> Manifest.load!() |> Manifest.artifact!(nil)
 
     assert artifact.package.development_dependencies == [
              {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

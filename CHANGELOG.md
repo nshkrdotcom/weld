@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.20.3] - 2026-11-26
+## [0.20.3] - 2026-11-27
 
 ### Changed
 
@@ -20,21 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   native validation. Initialize and validate explicit signed candidate-registry
   configuration before starting parallel metadata probes.
 - Exercise the production frozen-project guard directly for individual input
-  mutations and retain a real G02 failure path. Keep real prepare-boundary
-  qualification and canonical-bundle tests for all sealing boundaries, including
-  a real prior/candidate pointer-replacement rollback, without repeating full
-  qualification for every transaction step.
-- Schedule four independent signed archive layout lanes and a dedicated candidate
-  registry lane through Blitz. Isolate build copies when workers start, prefer
-  filesystem reflinks where available, and support named lane retries without
-  weakening the complete `mix ci` gate.
-- Delegate CI resource admission and inherited CPU affinity to Blitz 0.5.0.
-  Remove Weld's worker caps and CPU-slot machinery. Retain stable source shards,
-  separate independent release-prepare fault and source-consumption cases, and
-  prioritize longer qualification chains while preserving their assertions.
-- Use one full repository validation command and reuse its layout matrix for
-  subsequent review. Keep the 0.20.2 candidate trust, lock, exact archive and
-  official-publication restrictions unchanged.
+  mutations and retain a real G02 failure path. Exercise release finalization
+  failpoints (`:prepare_qualified`, `:prepare_copied`, `:prepare_sealed`)
+  directly through `Weld.Release.finalize_prepared!/5` and all five
+  `Output.seal!` boundaries against canonical bundles, while keeping real
+  pointer-replacement rollback, active-lease GC protection, CLI `prepare`,
+  and independent clean-checkout reproducibility end-to-end.
+- Remove heavyweight `credo` and `dialyxir` declarations from the shared
+  `library_bundle` qualification fixture while preserving `dev_deps` parsing
+  and rendering coverage in dedicated unit tests.
+- Delegate CI resource admission to Blitz 0.5.0's advisory scheduler and
+  consolidate `scripts/test_ci.exs` from 46 sharded jobs into 11 isolated
+  lanes organized by genuine isolation and critical-path boundaries, retaining
+  all four signed archive layout scenarios and matrix assembly. Keep the 0.20.2
+  candidate trust, lock, exact archive and official-publication restrictions
+  unchanged.
 
 ## [0.20.2] - 2026-11-26
 

@@ -8,7 +8,7 @@ for each executed gate.
 
 The comparison baseline is `7897ba6457d3ba725ee3a843bc863f2c38e90411`; the
 completion checkpoint is `0ff6f9ef7a66048abaf00f4f24e5464ca2d90c37`. Those
-0.20.0 results are historical. Version 0.20.3 (2026-11-26) retains the
+0.20.0 results are historical. Version 0.20.3 (2026-11-27) retains the
 complete acceptance contract, the 0.20.1 public Hex and invalid-plan regressions,
 and the 0.20.2 signed candidate-registry isolation, exact archive consumption,
 wrong-key refusal and publication restrictions. It indexes repeated observations,

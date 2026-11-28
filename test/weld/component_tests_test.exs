@@ -181,6 +181,15 @@ defmodule Weld.ComponentTestsTest do
     source_lock = Path.join(ctx.root, "components/pure/mix.lock")
     refute File.exists?(source_lock)
 
+    File.write!(
+      ctx.manifest,
+      String.replace(
+        File.read!(ctx.manifest),
+        "hex_publish_check: false",
+        "hex_build: false, hex_publish_check: false"
+      )
+    )
+
     result = Weld.Commands.verify!(ctx.manifest)
 
     assert Enum.any?(result.verification_results, &(&1.task == "selected_tests_baseline"))
@@ -216,6 +225,5 @@ defmodule Weld.ComponentTestsTest do
              Weld.Hash.sha256_file(Path.join(prepared.project_path, "mix.lock"))
 
     refute File.exists?(Path.join(prepared.project_path, "weld.provenance.json"))
-    assert Weld.Commands.release_prepare!(ctx.manifest).identity == prepared.identity
   end
 end

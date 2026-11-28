@@ -15,8 +15,6 @@ defmodule Weld.ProjectorPackageModeTest do
     assert mixfile =~ "exdoc:loaded"
     refute mixfile =~ "DOMContentLoaded"
     assert mixfile =~ "source_ref: \"v0.1.0\""
-    assert mixfile =~ "{:credo, \"~> 1.7\", [only: [:dev, :test], runtime: false]}"
-    assert mixfile =~ "{:dialyxir, \"~> 1.4\", [only: [:dev, :test], runtime: false]}"
     assert mixfile =~ "{\"README.md\", [title: \"Overview\"]}"
 
     assert mixfile =~
@@ -24,6 +22,26 @@ defmodule Weld.ProjectorPackageModeTest do
 
     assert mixfile =~
              "{\"Reference\", [\"guides/architecture.md\", \"CHANGELOG.md\"]}"
+  end
+
+  test "package mode renders declared dev_deps into the generated mixfile" do
+    root = FixtureCase.copy_fixture("library_bundle")
+    manifest_path = Path.join(root, "packaging/weld/dev_deps_bundle.exs")
+
+    File.write!(
+      manifest_path,
+      String.replace(
+        File.read!(Path.join(root, "packaging/weld/fixture_bundle.exs")),
+        ~s(links: %{"Source" => "https://example.test/fixture_bundle"}),
+        ~s(links: %{"Source" => "https://example.test/fixture_bundle"},\n        dev_deps: [{:credo, "~> 1.7", only: [:dev, :test], runtime: false}, {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}])
+      )
+    )
+
+    result = Weld.Commands.project!(manifest_path)
+    mixfile = File.read!(Path.join(result.build_path, "mix.exs"))
+
+    assert mixfile =~ "{:credo, \"~> 1.7\", [only: [:dev, :test], runtime: false]}"
+    assert mixfile =~ "{:dialyxir, \"~> 1.4\", [only: [:dev, :test], runtime: false]}"
   end
 
   @tag integration: true, ci_build: "package_config"

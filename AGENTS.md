@@ -115,13 +115,14 @@ for the slower source cases or `mix test --include slow` for all source cases.
 Use `--max-cases N` to tune ExUnit without changing coverage. Keep tests that
 mutate Mix task/project state, OS environment or cwd synchronous.
 
-`mix ci` remains the repository acceptance gate. It runs the fast and slow
-source tiers plus every existing isolated integration lane and the previously
-unassigned probe-timeout case. `scripts/test_ci.exs` isolates build paths and
-partitions independent cases. Blitz 0.5.0 owns CPU and memory admission and
-inherited affinity where available; no separate Weld worker-count or slot
-scheduler is retained. Use `-- --plan` with the standalone runner to inspect
-selectors without executing them. A fast pass cannot replace any release gate.
+`mix ci` remains the repository acceptance gate. It runs format, compile,
+all 11 isolated test lanes (fast, slow, all four signed archive layouts,
+release, release faults, component prepare, source consumption, and remaining
+integration contracts), strict Credo, Dialyzer, and docs. `scripts/test_ci.exs`
+isolates build paths and delegates advisory CPU/memory admission to Blitz 0.5.0;
+no separate Weld worker-count, lexical sharding, or CPU-slot scheduler is
+retained. Use `-- --plan` with the standalone runner to inspect lanes without
+executing them. A fast pass cannot replace any release gate.
 
 Also run the architectural and delivery contract checks:
 

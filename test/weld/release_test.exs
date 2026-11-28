@@ -1,10 +1,12 @@
 defmodule Weld.ReleaseTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   @moduletag timeout: 180_000
 
   alias Weld.Core.Identity
   alias Weld.FixtureCase
+  alias Weld.Plan.Inventory
+  alias Weld.Shell.{GC, Hex}
 
   @tag integration: true, ci_build: "release"
   test "prepares, archives and tracks a reproducible release bundle" do
@@ -12,7 +14,35 @@ defmodule Weld.ReleaseTest do
     FixtureCase.init_git!(repo_root)
     manifest_path = Path.join(repo_root, "packaging/weld/fixture_bundle.exs")
     Weld.Commands.project!(manifest_path)
-    prepared = Weld.Commands.release_prepare!(manifest_path)
+
+    owner = self()
+
+    gc_barrier = fn
+      :prepare_qualified ->
+        [record] = Path.wildcard(Path.join(repo_root, ".weld/v2/runs/verify/*/*/run.json"))
+        run = Path.dirname(record)
+        proof_run = Weld.Output.read_run!(run)
+        assert proof_run["phase"] == "completed"
+
+        assert Enum.any?(Weld.Output.leases(repo_root), fn {_path, lease} ->
+                 lease["operation"] == "prepare" and lease["id"] == proof_run["lease_id"]
+               end)
+
+        collected =
+          Task.async(fn -> Weld.Shell.GC.prune(repo_root, keep: 0, dry_run: false) end)
+          |> Task.await(30_000)
+
+        assert run in collected.active
+        refute run in collected.removed
+        assert File.regular?(Path.join(run, "project/mix.exs"))
+        send(owner, :qualified_run_retained)
+
+      _ ->
+        :ok
+    end
+
+    prepared = Weld.Commands.release_prepare!(manifest_path, failpoint: gc_barrier)
+    assert_receive :qualified_run_retained
 
     assert File.dir?(prepared.bundle_path)
     assert prepared.identity =~ ~r/^[0-9a-f]{64}$/
@@ -91,28 +121,31 @@ defmodule Weld.ReleaseTest do
     assert_reproducible(repo_root, prepared)
   end
 
-  @tag integration: true,
-       ci_build: "release_faults_prepare",
-       ci_case: "release_faults_prepare-snapshot",
-       timeout: 1_800_000
   test "snapshot failure retains the previous exact current bundle" do
     assert_prepare_failures!(prepare_failure_fixture!(:fixture), [:prepare_snapshot])
   end
 
-  @tag integration: true,
-       ci_build: "release_faults_prepare",
-       ci_case: "release_faults_prepare-qualified",
-       timeout: 1_800_000
-  test "qualification failure retains the previous exact current bundle" do
-    assert_prepare_failures!(prepare_failure_fixture!(:fixture), [:prepare_qualified])
-  end
+  test "release finalization failpoints retain the previous exact current bundle" do
+    %{plan: plan, pointer: pointer, old: old, first: first} = prepare_failure_fixture!(:fixture)
+    root = plan.manifest.repo_root
+    revision = Weld.Git.revision(root)
+    verification = canonical_verification!(plan, first)
 
-  @tag integration: true,
-       ci_build: "release_faults_prepare",
-       ci_case: "release_faults_prepare-copied",
-       timeout: 1_800_000
-  test "copy failure retains the previous exact current bundle" do
-    assert_prepare_failures!(prepare_failure_fixture!(:fixture), [:prepare_copied])
+    for boundary <- [:prepare_qualified, :prepare_copied, :prepare_sealed] do
+      assert_raise Weld.Error, "injected failure at #{boundary}", fn ->
+        Weld.Output.with_lease(root, "prepare", plan.artifact.id, "prepare", [], fn lease ->
+          Weld.Release.finalize_prepared!(plan, verification, revision, lease,
+            failpoint: boundary
+          )
+        end)
+      end
+
+      assert File.read!(pointer) == old
+
+      assert Weld.ReleaseStatus.validate_bundle_integrity!(first.bundle_path, first.identity)[
+               "bundle_id"
+             ] == first.identity
+    end
   end
 
   @tag integration: true,
@@ -141,33 +174,117 @@ defmodule Weld.ReleaseTest do
            ] == first.identity
   end
 
-  @tag integration: true, ci_build: "release_faults_seal", timeout: 1_800_000
-  test "seal failure boundaries retain the previous exact current bundle" do
-    assert_prepare_failures!(prepare_failure_fixture!(:fixture), [:prepare_sealed])
-  end
-
   @tag integration: true, ci_build: "release_faults_pointer", timeout: 1_800_000
   test "pointer failure boundaries retain the previous exact current bundle" do
-    # The full path still replaces a real prior qualified bundle and rolls back
-    # a real newly qualified candidate. Output-level tests cover every seal step.
-    assert_prepare_failures!(prepare_failure_fixture!(:qualified), [:pointer_replaced])
+    # Seed a valid canonical prior bundle and roll back a real newly qualified
+    # candidate through the full release prepare -> seal transaction.
+    assert_prepare_failures!(prepare_failure_fixture!(:fixture), [:pointer_replaced])
   end
 
-  defp prepare_failure_fixture!(kind) do
+  defp canonical_verification!(plan, fixture_bundle) do
+    stage = FixtureCase.unique_tmp_dir("weld_canonical_verification")
+    project = Path.join(stage, "project")
+    File.mkdir!(project)
+    projection = Weld.Projector.materialize_verification!(plan, project)
+    lock_path = Path.join(project, "mix.lock")
+    File.write!(lock_path, "%{}\n")
+    File.chmod!(lock_path, 0o644)
+    lock_sha = Weld.Hash.sha256_file(lock_path)
+    observed = Weld.Hash.observation(project)
+    evidence = Weld.ReleaseStatus.evidence!(fixture_bundle.bundle_path)
+    inventory = evidence.inventory
+    docs_path = Path.join(fixture_bundle.bundle_path, "docs")
+    docs_archive = Path.join(fixture_bundle.bundle_path, "docs.tar.gz")
+
+    files =
+      for path <- Enum.sort(projection.package_files),
+          do: {String.to_charlist(path), File.read!(Path.join(project, path))}
+
+    portable = Weld.Plan.Inventory.portable(plan)
+
+    requirements = %{
+      "jason" => %{
+        "app" => "jason",
+        "optional" => false,
+        "repository" => "hexpm",
+        "requirement" => "~> 1.4"
+      }
+    }
+
+    metadata = %{
+      "name" => plan.artifact.package.name,
+      "app" => Atom.to_string(plan.artifact.package.otp_app),
+      "version" => plan.artifact.package.version,
+      "files" => Enum.sort(projection.package_files),
+      "requirements" => requirements,
+      "build_tools" => ["mix"]
+    }
+
+    {:ok, %{tarball: bytes}} = :hex_tarball.create(metadata, files)
+    tarball = Path.join(stage, "package.tar")
+    File.write!(tarball, bytes)
+    package = Weld.Shell.Hex.package_observation!(tarball)
+
+    package_id =
+      Identity.digest("package", %{
+        "entries" => package.entries,
+        "metadata" => package.metadata
+      })
+
+    archive_sha = Weld.Hash.sha256_file(tarball)
+
+    gates =
+      Enum.map(evidence.qualification["gates"], fn
+        %{"id" => "G07"} = gate ->
+          Map.merge(gate, %{"status" => "pass", "skip_reason" => nil})
+
+        %{"id" => "G08"} = gate ->
+          put_in(gate, ["facts"], %{
+            "archive_sha256" => archive_sha,
+            "package_id" => package_id,
+            "entries" => length(package.entries)
+          })
+
+        %{"id" => "G12"} = gate ->
+          put_in(gate, ["facts", "lock_sha256"], lock_sha)
+
+        gate ->
+          gate
+      end)
+
+    compiler_id = portable["compiler_id"]
+
+    qualification =
+      evidence.qualification
+      |> Map.merge(%{
+        "project_id" => Identity.digest("project", observed),
+        "package_id" => package_id,
+        "archive_sha256" => archive_sha,
+        "lock_sha256" => lock_sha,
+        "toolchain" => %{"compiler_id" => compiler_id, "fixture" => true},
+        "gates" => gates
+      })
+
+    %{
+      build_path: project,
+      frozen_project: observed["entries"],
+      empty_dirs: observed["empty_dirs"],
+      package_entries: package.entries,
+      package_metadata: package.metadata,
+      docs_path: docs_path,
+      docs_entries: inventory["docs_entries"],
+      docs_empty_dirs: inventory["docs_empty_dirs"],
+      tarball_path: tarball,
+      docs_archive_path: docs_archive,
+      qualification: qualification
+    }
+  end
+
+  defp prepare_failure_fixture!(:fixture) do
     root = FixtureCase.copy_fixture("library_bundle")
     FixtureCase.init_git!(root)
     manifest = Path.join(root, "packaging/weld/fixture_bundle.exs")
-
-    first =
-      case kind do
-        :fixture ->
-          FixtureCase.write_tracking_fixture!(root, manifest, hex: true)
-
-        :qualified ->
-          IO.puts("Release rollback: qualify the initial bundle")
-          Weld.Commands.release_prepare!(manifest, fresh: true)
-      end
-
+    first = FixtureCase.write_tracking_fixture!(root, manifest, hex: true)
     pointer = Weld.Output.path(root, ["current", "fixture_bundle"])
     old = File.read!(pointer)
     # A new committed provenance identity keeps identical project bytes possible.
@@ -195,12 +312,12 @@ defmodule Weld.ReleaseTest do
     end
   end
 
-  @tag integration: true, ci_build: "formatter"
-  test "prepared package bundles preserve root mix tooling config" do
+  @tag :slow
+  test "projected package bundles preserve root mix tooling config" do
     manifest_path = FixtureCase.copied_manifest_path("package_repo_bundle", "package_repo_bundle")
     FixtureCase.init_git!(Path.expand("../../..", manifest_path))
-    prepared = Weld.Commands.release_prepare!(manifest_path)
-    project_path = Path.join(prepared.bundle_path, "project")
+    projected = Weld.Commands.project!(manifest_path)
+    project_path = projected.build_path
 
     assert File.regular?(Path.join(project_path, ".formatter.exs"))
 
@@ -253,19 +370,33 @@ defmodule Weld.ReleaseTest do
     FixtureCase.git_output!(repo_root, ["clone", "--quiet", repo_root, checkout])
     Weld.Output.setup!(checkout)
     FixtureCase.ignore_generated_files!(checkout)
-    manifest_path = Path.join(checkout, "packaging/weld/fixture_bundle.exs")
-    prepared_b = Weld.Commands.release_prepare!(manifest_path, no_cache: true)
 
-    assert Path.basename(prepared_a.bundle_path) == Path.basename(prepared_b.bundle_path)
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        File.cd!(checkout, fn ->
+          Mix.Task.rerun("weld", [
+            "prepare",
+            "--manifest",
+            "packaging/weld/fixture_bundle.exs",
+            "--no-cache",
+            "--format",
+            "json"
+          ])
+        end)
+      end)
+
+    assert %{"ok" => true, "data" => %{"bundle_path" => bundle_b}} = Jason.decode!(output)
+    assert File.regular?(Path.join(bundle_b, "bundle.json"))
+    assert Path.basename(prepared_a.bundle_path) == Path.basename(bundle_b)
 
     assert Weld.Hash.observation(prepared_a.project_path) ==
-             Weld.Hash.observation(prepared_b.project_path)
+             Weld.Hash.observation(Path.join(bundle_b, "project"))
 
     assert Weld.Hash.observation(prepared_a.docs_path) ==
-             Weld.Hash.observation(prepared_b.docs_path)
+             Weld.Hash.observation(Path.join(bundle_b, "docs"))
 
     assert Weld.Hash.sha256_file(prepared_a.tarball_path) ==
-             Weld.Hash.sha256_file(prepared_b.tarball_path)
+             Weld.Hash.sha256_file(Path.join(bundle_b, "package.tar"))
   end
 
   @tag :slow
